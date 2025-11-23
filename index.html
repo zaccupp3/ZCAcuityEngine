@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Nursing Assignment Generator</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <h1>Nursing Assignment Generator (Prototype)</h1>
+
+  <div id="config">
+    <h2>Unit Setup</h2>
+
+    <label for="nurseCount">Number of Nurses:</label>
+    <select id="nurseCount">
+      <option>4</option>
+      <option>5</option>
+      <option>6</option>
+      <option>7</option>
+      <option>8</option>
+    </select>
+
+    <h3>Nurse Types (Tele or Med-Surg)</h3>
+    <div id="nurseList"></div>
+    <button onclick="setupNurses()">Update Nurses</button>
+  </div>
+
+  <hr>
+
+  <div id="patients">
+    <h2>Patient List</h2>
+    <button onclick="addPatient()">Add Patient</button>
+    <div id="patientList"></div>
+  </div>
+
+  <hr>
+
+  <button id="generateBtn" onclick="generateAssignment()">Generate Assignment</button>
+
+  <div id="results">
+    <h2>Assignments</h2>
+    <div id="assignmentOutput"></div>
+  </div>
+
+  <script src="script.js"></script>
+</body>
+</html>
