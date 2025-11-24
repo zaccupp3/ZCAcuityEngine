@@ -1,64 +1,416 @@
+/* ------- Global layout ------- */
+
+* {
+  box-sizing: border-box;
+}
+
 body {
-  font-family: Arial, sans-serif;
+  margin: 0;
   padding: 20px;
-  background: #f5f7fb;
+  font-family: "Segoe UI", Tahoma, Arial, sans-serif;
+  background: #e3edf5;
+  color: #123b4a;
+  font-size: 14px;
 }
 
 h1 {
-  color: #1b3a57;
-}
-
-h2 {
-  margin-top: 20px;
-}
-
-.patientRow, .nurseRow {
-  margin: 8px 0;
-  padding: 10px;
-  border: 1px solid #ddd;
-  border-radius: 8px;
-  background: white;
-}
-
-.patientRow label,
-.nurseRow label {
-  margin-left: 6px;
-  margin-right: 6px;
-  font-size: 0.85rem;
-}
-
-#generateBtn {
-  margin-top: 20px;
+  margin: 0 0 16px;
   padding: 10px 16px;
-  font-size: 1rem;
-  border-radius: 6px;
-  border: none;
-  background: #2563eb;
-  color: white;
-  cursor: pointer;
+  background: #007e9e;
+  color: #ffffff;
+  font-size: 20px;
+  font-weight: 600;
+  border-radius: 4px;
 }
 
-#generateBtn:hover {
-  background: #1d4ed8;
+/* Section cards */
+
+#config,
+#patients,
+#results {
+  background: #f6fbff;
+  border: 1px solid #b9cfdd;
+  border-radius: 4px;
+  padding: 12px 16px;
+  margin-bottom: 16px;
 }
+
+#config h2,
+#patients h2,
+#results h2 {
+  margin-top: 0;
+  margin-bottom: 8px;
+  font-size: 16px;
+  color: #005a73;
+}
+
+h3 {
+  margin-top: 10px;
+  margin-bottom: 6px;
+  font-size: 14px;
+  font-weight: 600;
+  color: #234a5a;
+}
+
+/* Forms / Inputs */
+
+label {
+  font-size: 13px;
+}
+
+input[type="text"],
+input[type="number"],
+select {
+  font-family: inherit;
+  font-size: 13px;
+  padding: 4px 6px;
+  border-radius: 3px;
+  border: 1px solid #b0c4d0;
+  background-color: #ffffff;
+  min-width: 60px;
+}
+
+input[type="text"]:focus,
+input[type="number"]:focus,
+select:focus {
+  outline: none;
+  border-color: #007e9e;
+  box-shadow: 0 0 0 1px rgba(0,126,158,0.18);
+}
+
+/* Buttons */
+
+button {
+  font-family: inherit;
+  font-size: 13px;
+  padding: 6px 10px;
+  border-radius: 3px;
+  border: 1px solid #006a8a;
+  background: linear-gradient(#0090b0, #007192);
+  color: #ffffff;
+  cursor: pointer;
+  margin-right: 6px;
+}
+
+button:hover {
+  background: linear-gradient(#00a1c4, #0081a4);
+}
+
+button:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+/* Header actions */
+
+#headerActions {
+  margin: 8px 0 12px;
+  text-align: right;
+}
+
+#headerActions button {
+  padding: 4px 10px;
+  font-size: 12px;
+}
+
+/* Tabs */
+
+#mainTabs {
+  margin: 8px 0 0;
+  border-bottom: 1px solid #b9cfdd;
+  display: flex;
+  gap: 4px;
+}
+
+.tabButton {
+  border: 1px solid #b9cfdd;
+  border-bottom: none;
+  border-radius: 4px 4px 0 0;
+  padding: 6px 12px;
+  background: #e3edf5;
+  font-size: 13px;
+  cursor: pointer;
+  color: #234a5a;
+}
+
+.tabButton.active {
+  background: #f6fbff;
+  border-bottom: 1px solid #f6fbff;
+  font-weight: 600;
+}
+
+/* Tab sections */
+
+.tab-section {
+  display: none;
+}
+
+/* Actions bar (Generate/Refresh) */
+
+.tab-section-actions {
+  display: none;
+  margin-top: 10px;
+  margin-bottom: 6px;
+}
+
+.tab-section-actions.visible {
+  display: block;
+}
+
+/* Rows */
+
+.nurseRow,
+.patientRow,
+.pcaRow {
+  margin: 6px 0;
+  padding: 8px 10px;
+  border-radius: 4px;
+  border: 1px solid #ccdce6;
+  background: #ffffff;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.nurseRow label,
+.patientRow label,
+.pcaRow label {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  margin-right: 6px;
+}
+
+.patientRow strong {
+  color: #005a73;
+}
+
+/* Review / Remove buttons */
+
+.reviewBtn,
+.deleteBtn {
+  padding: 4px 8px;
+  font-size: 11px;
+}
+
+.reviewBtn.reviewed {
+  background: #4caf50;
+  border-color: #3e8a42;
+}
+
+/* Push Remove to far right of patient row */
+
+.deleteRight {
+  margin-left: auto;
+}
+
+/* Controls above lists */
+
+.unitControls,
+.patientControls,
+.pcaControls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+/* Restrictions groups */
+
+.restrictionsGroup {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+}
+
+.restrictionsGroup span {
+  font-size: 13px;
+  margin-right: 4px;
+}
+
+.restrictionOption {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+/* Staffing columns: nurses + PCAs side by side */
+
+.staffingColumns {
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+  margin-top: 8px;
+}
+
+.staffingColumn {
+  flex: 1;
+  min-width: 0;
+}
+
+/* Assignment grid */
+
+#assignmentOutput {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  align-items: stretch;
+}
+
+@media (max-width: 1100px) {
+  #assignmentOutput {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 720px) {
+  #assignmentOutput {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Nurse blocks */
 
 .nurseBlock {
-  margin-top: 15px;
-  padding: 10px;
-  border-radius: 10px;
-  background: white;
-  box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+  margin-top: 4px;
+  padding: 6px 8px;
+  border-radius: 4px;
+  background: #f9fdff;
+  border: 1px solid #b4cad8;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
 }
+
+.nurseBlock h3 {
+  margin-top: 0;
+  margin-bottom: 4px;
+  font-size: 13px;
+  color: #005a73;
+}
+
+/* Assignment tables (compact) */
 
 .nurseBlock table {
   width: 100%;
   border-collapse: collapse;
+  font-size: 11px;
 }
 
 .nurseBlock th,
 .nurseBlock td {
-  border: 1px solid #ddd;
-  padding: 4px 6px;
-  font-size: 0.85rem;
+  border: 1px solid #c7d7e3;
+  padding: 2px 4px;
   text-align: left;
+  line-height: 1.2;
+}
+
+.nurseBlock th {
+  background: #e5f1f9;
+  color: #234a5a;
+  font-weight: 600;
+}
+
+.nurseBlock tr:nth-child(even) td {
+  background: #f7fbff;
+}
+
+/* Modals */
+
+.modal {
+  display: none;
+  position: fixed;
+  z-index: 50;
+  left: 0;
+  top: 0;
+  width: 100%;
+  height: 100%;
+  overflow: auto;
+  background-color: rgba(0,0,0,0.35);
+}
+
+.modal-content {
+  background-color: #ffffff;
+  margin: 15% auto;
+  padding: 14px 18px;
+  border-radius: 4px;
+  width: 260px;
+  text-align: center;
+  box-shadow: 0 4px 10px rgba(0,0,0,0.25);
+  border: 1px solid #b4cad8;
+}
+
+.modal-content p {
+  margin: 0;
+  font-weight: 600;
+  color: #b00020;
+}
+
+.close {
+  float: right;
+  font-size: 18px;
+  font-weight: bold;
+  cursor: pointer;
+  color: #555;
+}
+
+.close:hover {
+  color: #000;
+}
+
+/* Acuity modal */
+
+.acuity-modal {
+  width: 360px;
+  text-align: left;
+}
+
+.acuity-modal h3 {
+  margin-top: 0;
+  margin-bottom: 8px;
+  font-size: 14px;
+  color: #005a73;
+}
+
+.acuity-line {
+  margin: 2px 0;
+  font-size: 13px;
+}
+
+.acuity-label {
+  display: inline-block;
+  width: 90px;
+  font-weight: 600;
+}
+
+.acuity-value {
+  color: #234a5a;
+}
+
+/* Responsive adjustments */
+
+@media (max-width: 768px) {
+  body {
+    padding: 12px;
+  }
+
+  .nurseRow,
+  .patientRow,
+  .pcaRow {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  #config,
+  #patients,
+  #results {
+    padding: 10px 12px;
+  }
+
+  .staffingColumns {
+    flex-direction: column;
+  }
 }

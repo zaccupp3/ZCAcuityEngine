@@ -8,38 +8,118 @@
 
   <h1>Nursing Assignment Generator (Prototype)</h1>
 
-  <div id="config">
-    <h2>Unit Setup</h2>
+  <!-- Header actions -->
+  <div id="headerActions">
+    <button id="acuityBtn" onclick="showAcuityReport()">Acuity Report</button>
+    <button id="demoBtn" onclick="loadDemoData()">Load Demo Data</button>
+  </div>
 
-    <label for="nurseCount">Number of Nurses:</label>
-    <select id="nurseCount">
-      <option>4</option>
-      <option>5</option>
-      <option>6</option>
-      <option>7</option>
-      <option>8</option>
-    </select>
+  <!-- Tabs -->
+  <div id="mainTabs">
+    <button class="tabButton" data-target="config"
+            onclick="showTab('config', this)">Staffing Details</button>
+    <button class="tabButton" data-target="patients"
+            onclick="showTab('patients', this)">Patient Details</button>
+    <button class="tabButton" data-target="results"
+            onclick="showTab('results', this)">Assignment Generator</button>
+  </div>
 
-    <h3>Nurse Types (Tele or Med-Surg)</h3>
-    <div id="nurseList"></div>
-    <button onclick="setupNurses()">Update Nurses</button>
+  <!-- STAFFING DETAILS TAB -->
+  <div id="config" class="tab-section">
+    <h2>Staffing Details</h2>
+
+    <div class="unitControls">
+      <label>
+        Number of Nurses (1-8):
+        <select id="nurseCount">
+          <option>1</option>
+          <option>2</option>
+          <option>3</option>
+          <option>4</option>
+          <option>5</option>
+          <option>6</option>
+          <option>7</option>
+          <option>8</option>
+        </select>
+      </label>
+      <button onclick="setupNurses()">Set Nurse Count</button>
+      <button onclick="submitAll()">Submit</button>
+    </div>
+
+    <div class="staffingColumns">
+      <!-- Nurses column -->
+      <div class="staffingColumn">
+        <h3>Nurse Types & Names</h3>
+        <div id="nurseList"></div>
+      </div>
+
+      <!-- PCA column -->
+      <div class="staffingColumn">
+        <h3>PCA Names</h3>
+        <div class="pcaControls">
+          <label>
+            Number of PCAs (3–5):
+            <select id="pcaCount">
+              <option>3</option>
+              <option>4</option>
+              <option>5</option>
+            </select>
+          </label>
+          <button onclick="setupPcas()">Set PCA Count</button>
+        </div>
+        <div id="pcaList"></div>
+      </div>
+    </div>
   </div>
 
   <hr>
 
-  <div id="patients">
-    <h2>Patient List</h2>
-    <button onclick="addPatient()">Add Patient</button>
+  <!-- PATIENT DETAILS TAB -->
+  <div id="patients" class="tab-section">
+    <h2>Patient Details</h2>
+
+    <div class="patientControls">
+      <label>
+        Number of Patients:
+        <input id="patientCountInput" type="number" min="0" max="32" value="0">
+      </label>
+      <button onclick="applyPatientCount()">Set Patient Count</button>
+      <button onclick="addPatient()">Add Patient</button>
+      <button onclick="submitAll()">Submit</button>
+    </div>
+
     <div id="patientList"></div>
   </div>
 
   <hr>
 
-  <button id="generateBtn" onclick="generateAssignment()">Generate Assignment</button>
+  <!-- ASSIGNMENT GENERATOR TAB -->
+  <div id="actions" class="tab-section-actions">
+    <button id="generateBtn" onclick="generateAssignment(false)">Generate Assignment</button>
+    <button id="refreshBtn" onclick="generateAssignment(true)">Refresh Assignment</button>
+    <button onclick="submitAll()">Submit</button>
+  </div>
 
-  <div id="results">
-    <h2>Assignments</h2>
+  <div id="results" class="tab-section">
+    <h2>Assignment Generator</h2>
     <div id="assignmentOutput"></div>
+  </div>
+
+  <!-- Unit at Capacity Modal -->
+  <div id="capacityModal" class="modal">
+    <div class="modal-content">
+      <span class="close" onclick="hideCapacityModal()">&times;</span>
+      <p>Unit at Capacity</p>
+    </div>
+  </div>
+
+  <!-- Acuity Report Modal -->
+  <div id="acuityModal" class="modal">
+    <div class="modal-content acuity-modal">
+      <span class="close" onclick="hideAcuityModal()">&times;</span>
+      <h3>Acuity Report</h3>
+      <div id="acuityReportBody"></div>
+    </div>
   </div>
 
   <script src="script.js"></script>
