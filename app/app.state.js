@@ -50,7 +50,9 @@ let nextDischargeId  = 1;
 // Admit queue state
 let admitQueue   = [];
 let nextQueueId  = 1;
-let queueAssignCtx = null; // { queueId }
+
+// Modal context (set when opening queue assign modal)
+let queueAssignCtx = null; // { queueId, bedId }
 
 // =========================
 // Basic Helpers
@@ -86,7 +88,10 @@ function makeEmptyPatient(id, roomCode) {
     feeder: false,
     reviewed: false,
     isEmpty: true,
-    recentlyDischarged: false
+    recentlyDischarged: false,
+
+    // optional label for display
+    name: ""
   };
 }
 
@@ -135,6 +140,30 @@ function getEmptyBeds() {
     .sort((a, b) => getRoomNumber(a) - getRoomNumber(b));
 }
 
+// Default admit “draft” acuity object (foundation for your next step)
+function makeDefaultAdmitDraft() {
+  return {
+    gender: "",
+    // RN tags
+    tele: false,
+    drip: false,
+    nih: false,
+    bg: false,
+    ciwa: false,
+    restraint: false,
+    sitter: false,
+    vpo: false,
+    isolation: false,
+    lateDc: false,
+    // PCA tags
+    chg: false,
+    foley: false,
+    q2turns: false,
+    heavy: false,
+    feeder: false
+  };
+}
+
 // "+ Add Admit" prompt: lets charge nurse name the admit
 function promptAddAdmit() {
   const name = window.prompt(
@@ -151,8 +180,12 @@ function addToAdmitQueue(label = "New Admit") {
   const entry = {
     id: nextQueueId++,
     label: String(label || "New Admit"),
-    createdAt: Date.now()
+    createdAt: Date.now(),
+
+    // NEW: future-proofing for “incoming admit acuity tags”
+    admitDraft: makeDefaultAdmitDraft()
   };
+
   admitQueue.unshift(entry);
 
   if (typeof saveState === "function") saveState();
@@ -173,19 +206,20 @@ function assignAdmitFromQueue(queueId) {
 }
 
 // =========================
-// Queue Assign Modal (RN/PCA picker)
+// Queue Assign Modal (BED + RN + PCA picker)
 // =========================
 
 function openQueueAssignModal(queueId) {
   ensureDefaultPatients();
 
-  const modal   = document.getElementById("queueAssignModal");
+  const modal    = document.getElementById("queueAssignModal");
+  const bedSel   = document.getElementById("queueAssignBed");
   const nurseSel = document.getElementById("queueAssignNurse");
   const pcaSel   = document.getElementById("queueAssignPca");
   const infoEl   = document.getElementById("queueAssignInfo");
 
-  if (!modal || !nurseSel || !pcaSel) {
-    console.warn("Missing queueAssignModal / nurse / pca elements in index.html");
+  if (!modal || !bedSel || !nurseSel || !pcaSel) {
+    console.warn("Missing queueAssignModal / bed / nurse / pca elements in index.html");
     return;
   }
 
@@ -198,35 +232,36 @@ function openQueueAssignModal(queueId) {
     return;
   }
 
-  // Remember which queue item we’re assigning
-  queueAssignCtx = { queueId };
+  // Remember which queue item we’re assigning (bed selected later)
+  queueAssignCtx = { queueId, bedId: null };
+
+  // Build Bed dropdown
+  bedSel.innerHTML =
+    `<option value="">Select Empty Bed…</option>` +
+    empties.map(b => `<option value="${b.id}">${b.room}</option>`).join("");
 
   // Build RN dropdown from CURRENT staff
   const nurses = Array.isArray(currentNurses) ? currentNurses : [];
   nurseSel.innerHTML =
     `<option value="">Select RN…</option>` +
-    nurses
-      .map(n => `<option value="${n.id}">${n.name || `RN ${n.id}`}</option>`)
-      .join("");
+    nurses.map(n => `<option value="${n.id}">${n.name || `RN ${n.id}`}</option>`).join("");
 
   // Build PCA dropdown from CURRENT staff
   const pcas = Array.isArray(currentPcas) ? currentPcas : [];
   pcaSel.innerHTML =
     `<option value="">Select PCA…</option>` +
-    pcas
-      .map(p => `<option value="${p.id}">${p.name || `PCA ${p.id}`}</option>`)
-      .join("");
+    pcas.map(p => `<option value="${p.id}">${p.name || `PCA ${p.id}`}</option>`).join("");
 
   // Info text
   if (infoEl) {
-    const bedListPreview = empties.slice(0, 6).map(b => b.room).join(", ");
+    const bedListPreview = empties.slice(0, 10).map(b => b.room).join(", ");
     infoEl.innerHTML = `
       <div style="margin-bottom:6px;"><strong>Admit:</strong> ${entry.label}</div>
       <div style="opacity:.8;font-size:13px;">
-        Empty beds (${empties.length}): ${bedListPreview}${empties.length > 6 ? "…" : ""}
+        Empty beds (${empties.length}): ${bedListPreview}${empties.length > 10 ? "…" : ""}
       </div>
       <div style="opacity:.7;font-size:12px;margin-top:6px;">
-        Select the receiving RN and PCA, then confirm to place the admit into an empty bed.
+        Select the bed, receiving RN, and receiving PCA. Then confirm to place the admit into that room.
       </div>
     `;
   }
@@ -240,7 +275,7 @@ function closeQueueAssignModal() {
   queueAssignCtx = null;
 }
 
-// CONFIRM button in modal: actually places the admit into an empty bed and assigns RN/PCA
+// CONFIRM button in modal: places the admit into the SELECTED empty bed + assigns RN/PCA
 function confirmQueueAssign() {
   if (!queueAssignCtx) return;
 
@@ -251,33 +286,30 @@ function confirmQueueAssign() {
     return;
   }
 
+  const bedSel   = document.getElementById("queueAssignBed");
   const nurseSel = document.getElementById("queueAssignNurse");
   const pcaSel   = document.getElementById("queueAssignPca");
-  if (!nurseSel || !pcaSel) return;
+  if (!bedSel || !nurseSel || !pcaSel) return;
 
+  const bedId   = Number(bedSel.value);
   const nurseId = Number(nurseSel.value);
   const pcaId   = Number(pcaSel.value);
 
-  if (!nurseId || !pcaId) {
-    alert("Please select both a Receiving RN and Receiving PCA.");
+  if (!bedId || !nurseId || !pcaId) {
+    alert("Please select an Empty Bed, a Receiving RN, and a Receiving PCA.");
     return;
   }
 
-  // Must have an empty bed available (first in ROOM order)
-  const empties = getEmptyBeds();
-  const bed = empties[0];
-  if (!bed) {
-    alert("No empty beds available.");
+  ensureDefaultPatients();
+
+  // Find the bed and ensure it's still empty
+  const bed = patients.find(p => p.id === bedId) || null;
+  if (!bed || !bed.isEmpty) {
+    alert("That bed is no longer available. Please reopen the modal and pick another empty bed.");
     return;
   }
 
-  // “Admit” this bed
-  bed.isEmpty = false;
-  bed.recentlyDischarged = false;
-  bed.admit = true;
-  bed.name = entry.label; // optional label
-
-  // Assign bed to RN/PCA
+  // Find staff
   const rn = (Array.isArray(currentNurses) ? currentNurses : []).find(n => n.id === nurseId) || null;
   const pc = (Array.isArray(currentPcas) ? currentPcas : []).find(p => p.id === pcaId) || null;
 
@@ -286,6 +318,40 @@ function confirmQueueAssign() {
     return;
   }
 
+  // Apply admit placement
+  bed.isEmpty = false;
+  bed.recentlyDischarged = false;
+  bed.admit = true;
+  bed.name = entry.label;
+
+  // NEW: apply “incoming admit draft acuity tags” at admit-time
+  if (entry.admitDraft && typeof entry.admitDraft === "object") {
+    const d = entry.admitDraft;
+
+    // gender (optional)
+    if (typeof d.gender === "string") bed.gender = d.gender;
+
+    // RN tags
+    bed.tele = !!d.tele;
+    bed.drip = !!d.drip;
+    bed.nih = !!d.nih;
+    bed.bg = !!d.bg;
+    bed.ciwa = !!d.ciwa;
+    bed.restraint = !!d.restraint;
+    bed.sitter = !!d.sitter;
+    bed.vpo = !!d.vpo;
+    bed.isolation = !!d.isolation;
+    bed.lateDc = !!d.lateDc;
+
+    // PCA tags
+    bed.chg = !!d.chg;
+    bed.foley = !!d.foley;
+    bed.q2turns = !!d.q2turns;
+    bed.heavy = !!d.heavy;
+    bed.feeder = !!d.feeder;
+  }
+
+  // Assign bed to RN/PCA
   if (!Array.isArray(rn.patients)) rn.patients = [];
   if (!rn.patients.includes(bed.id)) rn.patients.push(bed.id);
 
@@ -471,6 +537,12 @@ function loadStateFromStorage() {
     nextDischargeId = typeof data.nextDischargeId === "number" ? data.nextDischargeId : 1;
 
     admitQueue = Array.isArray(data.admitQueue) ? data.admitQueue : [];
+    // backfill admitDraft for older saved queue entries
+    admitQueue = admitQueue.map(q => ({
+      ...q,
+      admitDraft: (q && typeof q.admitDraft === "object" && q.admitDraft) ? q.admitDraft : makeDefaultAdmitDraft()
+    }));
+
     nextQueueId = typeof data.nextQueueId === "number" ? data.nextQueueId : 1;
 
   } catch (e) {

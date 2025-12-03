@@ -1,4 +1,4 @@
-<!-- Last saved: Dec 3, 2025 -->
+<!-- Saved: Dec 3, 2025 -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -23,39 +23,19 @@
 
   <!-- Tab Bar -->
   <nav class="tab-bar">
-    <button
-      class="tabButton active"
-      data-target="staffingTab"
-      onclick="showTab('staffingTab', this)"
-    >
+    <button class="tabButton active" data-target="staffingTab" onclick="showTab('staffingTab', this)">
       Staffing Details
     </button>
-    <button
-      class="tabButton"
-      data-target="patientDetailsTab"
-      onclick="showTab('patientDetailsTab', this)"
-    >
+    <button class="tabButton" data-target="patientDetailsTab" onclick="showTab('patientDetailsTab', this)">
       Patient Details
     </button>
-    <button
-      class="tabButton"
-      data-target="highRiskTab"
-      onclick="showTab('highRiskTab', this)"
-    >
+    <button class="tabButton" data-target="highRiskTab" onclick="showTab('highRiskTab', this)">
       High Risk Report
     </button>
-    <button
-      class="tabButton"
-      data-target="liveAssignmentTab"
-      onclick="showTab('liveAssignmentTab', this)"
-    >
+    <button class="tabButton" data-target="liveAssignmentTab" onclick="showTab('liveAssignmentTab', this)">
       LIVE Assignment
     </button>
-    <button
-      class="tabButton"
-      data-target="oncomingAssignmentTab"
-      onclick="showTab('oncomingAssignmentTab', this)"
-    >
+    <button class="tabButton" data-target="oncomingAssignmentTab" onclick="showTab('oncomingAssignmentTab', this)">
       Oncoming Assignment
     </button>
   </nav>
@@ -323,8 +303,13 @@
 
       <div class="modal-body">
         <p id="queueAssignInfo" style="margin-bottom: 12px; font-size: 14px; opacity: 0.8;">
-          Select the receiving RN and PCA for this admit.
+          Select the receiving RN, PCA, and the empty bed for this admit.
         </p>
+
+        <div class="modal-row">
+          <label for="queueAssignBed"><strong>Receiving Bed (Empty):</strong></label>
+          <select id="queueAssignBed"></select>
+        </div>
 
         <div class="modal-row">
           <label for="queueAssignNurse"><strong>Receiving RN:</strong></label>
@@ -337,8 +322,7 @@
         </div>
 
         <p style="font-size: 12px; opacity: 0.7; margin-top: 8px;">
-          Note: if there is more than one empty bed, the first available room (in room order)
-          will be used for this admit.
+          Tip: if you don’t see the bed you expect, make sure the room is marked empty in Patient Details or by discharge.
         </p>
       </div>
 
@@ -349,7 +333,6 @@
     </div>
   </div>
 
-  
   <script src="app/app.state.js"></script>
   <script src="app/app.staffing.js"></script>
   <script src="app/app.patientsAcuity.js"></script>
