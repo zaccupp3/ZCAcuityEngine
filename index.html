@@ -1,127 +1,335 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-  <title>Nursing Assignment Generator</title>
-  <link rel="stylesheet" href="style.css">
+  <meta charset="UTF-8" />
+  <title>Cupp Health Solutions – Assignment Engine</title>
+  <link rel="stylesheet" href="style.css" />
 </head>
 <body>
-
-  <h1>Nursing Assignment Generator (Prototype)</h1>
-
-  <!-- Header actions -->
-  <div id="headerActions">
-    <button id="acuityBtn" onclick="showAcuityReport()">Acuity Report</button>
-    <button id="demoBtn" onclick="loadDemoData()">Load Demo Data</button>
-  </div>
-
-  <!-- Tabs -->
-  <div id="mainTabs">
-    <button class="tabButton" data-target="config"
-            onclick="showTab('config', this)">Staffing Details</button>
-    <button class="tabButton" data-target="patients"
-            onclick="showTab('patients', this)">Patient Details</button>
-    <button class="tabButton" data-target="results"
-            onclick="showTab('results', this)">Assignment Generator</button>
-  </div>
-
-  <!-- STAFFING DETAILS TAB -->
-  <div id="config" class="tab-section">
-    <h2>Staffing Details</h2>
-
-    <div class="unitControls">
-      <label>
-        Number of Nurses (1-8):
-        <select id="nurseCount">
-          <option>1</option>
-          <option>2</option>
-          <option>3</option>
-          <option>4</option>
-          <option>5</option>
-          <option>6</option>
-          <option>7</option>
-          <option>8</option>
-        </select>
-      </label>
-      <button onclick="setupNurses()">Set Nurse Count</button>
-      <button onclick="submitAll()">Submit</button>
+  <!-- Top Header / Nav -->
+  <header class="app-header">
+    <div class="header-left">
+      <span class="logo-dot"></span>
+      <span class="header-title">
+        Cupp Health Solutions: Assignment Engine - Created by Zachary Cupp, BSN, RN
+      </span>
     </div>
+    <div class="header-right">
+      <button class="header-link">Log In</button>
+      <button class="header-cta">Get Care</button>
+    </div>
+  </header>
 
-    <div class="staffingColumns">
-      <!-- Nurses column -->
-      <div class="staffingColumn">
-        <h3>Nurse Types & Names</h3>
-        <div id="nurseList"></div>
-      </div>
+  <!-- Tab Bar -->
+  <nav class="tab-bar">
+    <button
+      class="tabButton active"
+      data-target="staffingTab"
+      onclick="showTab('staffingTab', this)"
+    >
+      Staffing Details
+    </button>
+    <button
+      class="tabButton"
+      data-target="patientDetailsTab"
+      onclick="showTab('patientDetailsTab', this)"
+    >
+      Patient Details
+    </button>
+    <button
+      class="tabButton"
+      data-target="highRiskTab"
+      onclick="showTab('highRiskTab', this)"
+    >
+      High Risk Report
+    </button>
+    <button
+      class="tabButton"
+      data-target="liveAssignmentTab"
+      onclick="showTab('liveAssignmentTab', this)"
+    >
+      LIVE Assignment
+    </button>
+    <button
+      class="tabButton"
+      data-target="oncomingAssignmentTab"
+      onclick="showTab('oncomingAssignmentTab', this)"
+    >
+      Oncoming Assignment
+    </button>
+  </nav>
 
-      <!-- PCA column -->
-      <div class="staffingColumn">
-        <h3>PCA Names</h3>
-        <div class="pcaControls">
-          <label>
-            Number of PCAs (3–5):
-            <select id="pcaCount">
-              <option>3</option>
-              <option>4</option>
-              <option>5</option>
-            </select>
-          </label>
-          <button onclick="setupPcas()">Set PCA Count</button>
+  <!-- MAIN CONTENT -->
+  <main class="main-container">
+
+    <!-- STAFFING TAB -->
+    <section id="staffingTab" class="tab-section" style="display: block;">
+      <h1>Staffing Details</h1>
+
+      <div class="staffing-two-column">
+        <!-- Current Shift Column -->
+        <div class="staff-column">
+          <h2>Current Shift</h2>
+
+          <div class="staff-card">
+            <div class="staff-card-header">Current RNs</div>
+            <div class="staff-inline-controls">
+              <label for="currentNurseCount">Current RNs:</label>
+              <select id="currentNurseCount">
+                <option>1</option><option>2</option><option>3</option><option>4</option>
+                <option>5</option><option>6</option><option>7</option><option>8</option>
+              </select>
+              <button onclick="setupCurrentNurses()">Update Current RNs</button>
+            </div>
+            <div class="staff-subtitle">Current RN List</div>
+            <div id="currentNurseList" class="staffList"></div>
+          </div>
+
+          <div class="staff-card">
+            <div class="staff-card-header">Current PCAs</div>
+            <div class="staff-inline-controls">
+              <label for="pcaShift">PCA Shift:</label>
+              <select id="pcaShift" onchange="updatePcaShift(this.value)">
+                <option value="day">Day</option>
+                <option value="night">Night</option>
+              </select>
+
+              <span>Current PCAs:</span>
+              <select id="currentPcaCount">
+                <option>1</option><option>2</option><option>3</option>
+                <option>4</option><option>5</option><option>6</option>
+              </select>
+              <button onclick="setupCurrentPcas()">Update Current PCAs</button>
+            </div>
+            <div class="staff-subtitle">Current PCA List</div>
+            <div id="currentPcaList" class="staffList"></div>
+          </div>
         </div>
-        <div id="pcaList"></div>
+
+        <!-- Oncoming Shift Column -->
+        <div class="staff-column">
+          <h2>Oncoming Shift</h2>
+
+          <div class="staff-card">
+            <div class="staff-card-header">Oncoming RNs</div>
+            <div class="staff-inline-controls">
+              <label for="incomingNurseCount">Oncoming RNs:</label>
+              <select id="incomingNurseCount">
+                <option>1</option><option>2</option><option>3</option><option>4</option>
+                <option>5</option><option>6</option><option>7</option><option>8</option>
+              </select>
+              <button onclick="setupIncomingNurses()">Update Oncoming RNs</button>
+            </div>
+            <div class="staff-subtitle">Oncoming RN List</div>
+            <div id="incomingNurseList" class="staffList"></div>
+          </div>
+
+          <div class="staff-card">
+            <div class="staff-card-header">Oncoming PCAs</div>
+            <div class="staff-inline-controls">
+              <label for="incomingPcaCount">Oncoming PCAs:</label>
+              <select id="incomingPcaCount">
+                <option>1</option><option>2</option><option>3</option>
+                <option>4</option><option>5</option><option>6</option>
+              </select>
+              <button onclick="setupIncomingPcas()">Update Oncoming PCAs</button>
+            </div>
+            <div class="staff-subtitle">Oncoming PCA List</div>
+            <div id="incomingPcaList" class="staffList"></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- PATIENT DETAILS TAB -->
+    <section id="patientDetailsTab" class="tab-section" style="display: none;">
+      <h1>Patient Details</h1>
+      <p>
+        This grid shows all 32 rooms. Use the controls to set acuity tags and gender
+        for each patient. These tags feed both the LIVE and Oncoming Assignment engines.
+      </p>
+
+      <div class="actions-row">
+        <button onclick="renderPatientList()">Refresh Patient Grid</button>
+        <button onclick="resetAllPatients()">Reset All Patients</button>
+      </div>
+
+      <div id="patientList" class="patient-grid"></div>
+    </section>
+
+    <!-- HIGH RISK TAB -->
+    <section id="highRiskTab" class="tab-section" style="display: none;">
+      <h1>High Risk Report</h1>
+      <p>
+        Summary of key acuity tags across all active patients. Use this for quick
+        situational awareness and handoff.
+      </p>
+
+      <div class="actions-row">
+        <button onclick="updateAcuityTiles()">Refresh High Risk Report</button>
+        <button onclick="openAcuityModal()">Open Full Acuity Modal</button>
+      </div>
+
+      <div id="acuityTiles" class="acuity-tiles-container"></div>
+    </section>
+
+    <!-- LIVE ASSIGNMENT TAB -->
+    <section id="liveAssignmentTab" class="tab-section" style="display: none;">
+      <h1>Live Assignment</h1>
+
+      <div class="actions-row">
+        <button onclick="window.populateLiveAssignment(false)">Populate Live Assignment</button>
+        <button onclick="window.populateLiveAssignment(true)">Randomize Live Assignment</button>
+        <button onclick="clearRecentlyDischargedFlags()">Clear “Recently Discharged” Flags</button>
+      </div>
+
+      <div class="live-top-bar">
+        <div class="discharge-bin">
+          <strong>Discharge Bin:</strong>
+          <span id="dischargeCount">0</span> recent this session
+          <button onclick="openDischargeHistoryModal()">View History</button>
+          <div
+            id="dischargeDropZone"
+            class="discharge-drop-zone"
+            ondragover="onDischargeDragOver(event)"
+            ondrop="onDischargeDrop(event)"
+          >
+            Drag here to discharge patient
+          </div>
+        </div>
+      </div>
+
+      <div class="live-layout">
+        <div class="live-column">
+          <h2>Current RN Assignments</h2>
+          <div id="liveNurseAssignments" class="assignment-grid"></div>
+        </div>
+        <div class="live-column">
+          <h2>Current PCA Assignments</h2>
+          <div id="livePcaAssignments" class="assignment-grid"></div>
+
+          <h2 style="margin-top: 24px;">Admit Queue</h2>
+
+          <div class="actions-row">
+            <button onclick="addToAdmitQueue('New Admit')">+ Add Admit</button>
+          </div>
+
+          <div id="queueList" class="queue-list"></div>
+
+        </div>
+      </div>
+    </section>
+
+    <!-- ONCOMING ASSIGNMENT TAB -->
+    <section id="oncomingAssignmentTab" class="tab-section" style="display: none;">
+      <h1>Oncoming Assignment (Incoming Staff)</h1>
+
+      <div class="actions-row">
+        <button onclick="populateOncomingAssignment()">Populate Oncoming Assignment</button>
+        <button onclick="rebalanceOncomingAssignment()">Re-generate / Rebalance</button>
+      </div>
+
+      <h2>Incoming RN Assignments</h2>
+      <div id="assignmentOutput" class="assignment-grid two-column-grid"></div>
+
+      <h2 style="margin-top: 24px;">Incoming PCA Assignments</h2>
+      <div id="pcaAssignmentOutput" class="assignment-grid two-column-grid"></div>
+    </section>
+  </main>
+
+  <!-- MODALS (same as before) -->
+  <div id="patientProfileModal" class="modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <span id="profileModalTitle">Patient Profile</span>
+        <button class="close-btn" onclick="closePatientProfileModal()">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="modal-row">
+          <label for="profGender"><strong>Gender:</strong></label>
+          <select id="profGender">
+            <option value="">-</option>
+            <option value="F">F</option>
+            <option value="M">M</option>
+            <option value="X">X</option>
+          </select>
+        </div>
+
+        <div class="modal-grid">
+          <div class="modal-column">
+            <h3>RN Acuity Tags</h3>
+            <label><input type="checkbox" id="profTele" /> Tele</label>
+            <label><input type="checkbox" id="profDrip" /> Drip</label>
+            <label><input type="checkbox" id="profNih" /> NIH</label>
+            <label><input type="checkbox" id="profBg" /> BG</label>
+            <label><input type="checkbox" id="profCiwa" /> CIWA/COWS</label>
+            <label><input type="checkbox" id="profRestraint" /> Restraint</label>
+            <label><input type="checkbox" id="profSitter" /> Sitter</label>
+            <label><input type="checkbox" id="profVpo" /> VPO</label>
+            <label><input type="checkbox" id="profIso" /> Isolation</label>
+            <label><input type="checkbox" id="profAdmit" /> Admit</label>
+            <label><input type="checkbox" id="profLateDc" /> Late DC</label>
+          </div>
+
+          <div class="modal-column">
+            <h3>PCA Acuity Tags</h3>
+            <label><input type="checkbox" id="profTelePca" /> Tele</label>
+            <label><input type="checkbox" id="profIsoPca" /> Isolation</label>
+            <label><input type="checkbox" id="profAdmitPca" /> Admit</label>
+            <label><input type="checkbox" id="profLateDcPca" /> Late DC</label>
+            <label><input type="checkbox" id="profChg" /> CHG</label>
+            <label><input type="checkbox" id="profFoley" /> Foley</label>
+            <label><input type="checkbox" id="profQ2" /> Q2 Turns</label>
+            <label><input type="checkbox" id="profHeavy" /> Heavy</label>
+            <label><input type="checkbox" id="profFeeder" /> Feeder</label>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button onclick="savePatientProfile()">Save</button>
+        <button onclick="closePatientProfileModal()">Cancel</button>
       </div>
     </div>
   </div>
 
-  <hr>
-
-  <!-- PATIENT DETAILS TAB -->
-  <div id="patients" class="tab-section">
-    <h2>Patient Details</h2>
-
-    <div class="patientControls">
-      <label>
-        Number of Patients:
-        <input id="patientCountInput" type="number" min="0" max="32" value="0">
-      </label>
-      <button onclick="applyPatientCount()">Set Patient Count</button>
-      <button onclick="addPatient()">Add Patient</button>
-      <button onclick="submitAll()">Submit</button>
-    </div>
-
-    <div id="patientList"></div>
-  </div>
-
-  <hr>
-
-  <!-- ASSIGNMENT GENERATOR TAB -->
-  <div id="actions" class="tab-section-actions">
-    <button id="generateBtn" onclick="generateAssignment(false)">Generate Assignment</button>
-    <button id="refreshBtn" onclick="generateAssignment(true)">Refresh Assignment</button>
-    <button onclick="submitAll()">Submit</button>
-  </div>
-
-  <div id="results" class="tab-section">
-    <h2>Assignment Generator</h2>
-    <div id="assignmentOutput"></div>
-  </div>
-
-  <!-- Unit at Capacity Modal -->
-  <div id="capacityModal" class="modal">
+  <div id="dischargeHistoryModal" class="modal">
     <div class="modal-content">
-      <span class="close" onclick="hideCapacityModal()">&times;</span>
-      <p>Unit at Capacity</p>
+      <div class="modal-header">
+        <span>Discharge History (This Session)</span>
+        <button class="close-btn" onclick="closeDischargeHistoryModal()">&times;</button>
+      </div>
+      <div class="modal-body" id="dischargeHistoryBody"></div>
     </div>
   </div>
 
-  <!-- Acuity Report Modal -->
   <div id="acuityModal" class="modal">
-    <div class="modal-content acuity-modal">
-      <span class="close" onclick="hideAcuityModal()">&times;</span>
-      <h3>Acuity Report</h3>
-      <div id="acuityReportBody"></div>
+    <div class="modal-content">
+      <div class="modal-header">
+        <span>High Acuity Summary</span>
+        <button class="close-btn" onclick="closeAcuityModal()">&times;</button>
+      </div>
+      <div class="modal-body" id="acuityReportBody"></div>
     </div>
   </div>
 
+  <script src="app/app.state.js"></script>
+  <script src="app/app.staffing.js"></script>
+  <script src="app/app.patientsAcuity.js"></script>
+  <script src="app/app.queue.js"></script>
+  <script src="app/app.admitQueue.js"></script>
+  <script src="app/app.assignmentsDrag.js"></script>
+  <script src="app/app.assignmentRules.js"></script>
+
+  <!-- THESE MUST COME BEFORE INIT -->
+  <script src="app/app.liveAssignments.js"></script>
+  <script src="app/app.assignmentsrender.js"></script>
+
+  <!-- INIT MUST COME LAST -->
+  <script src="app/app.modals.js"></script>
+  <script src="app/app.init.js"></script>
+
+
+  <!-- Tiny tab helper -->
   <script src="script.js"></script>
 </body>
 </html>

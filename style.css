@@ -1,416 +1,777 @@
-/* ------- Global layout ------- */
-
-* {
-  box-sizing: border-box;
-}
+/* =====================================================
+   GENERAL LAYOUT
+===================================================== */
 
 body {
   margin: 0;
-  padding: 20px;
-  font-family: "Segoe UI", Tahoma, Arial, sans-serif;
-  background: #e3edf5;
-  color: #123b4a;
-  font-size: 14px;
+  padding: 0;
+  font-family: Arial, sans-serif;
+  background: #f4f6f8;
+  color: #222;
 }
 
-h1 {
-  margin: 0 0 16px;
-  padding: 10px 16px;
-  background: #007e9e;
-  color: #ffffff;
-  font-size: 20px;
-  font-weight: 600;
-  border-radius: 4px;
+h2, h3 {
+  margin-top: 20px;
+  color: #333;
 }
 
-/* Section cards */
-
-#config,
-#patients,
-#results {
-  background: #f6fbff;
-  border: 1px solid #b9cfdd;
-  border-radius: 4px;
-  padding: 12px 16px;
-  margin-bottom: 16px;
+hr {
+  margin: 20px 0;
+  border: none;
+  border-top: 1px solid #ccc;
 }
 
-#config h2,
-#patients h2,
-#results h2 {
-  margin-top: 0;
-  margin-bottom: 8px;
-  font-size: 16px;
-  color: #005a73;
-}
+/* =====================================================
+   TABS
+===================================================== */
 
-h3 {
-  margin-top: 10px;
-  margin-bottom: 6px;
-  font-size: 14px;
-  font-weight: 600;
-  color: #234a5a;
-}
-
-/* Forms / Inputs */
-
-label {
-  font-size: 13px;
-}
-
-input[type="text"],
-input[type="number"],
-select {
-  font-family: inherit;
-  font-size: 13px;
-  padding: 4px 6px;
-  border-radius: 3px;
-  border: 1px solid #b0c4d0;
-  background-color: #ffffff;
-  min-width: 60px;
-}
-
-input[type="text"]:focus,
-input[type="number"]:focus,
-select:focus {
-  outline: none;
-  border-color: #007e9e;
-  box-shadow: 0 0 0 1px rgba(0,126,158,0.18);
-}
-
-/* Buttons */
-
-button {
-  font-family: inherit;
-  font-size: 13px;
-  padding: 6px 10px;
-  border-radius: 3px;
-  border: 1px solid #006a8a;
-  background: linear-gradient(#0090b0, #007192);
-  color: #ffffff;
-  cursor: pointer;
-  margin-right: 6px;
-}
-
-button:hover {
-  background: linear-gradient(#00a1c4, #0081a4);
-}
-
-button:disabled {
-  opacity: 0.6;
-  cursor: default;
-}
-
-/* Header actions */
-
-#headerActions {
-  margin: 8px 0 12px;
-  text-align: right;
-}
-
-#headerActions button {
-  padding: 4px 10px;
-  font-size: 12px;
-}
-
-/* Tabs */
-
-#mainTabs {
-  margin: 8px 0 0;
-  border-bottom: 1px solid #b9cfdd;
+#header {
   display: flex;
-  gap: 4px;
+  background: #004c97;
+  padding: 10px;
+  gap: 10px;
 }
 
 .tabButton {
-  border: 1px solid #b9cfdd;
-  border-bottom: none;
-  border-radius: 4px 4px 0 0;
-  padding: 6px 12px;
-  background: #e3edf5;
-  font-size: 13px;
+  color: white;
+  background: #0066c5;
+  border: none;
+  padding: 10px 14px;
   cursor: pointer;
-  color: #234a5a;
+  border-radius: 4px;
+  font-weight: bold;
 }
 
 .tabButton.active {
-  background: #f6fbff;
-  border-bottom: 1px solid #f6fbff;
-  font-weight: 600;
+  background: #00a1ff;
 }
 
-/* Tab sections */
+.tabButton:hover {
+  background: #008ce6;
+}
 
 .tab-section {
   display: none;
+  padding: 20px;
 }
 
-/* Actions bar (Generate/Refresh) */
+/* =====================================================
+   STAFFING PANELS
+===================================================== */
 
-.tab-section-actions {
-  display: none;
-  margin-top: 10px;
-  margin-bottom: 6px;
+.staffBlock {
+  background: white;
+  padding: 15px;
+  margin-top: 15px;
+  border-radius: 6px;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.08);
 }
 
-.tab-section-actions.visible {
-  display: block;
-}
-
-/* Rows */
-
-.nurseRow,
-.patientRow,
-.pcaRow {
-  margin: 6px 0;
-  padding: 8px 10px;
+.staffList .nurseRow,
+.staffList .pcaRow {
+  display: flex;
+  align-items: center;
+  gap: 15px;
+  background: #f8f9fa;
+  padding: 8px;
   border-radius: 4px;
-  border: 1px solid #ccdce6;
-  background: #ffffff;
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-}
-
-.nurseRow label,
-.patientRow label,
-.pcaRow label {
-  display: flex;
-  align-items: center;
-  gap: 3px;
-  margin-right: 6px;
-}
-
-.patientRow strong {
-  color: #005a73;
-}
-
-/* Review / Remove buttons */
-
-.reviewBtn,
-.deleteBtn {
-  padding: 4px 8px;
-  font-size: 11px;
-}
-
-.reviewBtn.reviewed {
-  background: #4caf50;
-  border-color: #3e8a42;
-}
-
-/* Push Remove to far right of patient row */
-
-.deleteRight {
-  margin-left: auto;
-}
-
-/* Controls above lists */
-
-.unitControls,
-.patientControls,
-.pcaControls {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
   margin-bottom: 8px;
 }
 
-/* Restrictions groups */
-
 .restrictionsGroup {
   display: flex;
-  flex-wrap: wrap;
   align-items: center;
-  gap: 4px;
-}
-
-.restrictionsGroup span {
-  font-size: 13px;
-  margin-right: 4px;
+  gap: 10px;
 }
 
 .restrictionOption {
-  display: flex;
-  align-items: center;
-  gap: 2px;
+  font-size: 12px;
 }
 
-/* Staffing columns: nurses + PCAs side by side */
+/* =====================================================
+   PATIENT LIST
+===================================================== */
 
-.staffingColumns {
-  display: flex;
-  gap: 16px;
-  align-items: flex-start;
-  margin-top: 8px;
-}
-
-.staffingColumn {
-  flex: 1;
-  min-width: 0;
-}
-
-/* Assignment grid */
-
-#assignmentOutput {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 10px;
-  align-items: stretch;
-}
-
-@media (max-width: 1100px) {
-  #assignmentOutput {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-}
-
-@media (max-width: 720px) {
-  #assignmentOutput {
-    grid-template-columns: 1fr;
-  }
-}
-
-/* Nurse blocks */
-
-.nurseBlock {
-  margin-top: 4px;
-  padding: 6px 8px;
-  border-radius: 4px;
-  background: #f9fdff;
-  border: 1px solid #b4cad8;
-  height: 100%;
+#patientList {
   display: flex;
   flex-direction: column;
+  gap: 10px;
 }
 
-.nurseBlock h3 {
-  margin-top: 0;
-  margin-bottom: 4px;
+.patientRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  background: white;
+  padding: 8px;
+  border-radius: 6px;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+}
+
+.patientRow.empty {
+  opacity: 0.6;
+}
+
+.patientRow strong {
+  cursor: pointer;
+  padding: 3px 6px;
+  border-radius: 4px;
+  background: #e8f1ff;
+}
+
+.reviewBtn {
+  background: #eee;
+  border: none;
+  padding: 4px 6px;
+  cursor: pointer;
+}
+
+.reviewBtn.reviewed {
+  background: #b2ffc0;
+}
+
+.deleteBtn {
+  background: #ffcccc;
+  border: none;
+  padding: 4px 6px;
+  cursor: pointer;
+}
+
+.addBtn {
+  background: #ccf2ff;
+  border: none;
+  padding: 4px 6px;
+  cursor: pointer;
+}
+
+/* =====================================================
+   ASSIGNMENT CARDS (RN + PCA)
+===================================================== */
+
+.liveCard,
+.nurseBlock,
+.pcaBlock {
+  background: white;
+  margin-bottom: 20px;
+  padding: 10px;
+  border-radius: 6px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.10);
+}
+
+.liveCardHeader,
+.liveCard .card-meta {
+  display: flex;
+  justify-content: space-between;
+  font-weight: bold;
+}
+
+.card-meta {
   font-size: 13px;
-  color: #005a73;
+  color: #666;
 }
 
-/* Assignment tables (compact) */
-
-.nurseBlock table {
+table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 11px;
+  margin-top: 10px;
 }
 
-.nurseBlock th,
-.nurseBlock td {
-  border: 1px solid #c7d7e3;
-  padding: 2px 4px;
-  text-align: left;
-  line-height: 1.2;
+th {
+  background: #e6eefc;
+  padding: 6px;
+  font-size: 13px;
 }
 
-.nurseBlock th {
-  background: #e5f1f9;
-  color: #234a5a;
-  font-weight: 600;
+td {
+  padding: 6px;
+  border-bottom: 1px solid #ddd;
 }
 
-.nurseBlock tr:nth-child(even) td {
-  background: #f7fbff;
+tr.dragging-row {
+  opacity: 0.4;
 }
 
-/* Modals */
+/* Load score colors */
+.load-good {
+  border-left: 10px solid #4CAF50;
+}
+
+.load-medium {
+  border-left: 10px solid #ffc107;
+}
+
+.load-high {
+  border-left: 10px solid #ff5252;
+}
+
+/* =====================================================
+   HIGH ACUITY TILES
+===================================================== */
+
+.tilesGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 12px;
+}
+
+.acuity-tile {
+  background: white;
+  padding: 12px;
+  border-radius: 6px;
+  box-shadow: 0 1px 6px rgba(0,0,0,0.10);
+}
+
+.acuity-tile-title {
+  font-weight: bold;
+  margin-bottom: 6px;
+}
+
+.acuity-tile-count {
+  font-size: 24px;
+  font-weight: bold;
+  color: #004c97;
+}
+
+.acuity-tile-rooms {
+  margin-top: 6px;
+  font-size: 12px;
+}
+
+/* =====================================================
+   DISCHARGE BIN
+===================================================== */
+
+#dischargeBin {
+  background: #ffe6e6;
+  padding: 12px;
+  border: 2px dashed #ff5252;
+  border-radius: 6px;
+  margin-bottom: 20px;
+  text-align: center;
+  font-weight: bold;
+}
+
+/* =====================================================
+   QUEUE LIST
+===================================================== */
+
+.queueList {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.queue-item {
+  background: white;
+  padding: 12px;
+  border-radius: 6px;
+  box-shadow: 0 1px 6px rgba(0,0,0,0.10);
+}
+
+.queue-item-header {
+  display: flex;
+  justify-content: space-between;
+}
+
+.queue-item-title input {
+  width: 150px;
+  font-size: 16px;
+}
+
+.queue-item-tags {
+  margin: 10px 0;
+  font-size: 13px;
+  color: #555;
+}
+
+.queue-item-actions button {
+  margin-right: 8px;
+}
+
+/* =====================================================
+   BUTTONS
+===================================================== */
+
+button {
+  cursor: pointer;
+  border-radius: 4px;
+  border: none;
+  padding: 6px 10px;
+}
+
+.queue-btn {
+  background: #e8f2ff;
+}
+
+.queue-btn:hover {
+  background: #d3e8ff;
+}
+
+/* =====================================================
+   MODALS
+===================================================== */
 
 .modal {
   display: none;
   position: fixed;
-  z-index: 50;
-  left: 0;
-  top: 0;
-  width: 100%;
-  height: 100%;
-  overflow: auto;
-  background-color: rgba(0,0,0,0.35);
+  inset: 0;
+  background: rgba(0,0,0,0.55);
+  justify-content: center;
+  align-items: center;
+  z-index: 999;
 }
 
 .modal-content {
-  background-color: #ffffff;
-  margin: 15% auto;
-  padding: 14px 18px;
-  border-radius: 4px;
-  width: 260px;
-  text-align: center;
-  box-shadow: 0 4px 10px rgba(0,0,0,0.25);
-  border: 1px solid #b4cad8;
+  background: white;
+  max-width: 550px;
+  padding: 20px;
+  border-radius: 8px;
+  box-shadow: 0 4px 14px rgba(0,0,0,0.4);
 }
 
-.modal-content p {
-  margin: 0;
-  font-weight: 600;
-  color: #b00020;
+.modal-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 6px;
 }
 
-.close {
-  float: right;
-  font-size: 18px;
+.modal-section {
+  margin: 10px 0;
+}
+
+/* =====================================================
+   HISTORY
+===================================================== */
+
+.history-entry {
+  background: #f9f9f9;
+  padding: 10px;
+  border-radius: 6px;
+  margin-bottom: 10px;
+  border-left: 4px solid #008fff;
+}
+
+.history-entry-title {
   font-weight: bold;
-  cursor: pointer;
+}
+
+.history-entry-meta {
+  font-size: 12px;
   color: #555;
 }
 
-.close:hover {
-  color: #000;
-}
-
-/* Acuity modal */
-
-.acuity-modal {
-  width: 360px;
-  text-align: left;
-}
-
-.acuity-modal h3 {
-  margin-top: 0;
-  margin-bottom: 8px;
-  font-size: 14px;
-  color: #005a73;
-}
-
-.acuity-line {
-  margin: 2px 0;
+.history-entry-tags {
+  margin: 8px 0;
   font-size: 13px;
 }
+/* =========================
+   Staffing Details 2-column layout
+   ========================= */
 
-.acuity-label {
-  display: inline-block;
-  width: 90px;
+.staffing-layout {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin-top: 12px;
+}
+
+.staffing-column {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* Titles "Current Shift" / "Incoming Shift" */
+.staffing-column-title {
+  font-size: 1.1rem;
   font-weight: 600;
+  margin-bottom: 4px;
+  color: #123;
 }
 
-.acuity-value {
-  color: #234a5a;
+/* Group card styling – reuses existing aesthetics but keeps things tidy */
+.configGroup {
+  background: #f8fafc;
+  border: 1px solid #dde4ee;
+  border-radius: 6px;
+  padding: 10px 12px;
 }
 
-/* Responsive adjustments */
+.configGroupHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
 
-@media (max-width: 768px) {
-  body {
-    padding: 12px;
-  }
+.configGroupHeader h4 {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: #123;
+}
 
-  .nurseRow,
-  .patientRow,
-  .pcaRow {
-    flex-direction: column;
+.configControls label {
+  font-size: 0.85rem;
+  color: #345;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.configControls select {
+  padding: 2px 4px;
+  font-size: 0.85rem;
+}
+
+/* List container where JS injects staff rows */
+.staffList {
+  margin-top: 4px;
+}
+
+/* PCA shift row */
+.pca-shift-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  margin-bottom: 8px;
+}
+
+.pca-shift-row label {
+  font-weight: 500;
+}
+
+.pca-shift-row select {
+  padding: 2px 4px;
+  font-size: 0.9rem;
+}
+
+.pca-shift-hint {
+  font-size: 0.8rem;
+  color: #567;
+}
+
+/* On wider screens, show two columns side by side */
+@media (min-width: 900px) {
+  .staffing-layout {
+    flex-direction: row;
     align-items: flex-start;
   }
 
-  #config,
-  #patients,
-  #results {
-    padding: 10px 12px;
+  .staffing-column {
+    flex: 1;
   }
+}
+/* =========================
+   Assignment Generator Layout
+   ========================= */
 
-  .staffingColumns {
-    flex-direction: column;
+/* Make RN + PCA assignment blocks flow in a responsive 2-column grid */
+#assignmentOutput,
+#pcaAssignmentOutput {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+
+/* Each RN / PCA card: max 50% width, two per row on desktop */
+#assignmentOutput .nurseBlock,
+#pcaAssignmentOutput .pcaBlock {
+  flex: 1 1 calc(50% - 16px);
+  max-width: calc(50% - 16px);
+  box-sizing: border-box;
+  margin: 0;
+}
+
+/* On smaller screens, fall back to full-width single column */
+@media (max-width: 900px) {
+  #assignmentOutput .nurseBlock,
+  #pcaAssignmentOutput .pcaBlock {
+    flex: 1 1 100%;
+    max-width: 100%;
   }
+}
+
+/* Tighter, more compact tables inside the cards */
+#assignmentOutput table,
+#pcaAssignmentOutput table {
+  width: 100%;
+  table-layout: fixed;
+}
+
+#assignmentOutput th,
+#assignmentOutput td,
+#pcaAssignmentOutput th,
+#pcaAssignmentOutput td {
+  padding: 4px 6px;
+  font-size: 13px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* =========================
+   Top Header (Scripps-style)
+   ========================= */
+
+.app-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 24px;
+  background-color: #ffffff;
+  border-bottom: 1px solid #dde5ee;
+  position: sticky;   /* keep it visible while scrolling if you like */
+  top: 0;
+  z-index: 100;
+}
+
+/* Left: "logo" */
+.header-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.logo-dot {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #f37021, #00a9e0); /* orange → teal */
+}
+
+.logo-text {
+  font-size: 22px;
+  font-weight: 600;
+  color: #00558c; /* Scripps-ish blue */
+}
+
+/* Center: nav tabs */
+.header-nav {
+  display: flex;
+  gap: 24px;
+  flex: 1;
+  justify-content: center;
+}
+
+.header-tab {
+  background: none;
+  border: none;
+  padding: 6px 0;
+  font-size: 14px;
+  font-weight: 500;
+  color: #00558c;
+  cursor: pointer;
+  outline: none;
+}
+
+.header-tab:hover {
+  color: #0079c1;
+}
+
+.header-tab.active {
+  border-bottom: 2px solid #0079c1;
+}
+
+/* Right: login, search, CTA button */
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.header-link {
+  background: none;
+  border: none;
+  font-size: 14px;
+  color: #0079c1;
+  cursor: pointer;
+}
+
+.header-link:hover {
+  text-decoration: underline;
+}
+
+.header-icon-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 16px;
+  color: #666666;
+  line-height: 1;
+}
+
+.header-icon-btn:hover {
+  color: #333333;
+}
+
+.header-cta {
+  background-color: #0079c1;
+  color: #ffffff;
+  border: none;
+  border-radius: 999px;
+  padding: 6px 18px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.header-cta:hover {
+  background-color: #005da3;
+}
+/* =========================
+   High Acuity Tiles – 5x3 Grid Layout
+   ========================= */
+
+#acuityTiles {
+  margin-top: 1rem;
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr)); /* 5 columns */
+  grid-auto-rows: minmax(140px, auto);             /* nice tall tiles */
+  gap: 12px;
+}
+
+/* Individual tiles */
+.acuity-tile {
+  background: #ffffff;
+  border-radius: 8px;
+  padding: 10px 12px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+  border: 1px solid #e3e7ee;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+}
+
+/* Title (e.g. NIH, Drips, Q2 Turns) */
+.acuity-tile-title {
+  font-size: 0.9rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #374151;
+  margin-bottom: 4px;
+}
+
+/* Count (big number) */
+.acuity-tile-count {
+  font-size: 1.9rem;
+  font-weight: 700;
+  color: #111827;
+  margin-bottom: 6px;
+}
+
+/* Rooms list */
+.acuity-tile-rooms {
+  font-size: 0.8rem;
+  color: #4b5563;
+  line-height: 1.35;
+  max-height: 3.5rem;  /* keeps tiles consistent height */
+  overflow-y: auto;
+}
+
+.acuity-tile-rooms strong {
+  font-weight: 600;
+  color: #111827;
+}
+
+/* Optional: better layout on smaller screens */
+@media (max-width: 1200px) {
+  #acuityTiles {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 800px) {
+  #acuityTiles {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+/* =========================
+   LIVE Assignment – 2-column layout
+   ========================= */
+
+#liveNurseAssignments,
+#livePcaAssignments {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+/* Staffing Details two-column layout */
+.staffing-two-column {
+  display: flex;
+  gap: 24px;
+  align-items: flex-start;
+  margin-top: 10px;
+  flex-wrap: wrap;
+}
+
+.staff-column {
+  flex: 1;
+  min-width: 360px;
+}
+
+.staff-column > h2 {
+  margin: 0 0 8px;
+  font-size: 18px;
+  color: #00558c;
+}
+
+.staff-card {
+  background: #ffffff;
+  border: 1px solid #dde5ee;
+  border-radius: 4px;
+  padding: 12px 16px;
+  margin-bottom: 16px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+}
+
+.staff-card-header {
+  font-weight: 600;
+  margin-bottom: 8px;
+  color: #003c6d;
+}
+
+.staff-inline-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 8px;
+  font-size: 13px;
+}
+
+.staff-inline-controls label {
+  font-weight: 500;
+}
+
+.staff-inline-controls select {
+  padding: 2px 4px;
+}
+
+.staff-inline-controls button {
+  padding: 4px 10px;
+  font-size: 13px;
+}
+
+.staff-subtitle {
+  font-weight: 600;
+  font-size: 13px;
+  margin: 4px 0 6px;
+}
+
+.room-link-btn {
+  background: none;
+  border: none;
+  padding: 0;
+  color: #2563eb;
+  text-decoration: underline;
+  cursor: pointer;
+  font: inherit;
+}
+.room-link-btn:focus {
+  outline: none;
 }
