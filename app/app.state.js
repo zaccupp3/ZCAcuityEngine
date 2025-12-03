@@ -1,5 +1,13 @@
 // app/app.state.js
-// Core app state + storage + exports (via getters/setters so window refs never go stale)
+// Core app state + storage + LIVE rendering state
+// Drag & discharge logic: app.assignmentsDrag.js
+// Patient grid + scoring: app.patientsAcuity.js
+// LIVE assignments: app.liveAssignments.js
+// Oncoming rendering/generator: app.assignmentsrender.js
+
+// =========================
+// Constants & Data
+// =========================
 
 const STORAGE_KEY = "nurse_pca_assigner_state_v4";
 
@@ -32,15 +40,17 @@ let incomingNurses  = [];
 let incomingPcas    = [];
 let patients        = [];
 
-// PCA shift
+// PCA shift (shared for current & incoming PCAs)
 let pcaShift = "day";
 
-// LIVE features (Discharges + Admit Queue)
-let dischargeHistory = []; // { patientId, nurseId, pcaId, timestamp, ...optional }
+// LIVE features
+let dischargeHistory = []; // session history for “View History”
 let nextDischargeId  = 1;
 
-let admitQueue = [];     // { id, label, createdAt }
-let nextQueueId = 1;
+// Admit queue state
+let admitQueue   = [];
+let nextQueueId  = 1;
+let queueAssignCtx = null; // { queueId }
 
 // =========================
 // Basic Helpers
@@ -80,33 +90,33 @@ function makeEmptyPatient(id, roomCode) {
   };
 }
 
-function ensureDefaultPatients() {
-  if (patients.length === ROOM_CODES.length) return;
-  patients = ROOM_CODES.map((code, idx) => makeEmptyPatient(idx + 1, code));
-}
-
-// Sorting helper (stable room ordering)
+// Get index of room for sorting
 function getRoomNumber(p) {
   const roomStr = String(p.room || "").toUpperCase().trim();
   const idx = ROOM_CODES.indexOf(roomStr);
   return idx === -1 ? Number.MAX_SAFE_INTEGER : idx;
 }
 
-// Roommate helper for A/B rooms
+// Ensure we have 32 fixed patients
+function ensureDefaultPatients() {
+  if (patients.length === ROOM_CODES.length) return;
+  patients = ROOM_CODES.map((code, idx) => makeEmptyPatient(idx + 1, code));
+}
+
+// Find roommate (for A/B rooms)
 function findRoomMate(patient) {
   const roomStr = String(patient.room || "").toUpperCase().trim();
   const match = roomStr.match(/^(\d+)([AB])$/);
-  if (!match) return null;
-
+  if (!match) return null; // single rooms
   const base = match[1];
   const suffix = match[2] === "A" ? "B" : "A";
   const partnerRoom = base + suffix;
-
-  return patients.find(pt => pt.room === partnerRoom && !pt.isEmpty) || null;
+  return patients.find(pt => pt.room === partnerRoom && !pt.isEmpty);
 }
 
+// Enforce no mixed-gender rooms
 function canSetGender(patient, newGender) {
-  if (!newGender) return true;
+  if (!newGender) return true; // unknown is always allowed
   const mate = findRoomMate(patient);
   if (!mate) return true;
   if (!mate.gender) return true;
@@ -114,8 +124,221 @@ function canSetGender(patient, newGender) {
 }
 
 // =========================
-// Recently Discharged helper (the “missing 2 patients” fix)
+// Admit Queue helpers
 // =========================
+
+function getEmptyBeds() {
+  ensureDefaultPatients();
+  return patients
+    .filter(p => !!p.isEmpty)
+    .slice()
+    .sort((a, b) => getRoomNumber(a) - getRoomNumber(b));
+}
+
+// "+ Add Admit" prompt: lets charge nurse name the admit
+function promptAddAdmit() {
+  const name = window.prompt(
+    'Enter admit label (example: "ED Admit - Mr. Smith"):',
+    "New Admit"
+  );
+  if (name == null) return; // cancel
+  const trimmed = String(name).trim() || "New Admit";
+  addToAdmitQueue(trimmed);
+}
+
+// Add new admit to queue (top of list)
+function addToAdmitQueue(label = "New Admit") {
+  const entry = {
+    id: nextQueueId++,
+    label: String(label || "New Admit"),
+    createdAt: Date.now()
+  };
+  admitQueue.unshift(entry);
+
+  if (typeof saveState === "function") saveState();
+  if (typeof window.renderQueueList === "function") window.renderQueueList();
+}
+
+// Remove admit from queue
+function removeFromAdmitQueue(queueId) {
+  admitQueue = admitQueue.filter(q => q.id !== queueId);
+
+  if (typeof saveState === "function") saveState();
+  if (typeof window.renderQueueList === "function") window.renderQueueList();
+}
+
+// Called by the queue button: ALWAYS opens modal, no auto-assign
+function assignAdmitFromQueue(queueId) {
+  openQueueAssignModal(queueId);
+}
+
+// =========================
+// Queue Assign Modal (RN/PCA picker)
+// =========================
+
+function openQueueAssignModal(queueId) {
+  ensureDefaultPatients();
+
+  const modal   = document.getElementById("queueAssignModal");
+  const nurseSel = document.getElementById("queueAssignNurse");
+  const pcaSel   = document.getElementById("queueAssignPca");
+  const infoEl   = document.getElementById("queueAssignInfo");
+
+  if (!modal || !nurseSel || !pcaSel) {
+    console.warn("Missing queueAssignModal / nurse / pca elements in index.html");
+    return;
+  }
+
+  const entry = admitQueue.find(x => x.id === queueId);
+  if (!entry) return;
+
+  const empties = getEmptyBeds();
+  if (!empties.length) {
+    alert("No empty beds available. Discharge / mark a bed empty first.");
+    return;
+  }
+
+  // Remember which queue item we’re assigning
+  queueAssignCtx = { queueId };
+
+  // Build RN dropdown from CURRENT staff
+  const nurses = Array.isArray(currentNurses) ? currentNurses : [];
+  nurseSel.innerHTML =
+    `<option value="">Select RN…</option>` +
+    nurses
+      .map(n => `<option value="${n.id}">${n.name || `RN ${n.id}`}</option>`)
+      .join("");
+
+  // Build PCA dropdown from CURRENT staff
+  const pcas = Array.isArray(currentPcas) ? currentPcas : [];
+  pcaSel.innerHTML =
+    `<option value="">Select PCA…</option>` +
+    pcas
+      .map(p => `<option value="${p.id}">${p.name || `PCA ${p.id}`}</option>`)
+      .join("");
+
+  // Info text
+  if (infoEl) {
+    const bedListPreview = empties.slice(0, 6).map(b => b.room).join(", ");
+    infoEl.innerHTML = `
+      <div style="margin-bottom:6px;"><strong>Admit:</strong> ${entry.label}</div>
+      <div style="opacity:.8;font-size:13px;">
+        Empty beds (${empties.length}): ${bedListPreview}${empties.length > 6 ? "…" : ""}
+      </div>
+      <div style="opacity:.7;font-size:12px;margin-top:6px;">
+        Select the receiving RN and PCA, then confirm to place the admit into an empty bed.
+      </div>
+    `;
+  }
+
+  modal.style.display = "flex";
+}
+
+function closeQueueAssignModal() {
+  const modal = document.getElementById("queueAssignModal");
+  if (modal) modal.style.display = "none";
+  queueAssignCtx = null;
+}
+
+// CONFIRM button in modal: actually places the admit into an empty bed and assigns RN/PCA
+function confirmQueueAssign() {
+  if (!queueAssignCtx) return;
+
+  const queueId = queueAssignCtx.queueId;
+  const entry   = admitQueue.find(x => x.id === queueId);
+  if (!entry) {
+    closeQueueAssignModal();
+    return;
+  }
+
+  const nurseSel = document.getElementById("queueAssignNurse");
+  const pcaSel   = document.getElementById("queueAssignPca");
+  if (!nurseSel || !pcaSel) return;
+
+  const nurseId = Number(nurseSel.value);
+  const pcaId   = Number(pcaSel.value);
+
+  if (!nurseId || !pcaId) {
+    alert("Please select both a Receiving RN and Receiving PCA.");
+    return;
+  }
+
+  // Must have an empty bed available (first in ROOM order)
+  const empties = getEmptyBeds();
+  const bed = empties[0];
+  if (!bed) {
+    alert("No empty beds available.");
+    return;
+  }
+
+  // “Admit” this bed
+  bed.isEmpty = false;
+  bed.recentlyDischarged = false;
+  bed.admit = true;
+  bed.name = entry.label; // optional label
+
+  // Assign bed to RN/PCA
+  const rn = (Array.isArray(currentNurses) ? currentNurses : []).find(n => n.id === nurseId) || null;
+  const pc = (Array.isArray(currentPcas) ? currentPcas : []).find(p => p.id === pcaId) || null;
+
+  if (!rn || !pc) {
+    alert("Receiving RN and PCA must both be valid selections.");
+    return;
+  }
+
+  if (!Array.isArray(rn.patients)) rn.patients = [];
+  if (!rn.patients.includes(bed.id)) rn.patients.push(bed.id);
+
+  if (!Array.isArray(pc.patients)) pc.patients = [];
+  if (!pc.patients.includes(bed.id)) pc.patients.push(bed.id);
+
+  // Remove from queue
+  admitQueue = admitQueue.filter(x => x.id !== queueId);
+
+  // Persist + rerender everything relevant
+  if (typeof saveState === "function") saveState();
+  if (typeof window.renderQueueList === "function") window.renderQueueList();
+  if (typeof window.renderPatientList === "function") window.renderPatientList();
+  if (typeof window.updateAcuityTiles === "function") window.updateAcuityTiles();
+  if (typeof window.renderLiveAssignments === "function") window.renderLiveAssignments();
+
+  closeQueueAssignModal();
+}
+
+// =========================
+// Queue Render (LIVE tab)
+// =========================
+
+function renderQueueList() {
+  const el = document.getElementById("queueList");
+  if (!el) return;
+
+  const items = Array.isArray(admitQueue) ? admitQueue : [];
+  if (!items.length) {
+    el.innerHTML = `<div style="opacity:0.65;padding:6px 2px;">No admits in queue.</div>`;
+    return;
+  }
+
+  el.innerHTML = items
+    .map(q => {
+      const t = q.createdAt ? new Date(q.createdAt).toLocaleTimeString() : "";
+      return `
+        <div class="queue-row" style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:8px 10px;border:1px solid #eee;border-radius:10px;background:#fff;margin-bottom:8px;">
+          <div>
+            <div style="font-weight:600;">${q.label}</div>
+            <div style="font-size:12px;opacity:0.7;">${t}</div>
+          </div>
+          <div style="display:flex;gap:8px;">
+            <button onclick="openQueueAssignModal(${q.id})">Assign to Empty Bed</button>
+            <button onclick="removeFromAdmitQueue(${q.id})">Remove</button>
+          </div>
+        </div>
+      `;
+    })
+    .join("");
+}
+
+// Optional helper: clear only the “recentlyDischarged” flags (keep empty beds empty)
 function clearRecentlyDischargedFlags() {
   ensureDefaultPatients();
   patients.forEach(p => {
@@ -129,32 +352,6 @@ function clearRecentlyDischargedFlags() {
   if (typeof window.renderAssignmentOutput === "function") window.renderAssignmentOutput();
   if (typeof window.renderPcaAssignmentOutput === "function") window.renderPcaAssignmentOutput();
 }
-window.clearRecentlyDischargedFlags = clearRecentlyDischargedFlags;
-
-// =========================
-// Admit Queue helpers
-// =========================
-
-function addToAdmitQueue(label = "New Admit") {
-  admitQueue.unshift({
-    id: nextQueueId++,
-    label,
-    createdAt: Date.now()
-  });
-
-  if (typeof saveState === "function") saveState();
-  if (typeof window.renderQueueList === "function") window.renderQueueList();
-}
-
-function removeFromAdmitQueue(queueId) {
-  admitQueue = admitQueue.filter(q => q.id !== queueId);
-
-  if (typeof saveState === "function") saveState();
-  if (typeof window.renderQueueList === "function") window.renderQueueList();
-}
-
-window.addToAdmitQueue = addToAdmitQueue;
-window.removeFromAdmitQueue = removeFromAdmitQueue;
 
 // =========================
 // Local Storage
@@ -171,17 +368,20 @@ function saveState() {
         type: n.type,
         restrictions: n.restrictions || defaultRestrictions()
       })),
+
       incomingNurses: incomingNurses.map((n, i) => ({
         id: n.id ?? i + 1,
         name: n.name,
         type: n.type,
         restrictions: n.restrictions || defaultRestrictions()
       })),
+
       currentPcas: currentPcas.map((p, i) => ({
         id: p.id ?? i + 1,
         name: p.name,
         restrictions: p.restrictions || { noIso: false }
       })),
+
       incomingPcas: incomingPcas.map((p, i) => ({
         id: p.id ?? i + 1,
         name: p.name,
@@ -254,6 +454,7 @@ function loadStateFromStorage() {
     incomingPcas   = buildPcaArray(data.incomingPcas,     "Incoming PCA");
 
     ensureDefaultPatients();
+
     if (Array.isArray(data.patients) && data.patients.length === ROOM_CODES.length) {
       patients = data.patients.map((p, i) => ({
         ...makeEmptyPatient(i + 1, ROOM_CODES[i]),
@@ -267,7 +468,7 @@ function loadStateFromStorage() {
     }
 
     dischargeHistory = Array.isArray(data.dischargeHistory) ? data.dischargeHistory : [];
-    nextDischargeId  = typeof data.nextDischargeId === "number" ? data.nextDischargeId : 1;
+    nextDischargeId = typeof data.nextDischargeId === "number" ? data.nextDischargeId : 1;
 
     admitQueue = Array.isArray(data.admitQueue) ? data.admitQueue : [];
     nextQueueId = typeof data.nextQueueId === "number" ? data.nextQueueId : 1;
@@ -279,9 +480,71 @@ function loadStateFromStorage() {
 }
 
 // =========================
-// Exports to window (safe: getters/setters)
+// Other Modals / Actions
 // =========================
 
+function openAcuityModal() {
+  const body = document.getElementById("acuityReportBody");
+  if (body && typeof buildHighAcuityText === "function") {
+    body.innerHTML = buildHighAcuityText();
+  }
+  const modal = document.getElementById("acuityModal");
+  if (modal) modal.style.display = "block";
+}
+
+function closeAcuityModal() {
+  const modal = document.getElementById("acuityModal");
+  if (modal) modal.style.display = "none";
+}
+
+// =========================
+// Submit All (Patient Details)
+// =========================
+
+function submitAll() {
+  ensureDefaultPatients();
+  saveState();
+  // Only touch the ONCOMING board when submitting from Patient Details
+  if (typeof window.populateOncomingAssignment === "function") {
+    window.populateOncomingAssignment(false);
+  }
+  alert("Patient details submitted and oncoming assignment generated.");
+}
+
+// =========================
+// Live state exports & helpers
+// =========================
+
+window.ROOM_CODES = ROOM_CODES;
+
+// Live getters/setters so other files always see fresh state
+(function () {
+  function defineLiveProp(prop, getterFn, setterFn) {
+    const existing = Object.getOwnPropertyDescriptor(window, prop);
+    if (existing && (typeof existing.get === "function" || typeof existing.set === "function")) {
+      return; // don't redefine
+    }
+    Object.defineProperty(window, prop, {
+      configurable: true,
+      enumerable: true,
+      get: getterFn,
+      set: setterFn
+    });
+  }
+
+  defineLiveProp("patients",         () => patients,         v => { patients = v; });
+  defineLiveProp("currentNurses",    () => currentNurses,    v => { currentNurses = v; });
+  defineLiveProp("currentPcas",      () => currentPcas,      v => { currentPcas = v; });
+  defineLiveProp("incomingNurses",   () => incomingNurses,   v => { incomingNurses = v; });
+  defineLiveProp("incomingPcas",     () => incomingPcas,     v => { incomingPcas = v; });
+  defineLiveProp("dischargeHistory", () => dischargeHistory, v => { dischargeHistory = v; });
+  defineLiveProp("nextDischargeId",  () => nextDischargeId,  v => { nextDischargeId = v; });
+  defineLiveProp("pcaShift",         () => pcaShift,         v => { pcaShift = v; });
+  defineLiveProp("admitQueue",       () => admitQueue,       v => { admitQueue = v; });
+  defineLiveProp("nextQueueId",      () => nextQueueId,      v => { nextQueueId = v; });
+})();
+
+// Export helpers / functions to window
 window.ensureDefaultPatients = ensureDefaultPatients;
 window.saveState = saveState;
 window.loadStateFromStorage = loadStateFromStorage;
@@ -290,55 +553,20 @@ window.defaultRestrictions = defaultRestrictions;
 window.canSetGender = canSetGender;
 window.getRoomNumber = getRoomNumber;
 
-window.ROOM_CODES = ROOM_CODES;
+window.openAcuityModal = openAcuityModal;
+window.closeAcuityModal = closeAcuityModal;
 
-// IMPORTANT: export mutable state as live getters/setters
-Object.defineProperty(window, "patients", {
-  get: () => patients,
-  set: (v) => { patients = v; }
-});
+window.submitAll = submitAll;
 
-Object.defineProperty(window, "currentNurses", {
-  get: () => currentNurses,
-  set: (v) => { currentNurses = v; }
-});
+// Queue helpers
+window.promptAddAdmit = promptAddAdmit;
+window.addToAdmitQueue = addToAdmitQueue;
+window.removeFromAdmitQueue = removeFromAdmitQueue;
+window.assignAdmitFromQueue = assignAdmitFromQueue;
+window.renderQueueList = renderQueueList;
 
-Object.defineProperty(window, "currentPcas", {
-  get: () => currentPcas,
-  set: (v) => { currentPcas = v; }
-});
+window.openQueueAssignModal = openQueueAssignModal;
+window.closeQueueAssignModal = closeQueueAssignModal;
+window.confirmQueueAssign = confirmQueueAssign;
 
-Object.defineProperty(window, "incomingNurses", {
-  get: () => incomingNurses,
-  set: (v) => { incomingNurses = v; }
-});
-
-Object.defineProperty(window, "incomingPcas", {
-  get: () => incomingPcas,
-  set: (v) => { incomingPcas = v; }
-});
-
-Object.defineProperty(window, "dischargeHistory", {
-  get: () => dischargeHistory,
-  set: (v) => { dischargeHistory = v; }
-});
-
-Object.defineProperty(window, "nextDischargeId", {
-  get: () => nextDischargeId,
-  set: (v) => { nextDischargeId = v; }
-});
-
-Object.defineProperty(window, "admitQueue", {
-  get: () => admitQueue,
-  set: (v) => { admitQueue = v; }
-});
-
-Object.defineProperty(window, "nextQueueId", {
-  get: () => nextQueueId,
-  set: (v) => { nextQueueId = v; }
-});
-
-Object.defineProperty(window, "pcaShift", {
-  get: () => pcaShift,
-  set: (v) => { pcaShift = v; }
-});
+window.clearRecentlyDischargedFlags = clearRecentlyDischargedFlags;

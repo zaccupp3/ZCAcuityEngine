@@ -211,7 +211,7 @@
           <h2 style="margin-top: 24px;">Admit Queue</h2>
 
           <div class="actions-row">
-            <button onclick="addToAdmitQueue('New Admit')">+ Add Admit</button>
+            <button onclick="promptAddAdmit()">+ Add Admit</button>
           </div>
 
           <div id="queueList" class="queue-list"></div>
@@ -312,24 +312,55 @@
     </div>
   </div>
 
+  <!-- ASSIGN ADMIT MODAL -->
+  <div id="queueAssignModal" class="modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <span>Assign Admit to RN / PCA</span>
+        <button class="close-btn" onclick="closeQueueAssignModal()">&times;</button>
+      </div>
+
+      <div class="modal-body">
+        <p id="queueAssignInfo" style="margin-bottom: 12px; font-size: 14px; opacity: 0.8;">
+          Select the receiving RN and PCA for this admit.
+        </p>
+
+        <div class="modal-row">
+          <label for="queueAssignNurse"><strong>Receiving RN:</strong></label>
+          <select id="queueAssignNurse"></select>
+        </div>
+
+        <div class="modal-row">
+          <label for="queueAssignPca"><strong>Receiving PCA:</strong></label>
+          <select id="queueAssignPca"></select>
+        </div>
+
+        <p style="font-size: 12px; opacity: 0.7; margin-top: 8px;">
+          Note: if there is more than one empty bed, the first available room (in room order)
+          will be used for this admit.
+        </p>
+      </div>
+
+      <div class="modal-footer">
+        <button onclick="confirmQueueAssign()">Assign</button>
+        <button onclick="closeQueueAssignModal()">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  
   <script src="app/app.state.js"></script>
   <script src="app/app.staffing.js"></script>
   <script src="app/app.patientsAcuity.js"></script>
-  <script src="app/app.queue.js"></script>
-  <script src="app/app.admitQueue.js"></script>
   <script src="app/app.assignmentsDrag.js"></script>
   <script src="app/app.assignmentRules.js"></script>
 
   <!-- THESE MUST COME BEFORE INIT -->
   <script src="app/app.liveAssignments.js"></script>
   <script src="app/app.assignmentsrender.js"></script>
-
-  <!-- INIT MUST COME LAST -->
   <script src="app/app.modals.js"></script>
+
   <script src="app/app.init.js"></script>
-
-
-  <!-- Tiny tab helper -->
   <script src="script.js"></script>
 </body>
 </html>
