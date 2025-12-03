@@ -12,7 +12,10 @@ function getActivePatientsForLive() {
 function populateLiveAssignment(randomize = false) {
   if (typeof ensureDefaultPatients === "function") ensureDefaultPatients();
 
-  if (!Array.isArray(currentNurses) || !currentNurses.length || !Array.isArray(currentPcas) || !currentPcas.length) {
+  if (
+    !Array.isArray(currentNurses) || !currentNurses.length ||
+    !Array.isArray(currentPcas) || !currentPcas.length
+  ) {
     alert("Please set up Current RNs and PCAs on the Staffing Details tab first.");
     return;
   }
@@ -31,10 +34,10 @@ function populateLiveAssignment(randomize = false) {
   currentNurses.forEach(n => { n.patients = []; });
   currentPcas.forEach(p => { p.patients = []; });
 
-  // Prefer shared helper
+  // Prefer shared helper (now load-aware)
   if (typeof window.distributePatientsEvenly === "function") {
-    window.distributePatientsEvenly(currentNurses, list, { randomize });
-    window.distributePatientsEvenly(currentPcas, list, { randomize });
+    window.distributePatientsEvenly(currentNurses, list, { randomize, role: "nurse" });
+    window.distributePatientsEvenly(currentPcas, list, { randomize, role: "pca" });
   } else {
     // Fallback round-robin
     list.forEach((p, i) => {
@@ -144,7 +147,7 @@ function renderLiveAssignments() {
           ondblclick="openPatientProfileFromRoom(${p.id})"
         >
           <td>${p.room || ""}</td>
-          <td>PCA</td>
+          <td>${p.tele ? "Tele" : "MS"}</td>
           <td>${pcaTagString(p)}</td>
         </tr>
       `;

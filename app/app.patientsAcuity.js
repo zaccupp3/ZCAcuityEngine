@@ -143,7 +143,9 @@ function renderPatientList() {
 
   for (const p of sorted) {
     const statusText = p.isEmpty ? "EMPTY" : "OCCUPIED";
-    const statusStyle = p.isEmpty ? "opacity:0.7;color:#b00020;font-weight:700;" : "opacity:0.9;color:#0a7a2f;font-weight:700;";
+    const statusStyle = p.isEmpty
+      ? "opacity:0.7;color:#b00020;font-weight:700;"
+      : "opacity:0.9;color:#0a7a2f;font-weight:700;";
     const disabledAttr = p.isEmpty ? "disabled" : "";
 
     html += `
@@ -208,6 +210,8 @@ function getPatientScore(p) {
   if (p.isolation) score += 3;
   if (p.admit) score += 4;
   if (p.lateDc) score += 2;
+
+  // PCA tags below still contribute to overall patient “work” a bit on RN side
   if (p.chg) score += 2;
   if (p.foley) score += 3;
   if (p.q2turns) score += 4;
@@ -216,17 +220,79 @@ function getPatientScore(p) {
   return score;
 }
 
+// Adds “stacking” bumps at the ASSIGNMENT level (RN)
+function computeRnStackingBonus(patientsInAssignment) {
+  const pts = Array.isArray(patientsInAssignment) ? patientsInAssignment : [];
+  if (!pts.length) return 0;
+
+  let bg = 0, iso = 0, drip = 0, ciwa = 0, sitter = 0, vpo = 0;
+
+  pts.forEach(p => {
+    if (!p || p.isEmpty) return;
+    if (p.bg) bg++;
+    if (p.isolation) iso++;
+    if (p.drip) drip++;
+    if (p.ciwa) ciwa++;
+    if (p.sitter) sitter++;
+    if (p.vpo) vpo++;
+  });
+
+  let bonus = 0;
+
+  // “Stacking” scenarios that should push Yellow/Red per charge reality
+  if (bg >= 3) bonus += 4;
+  if (iso >= 3) bonus += 4;
+  if (drip >= 2) bonus += 6;
+
+  // Combo multipliers
+  if (ciwa >= 1 && sitter >= 1) bonus += 4;
+  if (vpo >= 1 && ciwa >= 1) bonus += 3;
+
+  return bonus;
+}
+
+// Adds “stacking” bumps at the ASSIGNMENT level (PCA)
+function computePcaStackingBonus(patientsInAssignment) {
+  const pts = Array.isArray(patientsInAssignment) ? patientsInAssignment : [];
+  if (!pts.length) return 0;
+
+  let heavy = 0, q2 = 0, iso = 0;
+
+  pts.forEach(p => {
+    if (!p || p.isEmpty) return;
+    if (p.heavy) heavy++;
+    if (p.q2turns) q2++;
+    if (p.isolation) iso++;
+  });
+
+  let bonus = 0;
+
+  if (heavy >= 2) bonus += 5;
+  if (q2 >= 2) bonus += 4;
+  if (iso >= 3) bonus += 4;
+
+  if (heavy >= 1 && q2 >= 1) bonus += 3;
+
+  return bonus;
+}
+
 function getNurseLoadScore(nurse) {
-  return (nurse.patients || []).reduce((sum, id) => {
-    const p = getPatientById(id);
-    return sum + (p ? getPatientScore(p) : 0);
-  }, 0);
+  const pts = (nurse.patients || [])
+    .map(id => getPatientById(id))
+    .filter(p => p && !p.isEmpty);
+
+  const base = pts.reduce((sum, p) => sum + getPatientScore(p), 0);
+  const bonus = computeRnStackingBonus(pts);
+
+  return base + bonus;
 }
 
 function getPcaLoadScore(pca) {
-  return (pca.patients || []).reduce((sum, id) => {
-    const p = getPatientById(id);
-    if (!p) return sum;
+  const pts = (pca.patients || [])
+    .map(id => getPatientById(id))
+    .filter(p => p && !p.isEmpty);
+
+  const base = pts.reduce((sum, p) => {
     let score = 0;
     if (p.isolation) score += 3;
     if (p.admit) score += 3;
@@ -238,12 +304,107 @@ function getPcaLoadScore(pca) {
     if (p.feeder) score += 3;
     return sum + score;
   }, 0);
+
+  const bonus = computePcaStackingBonus(pts);
+
+  return base + bonus;
 }
 
-function getLoadClass(score) {
-  if (score <= 25) return "load-good";
-  if (score <= 55) return "load-medium";
+// Role-aware thresholds so colors actually match reality
+function getLoadClass(score, role = "nurse") {
+  const s = Number(score) || 0;
+  const r = String(role || "nurse").toLowerCase();
+
+  // Tuned to your examples (Red should be uncommon, Yellow should appear when stacking)
+  if (r === "pca") {
+    if (s <= 12) return "load-good";
+    if (s <= 18) return "load-medium";
+    return "load-high";
+  }
+
+  // Default: RN thresholds
+  if (s <= 14) return "load-good";
+  if (s <= 23) return "load-medium";
   return "load-high";
+}
+
+// =========================
+// Explainability (Drivers) helpers
+// =========================
+
+function fmtDriversFromCounts(order, counts) {
+  const parts = [];
+  order.forEach(k => {
+    const v = counts[k] || 0;
+    if (v > 0) parts.push(`${k}×${v}`);
+  });
+  return parts.join(", ");
+}
+
+// For RN cards: summarize key drivers across that RN’s assigned patient IDs.
+function getRnDriversSummaryFromPatientIds(patientIds) {
+  const ids = Array.isArray(patientIds) ? patientIds : [];
+  const counts = {
+    Drip: 0,
+    CIWA: 0,
+    Sitter: 0,
+    Restraint: 0,
+    VPO: 0,
+    NIH: 0,
+    BG: 0,
+    ISO: 0,
+    Admit: 0,
+    "Late DC": 0
+  };
+
+  ids.forEach(id => {
+    const p = getPatientById(id);
+    if (!p || p.isEmpty) return;
+    if (p.drip) counts.Drip++;
+    if (p.ciwa) counts.CIWA++;
+    if (p.sitter) counts.Sitter++;
+    if (p.restraint) counts.Restraint++;
+    if (p.vpo) counts.VPO++;
+    if (p.nih) counts.NIH++;
+    if (p.bg) counts.BG++;
+    if (p.isolation) counts.ISO++;
+    if (p.admit) counts.Admit++;
+    if (p.lateDc) counts["Late DC"]++;
+  });
+
+  const order = ["Drip", "CIWA", "Sitter", "Restraint", "VPO", "NIH", "BG", "ISO", "Admit", "Late DC"];
+  return fmtDriversFromCounts(order, counts);
+}
+
+// For PCA cards: summarize key drivers across that PCA’s assigned patient IDs.
+function getPcaDriversSummaryFromPatientIds(patientIds) {
+  const ids = Array.isArray(patientIds) ? patientIds : [];
+  const counts = {
+    Heavy: 0,
+    Q2: 0,
+    ISO: 0,
+    CHG: 0,
+    Foley: 0,
+    Feeder: 0,
+    Admit: 0,
+    "Late DC": 0
+  };
+
+  ids.forEach(id => {
+    const p = getPatientById(id);
+    if (!p || p.isEmpty) return;
+    if (p.heavy) counts.Heavy++;
+    if (p.q2turns) counts.Q2++;
+    if (p.isolation) counts.ISO++;
+    if (p.chg) counts.CHG++;
+    if (p.foley) counts.Foley++;
+    if (p.feeder) counts.Feeder++;
+    if (p.admit) counts.Admit++;
+    if (p.lateDc) counts["Late DC"]++;
+  });
+
+  const order = ["Heavy", "Q2", "ISO", "CHG", "Foley", "Feeder", "Admit", "Late DC"];
+  return fmtDriversFromCounts(order, counts);
 }
 
 function rnTagString(p) {
@@ -467,6 +628,10 @@ window.getPatientScore = getPatientScore;
 window.getNurseLoadScore = getNurseLoadScore;
 window.getPcaLoadScore = getPcaLoadScore;
 window.getLoadClass = getLoadClass;
+
+window.getRnDriversSummaryFromPatientIds = getRnDriversSummaryFromPatientIds;
+window.getPcaDriversSummaryFromPatientIds = getPcaDriversSummaryFromPatientIds;
+
 window.rnTagString = rnTagString;
 window.pcaTagString = pcaTagString;
 

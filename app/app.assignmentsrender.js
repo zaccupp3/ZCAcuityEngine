@@ -19,11 +19,17 @@ function renderAssignmentOutput() {
 
     const loadScore = (typeof getNurseLoadScore === "function") ? getNurseLoadScore(nurse) : 0;
     const loadClass = (typeof getLoadClass === "function") ? getLoadClass(loadScore, "nurse") : "";
+    const drivers = (typeof window.getRnDriversSummaryFromPatientIds === "function")
+      ? window.getRnDriversSummaryFromPatientIds(nurse.patients || [])
+      : "";
 
     html += `
       <div class="assignment-card ${loadClass}">
         <div class="assignment-header">
-          <div><strong>${nurse.name}</strong> (${(nurse.type || "").toUpperCase()})</div>
+          <div>
+            <strong>${nurse.name}</strong> (${(nurse.type || "").toUpperCase()})
+            ${drivers ? `<div style="font-size:12px;opacity:0.75;margin-top:2px;"><strong>Drivers:</strong> ${drivers}</div>` : ""}
+          </div>
           <div>Patients: ${pts.length} | Load Score: ${loadScore}</div>
         </div>
         <table class="assignment-table">
@@ -81,11 +87,17 @@ function renderPcaAssignmentOutput() {
 
     const loadScore = (typeof getPcaLoadScore === "function") ? getPcaLoadScore(pca) : 0;
     const loadClass = (typeof getLoadClass === "function") ? getLoadClass(loadScore, "pca") : "";
+    const drivers = (typeof window.getPcaDriversSummaryFromPatientIds === "function")
+      ? window.getPcaDriversSummaryFromPatientIds(pca.patients || [])
+      : "";
 
     html += `
       <div class="assignment-card ${loadClass}">
         <div class="assignment-header">
-          <div><strong>${pca.name}</strong> (PCA)</div>
+          <div>
+            <strong>${pca.name}</strong> (PCA)
+            ${drivers ? `<div style="font-size:12px;opacity:0.75;margin-top:2px;"><strong>Drivers:</strong> ${drivers}</div>` : ""}
+          </div>
           <div>Patients: ${pts.length} | Load Score: ${loadScore}</div>
         </div>
         <table class="assignment-table">
@@ -111,7 +123,7 @@ function renderPcaAssignmentOutput() {
           ondblclick="openPatientProfileFromRoom(${p.id})"
         >
           <td>${p.room || ""}</td>
-          <td>PCA</td>
+          <td>${p.tele ? "Tele" : "MS"}</td>
           <td>${pcaTagString(p)}</td>
         </tr>
       `;
@@ -149,8 +161,8 @@ function populateOncomingAssignment(randomize = false) {
   else list.sort((a, b) => getRoomNumber(a) - getRoomNumber(b));
 
   if (typeof window.distributePatientsEvenly === "function") {
-    window.distributePatientsEvenly(incomingNurses, list, { randomize });
-    window.distributePatientsEvenly(incomingPcas, list, { randomize });
+    window.distributePatientsEvenly(incomingNurses, list, { randomize, role: "nurse" });
+    window.distributePatientsEvenly(incomingPcas, list, { randomize, role: "pca" });
   } else {
     list.forEach((p, i) => {
       const n = incomingNurses[i % incomingNurses.length];
@@ -168,6 +180,7 @@ function populateOncomingAssignment(randomize = false) {
   renderPcaAssignmentOutput();
 
   if (typeof saveState === "function") saveState();
+  if (typeof window.updateDischargeCount === "function") window.updateDischargeCount();
 }
 
 function rebalanceOncomingAssignment() {

@@ -1,5 +1,5 @@
 // app/app.state.js
-// Core app state + storage + LIVE rendering state
+// Core app state + storage + shared helpers + Admit Queue + Queue Assign Modal
 // Drag & discharge logic: app.assignmentsDrag.js
 // Patient grid + scoring: app.patientsAcuity.js
 // LIVE assignments: app.liveAssignments.js
@@ -53,6 +53,25 @@ let nextQueueId  = 1;
 
 // Modal context (set when opening queue assign modal)
 let queueAssignCtx = null; // { queueId, bedId }
+
+// =========================
+// Single refresh utility (Stability Hardening)
+// =========================
+
+function refreshUI() {
+  // Keep this as the ONE place we call renders.
+  // Anything can safely call window.refreshUI() without worrying about missing a tab.
+  if (typeof window.renderQueueList === "function") window.renderQueueList();
+  if (typeof window.renderPatientList === "function") window.renderPatientList();
+  if (typeof window.updateAcuityTiles === "function") window.updateAcuityTiles();
+  if (typeof window.renderLiveAssignments === "function") window.renderLiveAssignments();
+  if (typeof window.renderAssignmentOutput === "function") window.renderAssignmentOutput();
+  if (typeof window.renderPcaAssignmentOutput === "function") window.renderPcaAssignmentOutput();
+  if (typeof window.updateDischargeCount === "function") window.updateDischargeCount();
+}
+
+// export early
+window.refreshUI = refreshUI;
 
 // =========================
 // Basic Helpers
@@ -140,7 +159,7 @@ function getEmptyBeds() {
     .sort((a, b) => getRoomNumber(a) - getRoomNumber(b));
 }
 
-// Default admit “draft” acuity object (foundation for your next step)
+// Default admit “draft” acuity object (future-proofed)
 function makeDefaultAdmitDraft() {
   return {
     gender: "",
@@ -181,15 +200,13 @@ function addToAdmitQueue(label = "New Admit") {
     id: nextQueueId++,
     label: String(label || "New Admit"),
     createdAt: Date.now(),
-
-    // NEW: future-proofing for “incoming admit acuity tags”
     admitDraft: makeDefaultAdmitDraft()
   };
 
   admitQueue.unshift(entry);
 
   if (typeof saveState === "function") saveState();
-  if (typeof window.renderQueueList === "function") window.renderQueueList();
+  if (typeof window.refreshUI === "function") window.refreshUI();
 }
 
 // Remove admit from queue
@@ -197,12 +214,38 @@ function removeFromAdmitQueue(queueId) {
   admitQueue = admitQueue.filter(q => q.id !== queueId);
 
   if (typeof saveState === "function") saveState();
-  if (typeof window.renderQueueList === "function") window.renderQueueList();
+  if (typeof window.refreshUI === "function") window.refreshUI();
+}
+
+// Update label anytime until placed
+function updateQueuedAdmitLabel(queueId, newLabel) {
+  const q = admitQueue.find(x => x.id === queueId);
+  if (!q) return;
+  q.label = String(newLabel || "").trim() || "New Admit";
+  if (typeof saveState === "function") saveState();
+  if (typeof window.refreshUI === "function") window.refreshUI();
 }
 
 // Called by the queue button: ALWAYS opens modal, no auto-assign
 function assignAdmitFromQueue(queueId) {
   openQueueAssignModal(queueId);
+}
+
+// =========================
+// Capacity helpers (for modal filtering + confirm recheck)
+// =========================
+
+function getStaffCapacityCount(staffObj) {
+  const arr = Array.isArray(staffObj && staffObj.patients) ? staffObj.patients : [];
+  return arr.length;
+}
+
+function hasCapacity(staffObj) {
+  if (!staffObj) return false;
+  const max = Number(staffObj.maxPatients);
+  const curr = getStaffCapacityCount(staffObj);
+  if (!Number.isFinite(max)) return true; // if undefined, don’t block
+  return curr < max;
 }
 
 // =========================
@@ -240,17 +283,21 @@ function openQueueAssignModal(queueId) {
     `<option value="">Select Empty Bed…</option>` +
     empties.map(b => `<option value="${b.id}">${b.room}</option>`).join("");
 
-  // Build RN dropdown from CURRENT staff
+  // Build RN dropdown from CURRENT staff — only those with capacity
   const nurses = Array.isArray(currentNurses) ? currentNurses : [];
+  const eligibleNurses = nurses.filter(n => hasCapacity(n));
+
   nurseSel.innerHTML =
     `<option value="">Select RN…</option>` +
-    nurses.map(n => `<option value="${n.id}">${n.name || `RN ${n.id}`}</option>`).join("");
+    eligibleNurses.map(n => `<option value="${n.id}">${n.name || `RN ${n.id}`}</option>`).join("");
 
-  // Build PCA dropdown from CURRENT staff
+  // Build PCA dropdown from CURRENT staff — only those with capacity
   const pcas = Array.isArray(currentPcas) ? currentPcas : [];
+  const eligiblePcas = pcas.filter(p => hasCapacity(p));
+
   pcaSel.innerHTML =
     `<option value="">Select PCA…</option>` +
-    pcas.map(p => `<option value="${p.id}">${p.name || `PCA ${p.id}`}</option>`).join("");
+    eligiblePcas.map(p => `<option value="${p.id}">${p.name || `PCA ${p.id}`}</option>`).join("");
 
   // Info text
   if (infoEl) {
@@ -260,10 +307,18 @@ function openQueueAssignModal(queueId) {
       <div style="opacity:.8;font-size:13px;">
         Empty beds (${empties.length}): ${bedListPreview}${empties.length > 10 ? "…" : ""}
       </div>
+      <div style="opacity:.8;font-size:13px;margin-top:6px;">
+        Eligible RNs: ${eligibleNurses.length} | Eligible PCAs: ${eligiblePcas.length}
+      </div>
       <div style="opacity:.7;font-size:12px;margin-top:6px;">
-        Select the bed, receiving RN, and receiving PCA. Then confirm to place the admit into that room.
+        Only staff with numeric capacity remaining are shown. Select bed + RN + PCA, then confirm.
       </div>
     `;
+  }
+
+  if (!eligibleNurses.length || !eligiblePcas.length) {
+    alert("No eligible RN and/or PCA has remaining capacity for an admit. Adjust assignments/staffing first.");
+    return;
   }
 
   modal.style.display = "flex";
@@ -318,13 +373,23 @@ function confirmQueueAssign() {
     return;
   }
 
+  // Re-check capacity at confirm-time (stale modal protection)
+  if (!hasCapacity(rn)) {
+    alert(`${rn.name || "Selected RN"} is now at max capacity. Reopen the modal and choose another RN.`);
+    return;
+  }
+  if (!hasCapacity(pc)) {
+    alert(`${pc.name || "Selected PCA"} is now at max capacity. Reopen the modal and choose another PCA.`);
+    return;
+  }
+
   // Apply admit placement
   bed.isEmpty = false;
   bed.recentlyDischarged = false;
   bed.admit = true;
   bed.name = entry.label;
 
-  // NEW: apply “incoming admit draft acuity tags” at admit-time
+  // Apply “incoming admit draft acuity tags” at admit-time
   if (entry.admitDraft && typeof entry.admitDraft === "object") {
     const d = entry.admitDraft;
 
@@ -361,12 +426,9 @@ function confirmQueueAssign() {
   // Remove from queue
   admitQueue = admitQueue.filter(x => x.id !== queueId);
 
-  // Persist + rerender everything relevant
+  // Persist + rerender
   if (typeof saveState === "function") saveState();
-  if (typeof window.renderQueueList === "function") window.renderQueueList();
-  if (typeof window.renderPatientList === "function") window.renderPatientList();
-  if (typeof window.updateAcuityTiles === "function") window.updateAcuityTiles();
-  if (typeof window.renderLiveAssignments === "function") window.renderLiveAssignments();
+  if (typeof window.refreshUI === "function") window.refreshUI();
 
   closeQueueAssignModal();
 }
@@ -388,13 +450,22 @@ function renderQueueList() {
   el.innerHTML = items
     .map(q => {
       const t = q.createdAt ? new Date(q.createdAt).toLocaleTimeString() : "";
+      const safeVal = String(q.label || "").replace(/"/g, "&quot;");
+
       return `
         <div class="queue-row" style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:8px 10px;border:1px solid #eee;border-radius:10px;background:#fff;margin-bottom:8px;">
-          <div>
-            <div style="font-weight:600;">${q.label}</div>
+          <div style="min-width:220px;">
+            <div style="font-weight:600;">
+              <input
+                value="${safeVal}"
+                style="width: 260px; max-width: 100%; padding: 4px 6px; border-radius: 8px; border: 1px solid #e5e7eb;"
+                onblur="window.updateQueuedAdmitLabel(${q.id}, this.value)"
+                onkeydown="if(event.key==='Enter'){ event.preventDefault(); this.blur(); }"
+              />
+            </div>
             <div style="font-size:12px;opacity:0.7;">${t}</div>
           </div>
-          <div style="display:flex;gap:8px;">
+          <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end;">
             <button onclick="openQueueAssignModal(${q.id})">Assign to Empty Bed</button>
             <button onclick="removeFromAdmitQueue(${q.id})">Remove</button>
           </div>
@@ -411,12 +482,9 @@ function clearRecentlyDischargedFlags() {
     if (p.recentlyDischarged) p.recentlyDischarged = false;
   });
 
+  // IMPORTANT: this is NOT discharge history. So do NOT clear dischargeHistory here.
   if (typeof saveState === "function") saveState();
-  if (typeof window.renderPatientList === "function") window.renderPatientList();
-  if (typeof window.updateAcuityTiles === "function") window.updateAcuityTiles();
-  if (typeof window.renderLiveAssignments === "function") window.renderLiveAssignments();
-  if (typeof window.renderAssignmentOutput === "function") window.renderAssignmentOutput();
-  if (typeof window.renderPcaAssignmentOutput === "function") window.renderPcaAssignmentOutput();
+  if (typeof window.refreshUI === "function") window.refreshUI();
 }
 
 // =========================
@@ -636,6 +704,8 @@ window.addToAdmitQueue = addToAdmitQueue;
 window.removeFromAdmitQueue = removeFromAdmitQueue;
 window.assignAdmitFromQueue = assignAdmitFromQueue;
 window.renderQueueList = renderQueueList;
+
+window.updateQueuedAdmitLabel = updateQueuedAdmitLabel;
 
 window.openQueueAssignModal = openQueueAssignModal;
 window.closeQueueAssignModal = closeQueueAssignModal;

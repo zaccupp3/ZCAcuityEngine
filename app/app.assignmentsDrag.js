@@ -25,14 +25,21 @@ function ensureArray(obj, key) {
   if (!Array.isArray(obj[key])) obj[key] = [];
 }
 
+// Central refresh (preferred). Falls back to local rerender list if not defined.
 function rerenderAllBoards() {
+  if (typeof window.refreshUI === "function") {
+    window.refreshUI();
+    return;
+  }
+
+  // Fallback (older versions)
   if (typeof window.renderLiveAssignments === "function") window.renderLiveAssignments();
   if (typeof window.renderAssignmentOutput === "function") window.renderAssignmentOutput();
   if (typeof window.renderPcaAssignmentOutput === "function") window.renderPcaAssignmentOutput();
   if (typeof window.renderPatientList === "function") window.renderPatientList();
   if (typeof window.updateAcuityTiles === "function") window.updateAcuityTiles();
   if (typeof saveState === "function") saveState();
-  updateDischargeCount();
+  if (typeof window.updateDischargeCount === "function") window.updateDischargeCount();
 }
 
 // -----------------------------
@@ -116,8 +123,10 @@ function onDischargeDrop(event) {
   const { patientId } = dragCtx;
 
   // Capture BOTH RN and PCA assignments at discharge time
-  const rnOwner = currentNurses.find(n => Array.isArray(n.patients) && n.patients.includes(patientId)) || null;
-  const pcOwner = currentPcas.find(p => Array.isArray(p.patients) && p.patients.includes(patientId)) || null;
+  const rnOwner =
+    currentNurses.find(n => Array.isArray(n.patients) && n.patients.includes(patientId)) || null;
+  const pcOwner =
+    currentPcas.find(p => Array.isArray(p.patients) && p.patients.includes(patientId)) || null;
 
   // Remove from BOTH lists
   if (rnOwner) {
@@ -203,7 +212,7 @@ function reinstateDischargedPatient(index) {
 
   if (!patient) {
     history.splice(index, 1);
-    updateDischargeCount();
+    if (typeof window.updateDischargeCount === "function") window.updateDischargeCount();
     openDischargeHistoryModal();
     return;
   }
@@ -228,7 +237,7 @@ function reinstateDischargedPatient(index) {
   }
 
   history.splice(index, 1);
-  updateDischargeCount();
+  if (typeof window.updateDischargeCount === "function") window.updateDischargeCount();
 
   rerenderAllBoards();
   openDischargeHistoryModal();

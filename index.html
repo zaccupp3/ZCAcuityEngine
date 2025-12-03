@@ -1,4 +1,4 @@
-<!-- Saved: Dec 3, 2025 -->
+<!-- CHECKPOINT: Frontend Complete - Dec 3, 2025 - Pre-Stability Hardening -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -329,6 +329,66 @@
       <div class="modal-footer">
         <button onclick="confirmQueueAssign()">Assign</button>
         <button onclick="closeQueueAssignModal()">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- PRE-ADMIT TAGS MODAL (NEW) -->
+  <div id="admitDraftModal" class="modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <span id="admitDraftTitle">Pre-Admit Tags</span>
+        <button class="close-btn" onclick="closeAdmitDraftModal()">&times;</button>
+      </div>
+
+      <div class="modal-body">
+        <p id="admitDraftInfo" style="margin-bottom: 12px; font-size: 14px; opacity: 0.85;">
+          Set optional pre-admit tags. These will copy into the patient record when you assign this admit into a bed.
+        </p>
+
+        <div class="modal-row">
+          <label for="admitDraftGender"><strong>Gender (optional):</strong></label>
+          <select id="admitDraftGender">
+            <option value="">-</option>
+            <option value="F">F</option>
+            <option value="M">M</option>
+            <option value="X">X</option>
+          </select>
+        </div>
+
+        <div class="modal-grid" style="margin-top: 12px;">
+          <div class="modal-column">
+            <h3>RN Pre-Admit Tags</h3>
+            <label><input type="checkbox" id="adTele" /> Tele</label>
+            <label><input type="checkbox" id="adDrip" /> Drip</label>
+            <label><input type="checkbox" id="adNih" /> NIH</label>
+            <label><input type="checkbox" id="adBg" /> BG</label>
+            <label><input type="checkbox" id="adCiwa" /> CIWA/COWS</label>
+            <label><input type="checkbox" id="adRestraint" /> Restraint</label>
+            <label><input type="checkbox" id="adSitter" /> Sitter</label>
+            <label><input type="checkbox" id="adVpo" /> VPO</label>
+            <label><input type="checkbox" id="adIso" /> Isolation</label>
+            <label><input type="checkbox" id="adLateDc" /> Late DC</label>
+          </div>
+
+          <div class="modal-column">
+            <h3>PCA Pre-Admit Tags</h3>
+            <label><input type="checkbox" id="adChg" /> CHG</label>
+            <label><input type="checkbox" id="adFoley" /> Foley</label>
+            <label><input type="checkbox" id="adQ2" /> Q2 Turns</label>
+            <label><input type="checkbox" id="adHeavy" /> Heavy</label>
+            <label><input type="checkbox" id="adFeeder" /> Feeder</label>
+          </div>
+        </div>
+
+        <p style="font-size: 12px; opacity: 0.7; margin-top: 10px;">
+          Note: “Admit” itself is automatically set when the admit is placed into a bed.
+        </p>
+      </div>
+
+      <div class="modal-footer">
+        <button onclick="saveAdmitDraftFromModal()">Save Tags</button>
+        <button onclick="closeAdmitDraftModal()">Cancel</button>
       </div>
     </div>
   </div>
