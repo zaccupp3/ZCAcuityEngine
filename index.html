@@ -1,4 +1,3 @@
-<!-- CHECKPOINT: Frontend Complete - Dec 3, 2025 - Pre-Stability Hardening -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -15,30 +14,29 @@
         Cupp Health Solutions: Assignment Engine - Created by Zachary Cupp, BSN, RN
       </span>
     </div>
-    <div class="header-right">
-      <button class="header-link">Log In</button>
-      <button class="header-cta">Get Care</button>
-    </div>
-  </header>
 
-  <!-- Tab Bar -->
-  <nav class="tab-bar">
-    <button class="tabButton active" data-target="staffingTab" onclick="showTab('staffingTab', this)">
-      Staffing Details
-    </button>
-    <button class="tabButton" data-target="patientDetailsTab" onclick="showTab('patientDetailsTab', this)">
-      Patient Details
-    </button>
-    <button class="tabButton" data-target="highRiskTab" onclick="showTab('highRiskTab', this)">
-      High Risk Report
-    </button>
-    <button class="tabButton" data-target="liveAssignmentTab" onclick="showTab('liveAssignmentTab', this)">
-      LIVE Assignment
-    </button>
-    <button class="tabButton" data-target="oncomingAssignmentTab" onclick="showTab('oncomingAssignmentTab', this)">
-      Oncoming Assignment
-    </button>
-  </nav>
+    <!-- Tabs moved into header (sticky) -->
+    <nav class="header-nav" aria-label="Primary">
+      <button class="tabButton active header-tab" data-target="staffingTab" onclick="showTab('staffingTab', this)">
+        Staffing Details
+      </button>
+      <button class="tabButton header-tab" data-target="patientDetailsTab" onclick="showTab('patientDetailsTab', this)">
+        Patient Details
+      </button>
+      <button class="tabButton header-tab" data-target="highRiskTab" onclick="showTab('highRiskTab', this)">
+        High Risk Report
+      </button>
+      <button class="tabButton header-tab" data-target="liveAssignmentTab" onclick="showTab('liveAssignmentTab', this)">
+        LIVE Assignment
+      </button>
+      <button class="tabButton header-tab" data-target="oncomingAssignmentTab" onclick="showTab('oncomingAssignmentTab', this)">
+        Oncoming Assignment
+      </button>
+    </nav>
+
+    <!-- Right side buttons removed per request -->
+    <div class="header-right"></div>
+  </header>
 
   <!-- MAIN CONTENT -->
   <main class="main-container">
@@ -183,11 +181,14 @@
       <div class="live-layout">
         <div class="live-column">
           <h2>Current RN Assignments</h2>
-          <div id="liveNurseAssignments" class="assignment-grid"></div>
+          <!-- Updated: add live grid classes -->
+          <div id="liveNurseAssignments" class="assignment-grid live-grid live-grid-nurse"></div>
         </div>
+
         <div class="live-column">
           <h2>Current PCA Assignments</h2>
-          <div id="livePcaAssignments" class="assignment-grid"></div>
+          <!-- Updated: add live grid classes -->
+          <div id="livePcaAssignments" class="assignment-grid live-grid live-grid-pca"></div>
 
           <h2 style="margin-top: 24px;">Admit Queue</h2>
 
@@ -196,7 +197,6 @@
           </div>
 
           <div id="queueList" class="queue-list"></div>
-
         </div>
       </div>
     </section>
@@ -333,7 +333,7 @@
     </div>
   </div>
 
-  <!-- PRE-ADMIT TAGS MODAL (NEW) -->
+  <!-- PRE-ADMIT TAGS MODAL (kept as-is) -->
   <div id="admitDraftModal" class="modal">
     <div class="modal-content">
       <div class="modal-header">
@@ -405,6 +405,9 @@
   <script src="app/app.modals.js"></script>
 
   <script src="app/app.init.js"></script>
+  <script src="script.js"></script>
+</body>
+</html>app/app.init.js"></script>
   <script src="script.js"></script>
 </body>
 </html>
