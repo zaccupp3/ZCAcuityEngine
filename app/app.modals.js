@@ -1,5 +1,7 @@
 // app/app.modals.js
-// Patient profile modal: open from double-click, edit tags, save.
+// Patient profile modal open/close/save.
+// NOTE: Discharge history modal is owned by app.assignmentsDrag.js.
+// We intentionally do NOT duplicate discharge modal logic here.
 
 (function () {
   let currentProfilePatientId = null;
@@ -25,8 +27,14 @@
   }
 
   function openPatientProfileFromRoom(patientId) {
-    const p = getPatientById(patientId);
+    const p = (typeof window.getPatientById === "function") ? window.getPatientById(patientId) : null;
     if (!p) return;
+
+    // Keep consistent with your Patient Details rules:
+    if (p.isEmpty) {
+      alert("This bed is EMPTY. Uncheck Empty Bed on Patient Details to admit/edit.");
+      return;
+    }
 
     currentProfilePatientId = patientId;
 
@@ -34,12 +42,11 @@
     if (!modal) return;
 
     const titleEl = document.getElementById("profileModalTitle");
-    if (titleEl) {
-      titleEl.textContent = `Patient Profile – Room ${p.room || ""}`;
-    }
+    if (titleEl) titleEl.textContent = `Patient Profile – Room ${p.room || ""}`;
 
     setSelect("profGender", p.gender || "");
 
+    // RN tags
     setCheckbox("profTele", p.tele);
     setCheckbox("profDrip", p.drip);
     setCheckbox("profNih", p.nih);
@@ -52,6 +59,7 @@
     setCheckbox("profAdmit", p.admit);
     setCheckbox("profLateDc", p.lateDc);
 
+    // PCA tags
     setCheckbox("profTelePca", p.tele);
     setCheckbox("profIsoPca", p.isolation);
     setCheckbox("profAdmitPca", p.admit);
@@ -73,18 +81,22 @@
 
   function savePatientProfile() {
     if (currentProfilePatientId == null) return;
-    const p = getPatientById(currentProfilePatientId);
+    const p = (typeof window.getPatientById === "function") ? window.getPatientById(currentProfilePatientId) : null;
     if (!p) {
       closePatientProfileModal();
       return;
     }
 
+    // Gender first (uses roommate safety via canSetGender inside changePatientGender)
     const newGender = getSelect("profGender");
-    if (newGender !== p.gender) {
-      changePatientGender(p.id, newGender);
+    if (typeof window.changePatientGender === "function") {
+      if (newGender !== (p.gender || "")) window.changePatientGender(p.id, newGender);
+    } else {
+      p.gender = newGender || "";
     }
 
-    const flags = {
+    // Update flags using the canonical toggle function (enforces non-empty rules)
+    const nextFlags = {
       tele: getCheckbox("profTele"),
       drip: getCheckbox("profDrip"),
       nih: getCheckbox("profNih"),
@@ -103,84 +115,32 @@
       feeder: getCheckbox("profFeeder")
     };
 
-    Object.entries(flags).forEach(([key, val]) => {
-      if (p[key] !== val) {
-        togglePatientFlag(p.id, key, val);
-      }
-    });
-
-    // underlying helpers re-render, but call again defensively:
-    if (typeof window.renderPatientList === "function") {
-      window.renderPatientList();
-    }
-
-    if (typeof window.updateAcuityTiles === "function") {
-      window.updateAcuityTiles();
-    }
-
-    if (typeof window.renderLiveAssignments === "function") {
-      window.renderLiveAssignments();
-    }
-
-    if (typeof window.renderAssignmentOutput === "function") {
-      window.renderAssignmentOutput();
-    }
-
-    if (typeof window.renderPcaAssignmentOutput === "function") {
-      window.renderPcaAssignmentOutput();
-    }
-
-    if (typeof saveState === "function") {
-      saveState();
-    }
-    closePatientProfileModal();
-
-
-    function openDischargeHistoryModal() {
-      const modal = document.getElementById("dischargeHistoryModal");
-      const body  = document.getElementById("dischargeHistoryBody");
-      if (!modal || !body) return;
-
-      const history = Array.isArray(window.dischargeHistory) ? window.dischargeHistory : [];
-
-      let html = "";
-
-      history.forEach((entry, i) => {
-        const p = getPatientById(entry.patientId);
-        if (!p) return;
-
-        const ts = entry.timestamp ? new Date(entry.timestamp).toLocaleString() : "";
-
-        html += `
-          <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;padding:8px 0;border-bottom:1px solid #eee;">
-            <div>
-              <div><strong>${p.room || ""}</strong> ${p.name ? `- ${p.name}` : ""}</div>
-              <div style="font-size:12px;opacity:0.75;">${ts}</div>
-            </div>
-            <button onclick="reinstateDischargedPatient(${i})">Reinstate</button>
-          </div>
-        `;
+    if (typeof window.togglePatientFlag === "function") {
+      Object.entries(nextFlags).forEach(([key, val]) => {
+        if (!!p[key] !== !!val) window.togglePatientFlag(p.id, key, val);
       });
-
-      body.innerHTML = html || `<div style="padding:10px;opacity:0.7;">No discharges yet.</div>`;
-      modal.style.display = "flex";
+    } else {
+      Object.assign(p, nextFlags);
     }
 
-    function closeDischargeHistoryModal() {
-      const modal = document.getElementById("dischargeHistoryModal");
-      if (!modal) return;
-      modal.style.display = "none";
-    }
+    // Ensure occupied (profile implies bed occupied)
+    p.isEmpty = false;
+    p.recentlyDischarged = false;
 
-    // expose globally for the HTML onclick=""
-    window.openDischargeHistoryModal = openDischargeHistoryModal;
-    window.closeDischargeHistoryModal = closeDischargeHistoryModal;
+    if (typeof window.saveState === "function") window.saveState();
 
+    // One clean rerender sweep
+    if (typeof window.renderPatientList === "function") window.renderPatientList();
+    if (typeof window.updateAcuityTiles === "function") window.updateAcuityTiles();
+    if (typeof window.renderLiveAssignments === "function") window.renderLiveAssignments();
+    if (typeof window.renderAssignmentOutput === "function") window.renderAssignmentOutput();
+    if (typeof window.renderPcaAssignmentOutput === "function") window.renderPcaAssignmentOutput();
 
-  // Expose globals
+    closePatientProfileModal();
+  }
+
+  // Expose only patient modal functions
   window.openPatientProfileFromRoom = openPatientProfileFromRoom;
   window.closePatientProfileModal = closePatientProfileModal;
   window.savePatientProfile = savePatientProfile;
-  window.openDischargeHistoryModal  = openDischargeHistoryModal;
-  window.closeDischargeHistoryModal = closeDischargeHistoryModal;
 })();

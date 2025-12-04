@@ -183,6 +183,16 @@ function makeDefaultAdmitDraft() {
   };
 }
 
+function coerceAdmitDraft(d) {
+  const base = makeDefaultAdmitDraft();
+  if (!d || typeof d !== "object") return base;
+  return {
+    ...base,
+    ...d,
+    gender: typeof d.gender === "string" ? d.gender : ""
+  };
+}
+
 // "+ Add Admit" prompt: lets charge nurse name the admit
 function promptAddAdmit() {
   const name = window.prompt(
@@ -200,7 +210,8 @@ function addToAdmitQueue(label = "New Admit") {
     id: nextQueueId++,
     label: String(label || "New Admit"),
     createdAt: Date.now(),
-    admitDraft: makeDefaultAdmitDraft()
+    admitDraft: makeDefaultAdmitDraft(),
+    uiOpen: false // controls inline edit section visibility
   };
 
   admitQueue.unshift(entry);
@@ -223,6 +234,30 @@ function updateQueuedAdmitLabel(queueId, newLabel) {
   if (!q) return;
   q.label = String(newLabel || "").trim() || "New Admit";
   if (typeof saveState === "function") saveState();
+  if (typeof window.refreshUI === "function") window.refreshUI();
+}
+
+function toggleQueuedAdmitUiOpen(queueId) {
+  const q = admitQueue.find(x => x.id === queueId);
+  if (!q) return;
+  q.uiOpen = !q.uiOpen;
+  if (typeof saveState === "function") saveState();
+  if (typeof window.refreshUI === "function") window.refreshUI();
+}
+
+function updateQueuedAdmitDraft(queueId, key, value) {
+  const q = admitQueue.find(x => x.id === queueId);
+  if (!q) return;
+  q.admitDraft = coerceAdmitDraft(q.admitDraft);
+
+  if (key === "gender") {
+    q.admitDraft.gender = String(value || "");
+  } else {
+    q.admitDraft[key] = !!value;
+  }
+
+  if (typeof saveState === "function") saveState();
+  // no need to full refresh for every checkbox, but keeps everything synced
   if (typeof window.refreshUI === "function") window.refreshUI();
 }
 
@@ -390,31 +425,29 @@ function confirmQueueAssign() {
   bed.name = entry.label;
 
   // Apply “incoming admit draft acuity tags” at admit-time
-  if (entry.admitDraft && typeof entry.admitDraft === "object") {
-    const d = entry.admitDraft;
+  const d = coerceAdmitDraft(entry.admitDraft);
 
-    // gender (optional)
-    if (typeof d.gender === "string") bed.gender = d.gender;
+  // gender (optional)
+  if (typeof d.gender === "string") bed.gender = d.gender;
 
-    // RN tags
-    bed.tele = !!d.tele;
-    bed.drip = !!d.drip;
-    bed.nih = !!d.nih;
-    bed.bg = !!d.bg;
-    bed.ciwa = !!d.ciwa;
-    bed.restraint = !!d.restraint;
-    bed.sitter = !!d.sitter;
-    bed.vpo = !!d.vpo;
-    bed.isolation = !!d.isolation;
-    bed.lateDc = !!d.lateDc;
+  // RN tags
+  bed.tele = !!d.tele;
+  bed.drip = !!d.drip;
+  bed.nih = !!d.nih;
+  bed.bg = !!d.bg;
+  bed.ciwa = !!d.ciwa;
+  bed.restraint = !!d.restraint;
+  bed.sitter = !!d.sitter;
+  bed.vpo = !!d.vpo;
+  bed.isolation = !!d.isolation;
+  bed.lateDc = !!d.lateDc;
 
-    // PCA tags
-    bed.chg = !!d.chg;
-    bed.foley = !!d.foley;
-    bed.q2turns = !!d.q2turns;
-    bed.heavy = !!d.heavy;
-    bed.feeder = !!d.feeder;
-  }
+  // PCA tags
+  bed.chg = !!d.chg;
+  bed.foley = !!d.foley;
+  bed.q2turns = !!d.q2turns;
+  bed.heavy = !!d.heavy;
+  bed.feeder = !!d.feeder;
 
   // Assign bed to RN/PCA
   if (!Array.isArray(rn.patients)) rn.patients = [];
@@ -451,24 +484,89 @@ function renderQueueList() {
     .map(q => {
       const t = q.createdAt ? new Date(q.createdAt).toLocaleTimeString() : "";
       const safeVal = String(q.label || "").replace(/"/g, "&quot;");
+      const d = coerceAdmitDraft(q.admitDraft);
+      const open = !!q.uiOpen;
+
+      // Small helper for checkbox row
+      const cb = (key, label) => `
+        <label style="display:inline-flex;align-items:center;gap:6px;margin-right:10px;margin-bottom:6px;font-size:13px;">
+          <input type="checkbox"
+            ${d[key] ? "checked" : ""}
+            onchange="window.updateQueuedAdmitDraft(${q.id}, '${key}', this.checked)"
+          />
+          ${label}
+        </label>
+      `;
 
       return `
-        <div class="queue-row" style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:8px 10px;border:1px solid #eee;border-radius:10px;background:#fff;margin-bottom:8px;">
-          <div style="min-width:220px;">
-            <div style="font-weight:600;">
-              <input
-                value="${safeVal}"
-                style="width: 260px; max-width: 100%; padding: 4px 6px; border-radius: 8px; border: 1px solid #e5e7eb;"
-                onblur="window.updateQueuedAdmitLabel(${q.id}, this.value)"
-                onkeydown="if(event.key==='Enter'){ event.preventDefault(); this.blur(); }"
-              />
+        <div class="queue-row" style="padding:10px;border:1px solid #eee;border-radius:12px;background:#fff;margin-bottom:10px;">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;flex-wrap:wrap;">
+            <div style="min-width:240px;flex:1;">
+              <div style="font-weight:600;">
+                <input
+                  value="${safeVal}"
+                  style="width: 320px; max-width: 100%; padding: 6px 8px; border-radius: 10px; border: 1px solid #e5e7eb;"
+                  onblur="window.updateQueuedAdmitLabel(${q.id}, this.value)"
+                  onkeydown="if(event.key==='Enter'){ event.preventDefault(); this.blur(); }"
+                />
+              </div>
+              <div style="font-size:12px;opacity:0.7;margin-top:4px;">${t}</div>
             </div>
-            <div style="font-size:12px;opacity:0.7;">${t}</div>
+
+            <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end;">
+              <button onclick="window.toggleQueuedAdmitUiOpen(${q.id})">
+                ${open ? "Hide Tags" : "Edit Tags"}
+              </button>
+              <button onclick="openQueueAssignModal(${q.id})">Assign to Empty Bed</button>
+              <button onclick="removeFromAdmitQueue(${q.id})" style="opacity:.9;">Remove</button>
+            </div>
           </div>
-          <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end;">
-            <button onclick="openQueueAssignModal(${q.id})">Assign to Empty Bed</button>
-            <button onclick="removeFromAdmitQueue(${q.id})">Remove</button>
-          </div>
+
+          ${open ? `
+            <div style="margin-top:10px;padding:10px;border-radius:10px;background:#f8fafc;border:1px solid #e5e7eb;">
+              <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:center;margin-bottom:8px;">
+                <label style="font-size:13px;">
+                  <strong>Gender:</strong>
+                  <select
+                    style="margin-left:6px;padding:3px 6px;border-radius:8px;border:1px solid #e5e7eb;"
+                    onchange="window.updateQueuedAdmitDraft(${q.id}, 'gender', this.value)"
+                  >
+                    <option value=""  ${d.gender === ""  ? "selected" : ""}>Unspecified</option>
+                    <option value="M" ${d.gender === "M" ? "selected" : ""}>M</option>
+                    <option value="F" ${d.gender === "F" ? "selected" : ""}>F</option>
+                    <option value="X" ${d.gender === "X" ? "selected" : ""}>X</option>
+                  </select>
+                </label>
+              </div>
+
+              <div style="margin-bottom:6px;font-size:13px;opacity:.8;"><strong>RN Acuity Tags</strong></div>
+              <div style="display:flex;flex-wrap:wrap;">
+                ${cb("tele","Tele")}
+                ${cb("drip","Drip")}
+                ${cb("nih","NIH")}
+                ${cb("bg","BG")}
+                ${cb("ciwa","CIWA")}
+                ${cb("restraint","Restraint")}
+                ${cb("sitter","Sitter")}
+                ${cb("vpo","VPO")}
+                ${cb("isolation","ISO")}
+                ${cb("lateDc","Late DC")}
+              </div>
+
+              <div style="margin-top:8px;margin-bottom:6px;font-size:13px;opacity:.8;"><strong>PCA Task Tags</strong></div>
+              <div style="display:flex;flex-wrap:wrap;">
+                ${cb("chg","CHG")}
+                ${cb("foley","Foley")}
+                ${cb("q2turns","Q2 Turns")}
+                ${cb("heavy","Heavy")}
+                ${cb("feeder","Feeder")}
+              </div>
+
+              <div style="margin-top:8px;font-size:12px;opacity:.7;">
+                These tags travel with the admit and get copied into the assigned bed when you place them.
+              </div>
+            </div>
+          ` : ``}
         </div>
       `;
     })
@@ -476,13 +574,20 @@ function renderQueueList() {
 }
 
 // Optional helper: clear only the “recentlyDischarged” flags (keep empty beds empty)
+// + ALSO clear the session discharge bin count (dischargeHistory) per your request.
 function clearRecentlyDischargedFlags() {
   ensureDefaultPatients();
+
+  // 1) Clear patient flags
   patients.forEach(p => {
-    if (p.recentlyDischarged) p.recentlyDischarged = false;
+    if (p && p.recentlyDischarged) p.recentlyDischarged = false;
   });
 
-  // IMPORTANT: this is NOT discharge history. So do NOT clear dischargeHistory here.
+  // 2) Clear session discharge bin count
+  // This is what drives: "Discharge Bin: X recent this session"
+  dischargeHistory = [];
+  nextDischargeId = 1;
+
   if (typeof saveState === "function") saveState();
   if (typeof window.refreshUI === "function") window.refreshUI();
 }
@@ -605,10 +710,11 @@ function loadStateFromStorage() {
     nextDischargeId = typeof data.nextDischargeId === "number" ? data.nextDischargeId : 1;
 
     admitQueue = Array.isArray(data.admitQueue) ? data.admitQueue : [];
-    // backfill admitDraft for older saved queue entries
+    // backfill admitDraft + uiOpen for older saved queue entries
     admitQueue = admitQueue.map(q => ({
       ...q,
-      admitDraft: (q && typeof q.admitDraft === "object" && q.admitDraft) ? q.admitDraft : makeDefaultAdmitDraft()
+      admitDraft: coerceAdmitDraft(q && q.admitDraft),
+      uiOpen: !!(q && q.uiOpen)
     }));
 
     nextQueueId = typeof data.nextQueueId === "number" ? data.nextQueueId : 1;
@@ -706,6 +812,8 @@ window.assignAdmitFromQueue = assignAdmitFromQueue;
 window.renderQueueList = renderQueueList;
 
 window.updateQueuedAdmitLabel = updateQueuedAdmitLabel;
+window.toggleQueuedAdmitUiOpen = toggleQueuedAdmitUiOpen;
+window.updateQueuedAdmitDraft = updateQueuedAdmitDraft;
 
 window.openQueueAssignModal = openQueueAssignModal;
 window.closeQueueAssignModal = closeQueueAssignModal;
