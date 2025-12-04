@@ -12,7 +12,10 @@ function getActivePatientsForLive() {
 function populateLiveAssignment(randomize = false) {
   if (typeof ensureDefaultPatients === "function") ensureDefaultPatients();
 
-  if (!Array.isArray(currentNurses) || !currentNurses.length || !Array.isArray(currentPcas) || !currentPcas.length) {
+  if (
+    !Array.isArray(currentNurses) || !currentNurses.length ||
+    !Array.isArray(currentPcas) || !currentPcas.length
+  ) {
     alert("Please set up Current RNs and PCAs on the Staffing Details tab first.");
     return;
   }
@@ -31,10 +34,10 @@ function populateLiveAssignment(randomize = false) {
   currentNurses.forEach(n => { n.patients = []; });
   currentPcas.forEach(p => { p.patients = []; });
 
-  // Prefer shared helper
+  // Prefer shared helper (now load-aware)
   if (typeof window.distributePatientsEvenly === "function") {
-    window.distributePatientsEvenly(currentNurses, list, { randomize });
-    window.distributePatientsEvenly(currentPcas, list, { randomize });
+    window.distributePatientsEvenly(currentNurses, list, { randomize, role: "nurse" });
+    window.distributePatientsEvenly(currentPcas, list, { randomize, role: "pca" });
   } else {
     // Fallback round-robin
     list.forEach((p, i) => {
@@ -83,10 +86,6 @@ function renderLiveAssignments() {
     const loadScore = (typeof getNurseLoadScore === "function") ? getNurseLoadScore(nurse) : 0;
     const loadClass = (typeof getLoadClass === "function") ? getLoadClass(loadScore, "nurse") : "";
 
-    const drivers = (typeof window.getRnDriversSummaryFromPatientIds === "function")
-      ? window.getRnDriversSummaryFromPatientIds(nurse.patients || [])
-      : "";
-
     let rows = "";
     pts.forEach(p => {
       rows += `
@@ -106,10 +105,7 @@ function renderLiveAssignments() {
     nurseContainer.innerHTML += `
       <div class="assignment-card ${loadClass}">
         <div class="assignment-header">
-          <div>
-            <strong>${nurse.name}</strong> (${(nurse.type || "").toUpperCase()})
-            ${drivers ? `<div style="font-size:12px;opacity:0.75;margin-top:2px;"><strong>Drivers:</strong> ${drivers}</div>` : ""}
-          </div>
+          <div><strong>${nurse.name}</strong> (${(nurse.type || "").toUpperCase()})</div>
           <div>Patients: ${pts.length} | Load Score: ${loadScore}</div>
         </div>
         <table class="assignment-table">
@@ -141,10 +137,6 @@ function renderLiveAssignments() {
     const loadScore = (typeof getPcaLoadScore === "function") ? getPcaLoadScore(pca) : 0;
     const loadClass = (typeof getLoadClass === "function") ? getLoadClass(loadScore, "pca") : "";
 
-    const drivers = (typeof window.getPcaDriversSummaryFromPatientIds === "function")
-      ? window.getPcaDriversSummaryFromPatientIds(pca.patients || [])
-      : "";
-
     let rows = "";
     pts.forEach(p => {
       rows += `
@@ -164,10 +156,7 @@ function renderLiveAssignments() {
     pcaContainer.innerHTML += `
       <div class="assignment-card ${loadClass}">
         <div class="assignment-header">
-          <div>
-            <strong>${pca.name}</strong> (PCA)
-            ${drivers ? `<div style="font-size:12px;opacity:0.75;margin-top:2px;"><strong>Drivers:</strong> ${drivers}</div>` : ""}
-          </div>
+          <div><strong>${pca.name}</strong> (PCA)</div>
           <div>Patients: ${pts.length} | Load Score: ${loadScore}</div>
         </div>
         <table class="assignment-table">
