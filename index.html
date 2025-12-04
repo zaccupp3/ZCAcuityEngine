@@ -395,20 +395,21 @@
   </div>
 
   <script src="app/app.state.js"></script>
+  <script src="app/app.queue.js"></script>
   <script src="app/app.staffing.js"></script>
   <script src="app/app.patientsAcuity.js"></script>
   <script src="app/app.assignmentsDrag.js"></script>
   <script src="app/app.assignmentRules.js"></script>
 
-  <!-- THESE MUST COME BEFORE INIT -->
+  <!-- LIVE + ONCOMING depend on patientsAcuity + drag -->
   <script src="app/app.liveAssignments.js"></script>
   <script src="app/app.assignmentsrender.js"></script>
+
+  <!-- Keep the shim (must not redefine modal functions) -->
   <script src="app/app.modals.js"></script>
 
   <script src="app/app.init.js"></script>
-  <script src="script.js"></script>
-</body>
-</html>app/app.init.js"></script>
+  <script src="script.js"></script>app/app.init.js"></script>
   <script src="script.js"></script>
 </body>
 </html>

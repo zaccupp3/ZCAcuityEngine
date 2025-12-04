@@ -235,8 +235,9 @@ function populateOncomingAssignment(randomize = false) {
   else list.sort((a, b) => getRoomNumber(a) - getRoomNumber(b));
 
   if (typeof window.distributePatientsEvenly === "function") {
-    window.distributePatientsEvenly(incomingNurses, list, { randomize });
-    window.distributePatientsEvenly(incomingPcas, list, { randomize });
+    // ✅ Role-aware balancing (Fix #5)
+    window.distributePatientsEvenly(incomingNurses, list, { randomize, role: "nurse" });
+    window.distributePatientsEvenly(incomingPcas, list, { randomize, role: "pca" });
   } else {
     list.forEach((p, i) => {
       const n = incomingNurses[i % incomingNurses.length];

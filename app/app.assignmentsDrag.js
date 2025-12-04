@@ -7,6 +7,12 @@
 let dragCtx = null; // { context: 'live'|'incoming', role: 'nurse'|'pca', ownerId, patientId }
 
 // -----------------------------
+// Canonical globals
+// -----------------------------
+if (!Array.isArray(window.dischargeHistory)) window.dischargeHistory = [];
+if (typeof window.nextDischargeId !== "number") window.nextDischargeId = 1;
+
+// -----------------------------
 // Helpers
 // -----------------------------
 
@@ -17,7 +23,7 @@ function getStaffArray(context, role) {
 
 function findOwner(context, role, ownerId) {
   const arr = getStaffArray(context, role);
-  return (arr || []).find(o => o.id === ownerId) || null;
+  return (arr || []).find((o) => o.id === ownerId) || null;
 }
 
 function ensureArray(obj, key) {
@@ -38,7 +44,7 @@ function rerenderAllBoards() {
   if (typeof window.renderPcaAssignmentOutput === "function") window.renderPcaAssignmentOutput();
   if (typeof window.renderPatientList === "function") window.renderPatientList();
   if (typeof window.updateAcuityTiles === "function") window.updateAcuityTiles();
-  if (typeof saveState === "function") saveState();
+  if (typeof window.saveState === "function") window.saveState();
   if (typeof window.updateDischargeCount === "function") window.updateDischargeCount();
 }
 
@@ -97,8 +103,6 @@ function onRowDragEnd() {
 // DISCHARGE BIN
 // -----------------------------
 
-if (!Array.isArray(window.dischargeHistory)) window.dischargeHistory = [];
-
 function updateDischargeCount() {
   const el = document.getElementById("dischargeCount");
   if (!el) return;
@@ -115,6 +119,7 @@ function onDischargeDrop(event) {
   event.preventDefault();
   if (!dragCtx) return;
 
+  // Discharge only allowed from LIVE context
   if (dragCtx.context !== "live") {
     dragCtx = null;
     return;
@@ -124,9 +129,9 @@ function onDischargeDrop(event) {
 
   // Capture BOTH RN and PCA assignments at discharge time
   const rnOwner =
-    currentNurses.find(n => Array.isArray(n.patients) && n.patients.includes(patientId)) || null;
+    currentNurses.find((n) => Array.isArray(n.patients) && n.patients.includes(patientId)) || null;
   const pcOwner =
-    currentPcas.find(p => Array.isArray(p.patients) && p.patients.includes(patientId)) || null;
+    currentPcas.find((p) => Array.isArray(p.patients) && p.patients.includes(patientId)) || null;
 
   // Remove from BOTH lists
   if (rnOwner) {
@@ -146,14 +151,19 @@ function onDischargeDrop(event) {
     patient.isEmpty = true;
   }
 
+  // Canonical history record
   window.dischargeHistory.unshift({
+    id: window.nextDischargeId++,
     patientId,
     nurseId: rnOwner ? rnOwner.id : null,
     pcaId: pcOwner ? pcOwner.id : null,
-    timestamp: Date.now()
+    timestamp: Date.now(),
   });
 
   dragCtx = null;
+
+  // Persist + refresh
+  if (typeof window.saveState === "function") window.saveState();
   rerenderAllBoards();
 }
 
@@ -214,6 +224,7 @@ function reinstateDischargedPatient(index) {
     history.splice(index, 1);
     if (typeof window.updateDischargeCount === "function") window.updateDischargeCount();
     openDischargeHistoryModal();
+    if (typeof window.saveState === "function") window.saveState();
     return;
   }
 
@@ -221,7 +232,7 @@ function reinstateDischargedPatient(index) {
   patient.recentlyDischarged = false;
 
   if (entry.nurseId != null) {
-    const n = currentNurses.find(v => v.id === entry.nurseId);
+    const n = currentNurses.find((v) => v.id === entry.nurseId);
     if (n) {
       ensureArray(n, "patients");
       if (!n.patients.includes(patient.id)) n.patients.push(patient.id);
@@ -229,7 +240,7 @@ function reinstateDischargedPatient(index) {
   }
 
   if (entry.pcaId != null) {
-    const pc = currentPcas.find(v => v.id === entry.pcaId);
+    const pc = currentPcas.find((v) => v.id === entry.pcaId);
     if (pc) {
       ensureArray(pc, "patients");
       if (!pc.patients.includes(patient.id)) pc.patients.push(patient.id);
@@ -237,10 +248,57 @@ function reinstateDischargedPatient(index) {
   }
 
   history.splice(index, 1);
-  if (typeof window.updateDischargeCount === "function") window.updateDischargeCount();
 
+  if (typeof window.saveState === "function") window.saveState();
+
+  if (typeof window.updateDischargeCount === "function") window.updateDischargeCount();
   rerenderAllBoards();
   openDischargeHistoryModal();
+}
+
+// ---------------------------------------------------------
+// Clear “Recently Discharged” flags (AND reset session counter)
+// Intended to be called by the LIVE tab button:
+//   <button onclick="clearRecentlyDischargedFlags()">...</button>
+// ---------------------------------------------------------
+
+function clearRecentlyDischargedFlags() {
+  try {
+    const pts = Array.isArray(window.patients) ? window.patients : [];
+
+    // 1) Clear bed-level flags
+    let cleared = 0;
+    pts.forEach((p) => {
+      if (!p) return;
+
+      const had = !!p.recentlyDischarged || !!p.recentlyDischargedFlag;
+      if (p.recentlyDischarged) p.recentlyDischarged = false;
+      if (p.recentlyDischargedFlag) p.recentlyDischargedFlag = false;
+      if (p.dischargedAt) p.dischargedAt = null;
+
+      if (had) cleared++;
+    });
+
+    // 2) Reset discharge session tracking
+    window.dischargeHistory = [];
+    window.nextDischargeId = 1;
+
+    // 3) Persist + re-render
+    if (typeof window.saveState === "function") window.saveState();
+    if (typeof window.updateDischargeCount === "function") window.updateDischargeCount();
+
+    if (typeof window.renderPatientList === "function") window.renderPatientList();
+    if (typeof window.updateAcuityTiles === "function") window.updateAcuityTiles();
+    if (typeof window.renderLiveAssignments === "function") window.renderLiveAssignments();
+    if (typeof window.renderAssignmentOutput === "function") window.renderAssignmentOutput();
+    if (typeof window.renderPcaAssignmentOutput === "function") window.renderPcaAssignmentOutput();
+
+    console.log(
+      `Cleared recently discharged flags for ${cleared} patient(s). Reset discharge session count/history.`
+    );
+  } catch (e) {
+    console.warn("clearRecentlyDischargedFlags failed:", e);
+  }
 }
 
 // -----------------------------
@@ -258,3 +316,5 @@ window.updateDischargeCount = updateDischargeCount;
 window.openDischargeHistoryModal = openDischargeHistoryModal;
 window.closeDischargeHistoryModal = closeDischargeHistoryModal;
 window.reinstateDischargedPatient = reinstateDischargedPatient;
+
+window.clearRecentlyDischargedFlags = clearRecentlyDischargedFlags;
