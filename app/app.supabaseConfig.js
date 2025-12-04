@@ -1,3 +1,3 @@
 // app/app.supabaseConfig.js
-window.SUPABASE_URL = "https://YOURPROJECT.supabase.co";
-window.SUPABASE_ANON_KEY = "YOUR_ANON_PUBLIC_KEY";
+window.SUPABASE_URL = "https://nzentjlumxxljmwaddkf.supabase.co";
+window.SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im56ZW50amx1bXh4bGptd2FkZGtmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQ4NDc4NjQsImV4cCI6MjA4MDQyMzg2NH0.NOinPC0uH54700DJBwY7COLxNVkwfbem7wBmUZCiHmE"
