@@ -408,7 +408,7 @@
   <!-- Keep the shim (must not redefine modal functions) -->
   <script src="app/app.modals.js"></script>
 
-  <!-- Supabase config FIRST (sets window.SUPABASE_URL + window.SUPABASE_ANON_KEY) -->
+  <!-- Supabase config FIRST -->
   <script src="app/app.supabaseConfig.js"></script>
 
   <!-- Supabase library MUST be before app.supabase.js -->
@@ -417,6 +417,6 @@
   <!-- Your client wrapper -->
   <script src="app/app.supabase.js"></script>
 
-  <!-- App boot -->
+  <!-- then init -->
   <script src="app/app.init.js"></script>
   <script src="script.js"></script>
