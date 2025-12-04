@@ -408,8 +408,14 @@
   <!-- Keep the shim (must not redefine modal functions) -->
   <script src="app/app.modals.js"></script>
 
+  <!-- Supabase config FIRST -->
+  <script src="app/app.supabaseConfig.js"></script>
+
+  <!-- Supabase library MUST be before app.supabase.js -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+
+  <!-- Your client wrapper -->
+  <script src="app/app.supabase.js"></script>
+
   <script src="app/app.init.js"></script>
-  <script src="script.js"></script>app/app.init.js"></script>
   <script src="script.js"></script>
-</body>
-</html>
