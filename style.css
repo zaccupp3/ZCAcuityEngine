@@ -1200,3 +1200,175 @@ button {
 .assignment-table td:nth-child(3) {
   white-space: normal;
 }
+
+/* =====================================================
+   PATCH: LIVE PCA should fill the whole horizontal row
+   Paste at VERY BOTTOM to override earlier flex rules
+===================================================== */
+
+#livePcaAssignments{
+  display: grid !important;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 12px;
+  align-items: start;
+  width: 100%;
+  overflow: visible !important;   /* remove horizontal scroll behavior */
+  padding-bottom: 0;
+}
+
+/* Ensure PCA cards stretch instead of staying fixed-width */
+#livePcaAssignments .pcaBlock,
+#livePcaAssignments .liveCard{
+  width: 100% !important;
+  max-width: none !important;
+  flex: initial !important;
+  margin: 0 !important;
+}
+
+/* Optional: on very wide screens allow 5 across more easily */
+@media (min-width: 1600px){
+  #livePcaAssignments{
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+  }
+}
+
+/* On medium screens prefer 4 across */
+@media (min-width: 1200px) and (max-width: 1599px){
+  #livePcaAssignments{
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+/* On smaller screens, let auto-fit handle it naturally */
+
+/* =====================================================
+   PATCH: ONCOMING PCA should fill the whole horizontal row
+   Paste at VERY BOTTOM (after the Live PCA patch)
+===================================================== */
+
+#pcaAssignmentOutput{
+  display: grid !important;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 12px;
+  align-items: start;
+  width: 100%;
+}
+
+/* Ensure PCA cards stretch to the grid cell */
+#pcaAssignmentOutput .pcaBlock{
+  width: 100% !important;
+  max-width: none !important;
+  margin: 0 !important;
+}
+
+/* Optional: force 5 across on very wide screens, 4 across on typical desktop */
+@media (min-width: 1600px){
+  #pcaAssignmentOutput{
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+  }
+}
+
+@media (min-width: 1200px) and (max-width: 1599px){
+  #pcaAssignmentOutput{
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+/* =====================================================
+   HARD OVERRIDE: ONCOMING PCA should consume full width
+   Paste as LAST thing in style.css
+===================================================== */
+
+/* Force Oncoming PCA area to be a true stretching grid */
+#pcaAssignmentOutput{
+  display: grid !important;
+  width: 100% !important;
+  max-width: 100% !important;
+  justify-content: stretch !important;
+  align-content: start;
+  gap: 12px;
+
+  /* 4 cards -> each becomes 1fr (fills row). 5 -> 5 across on wide screens. */
+  grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+}
+
+/* If you have 5 PCAs and screen is wide enough, go 5 across */
+@media (min-width: 1500px){
+  #pcaAssignmentOutput{
+    grid-template-columns: repeat(5, minmax(0, 1fr)) !important;
+  }
+}
+
+/* Responsive fallbacks */
+@media (max-width: 1200px){
+  #pcaAssignmentOutput{ grid-template-columns: repeat(3, minmax(0, 1fr)) !important; }
+}
+@media (max-width: 900px){
+  #pcaAssignmentOutput{ grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
+}
+@media (max-width: 700px){
+  #pcaAssignmentOutput{ grid-template-columns: 1fr !important; }
+}
+
+/* Kill any old widths coming from earlier rules */
+#pcaAssignmentOutput .pcaBlock,
+#pcaAssignmentOutput .liveCard,
+#pcaAssignmentOutput > *{
+  width: 100% !important;
+  max-width: none !important;
+  flex: initial !important;
+  margin: 0 !important;
+  box-sizing: border-box !important;
+}
+/* =====================================================
+   FIX: Oncoming PCA cards MUST stretch to fill the row
+   Paste at VERY BOTTOM of style.css
+===================================================== */
+
+/* Make the container a true full-width grid */
+#pcaAssignmentOutput{
+  display: grid !important;
+  width: 100% !important;
+  max-width: 100% !important;
+  gap: 16px !important;
+  align-items: start !important;
+  justify-content: stretch !important;
+
+  /* If there are 4 PCAs, we want 4 equal columns that fill the row */
+  grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+}
+
+/* Let 5 fit when screen is wide */
+@media (min-width: 1500px){
+  #pcaAssignmentOutput{
+    grid-template-columns: repeat(5, minmax(0, 1fr)) !important;
+  }
+}
+
+/* Responsive */
+@media (max-width: 1200px){
+  #pcaAssignmentOutput{ grid-template-columns: repeat(3, minmax(0, 1fr)) !important; }
+}
+@media (max-width: 900px){
+  #pcaAssignmentOutput{ grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
+}
+@media (max-width: 700px){
+  #pcaAssignmentOutput{ grid-template-columns: 1fr !important; }
+}
+
+/* CRITICAL: remove the earlier 50% sizing rule AND force full stretch */
+#pcaAssignmentOutput .pcaBlock{
+  flex: unset !important;
+  width: auto !important;
+  max-width: none !important;
+  min-width: 0 !important;
+  justify-self: stretch !important;
+}
+
+/* Safety: in case .pcaBlock is wrapped or styled differently */
+#pcaAssignmentOutput > *{
+  width: auto !important;
+  max-width: none !important;
+  min-width: 0 !important;
+  justify-self: stretch !important;
+}
