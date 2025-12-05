@@ -16,6 +16,24 @@
       </span>
     </div>
 
+    <!-- Supabase Auth Status -->
+    <div id="authPanel" style="padding:12px;border:1px solid #ddd;border-radius:10px;margin:10px 0;display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+      <div id="authStatus" style="font-weight:600;">Auth: …</div>
+
+      <div id="authLoggedOut" style="display:none;gap:8px;align-items:center;">
+        <input id="authEmail" type="email" placeholder="you@domain.com" style="padding:8px;border:1px solid #ccc;border-radius:8px;min-width:240px;">
+        <button id="btnMagicLink" style="padding:8px 12px;border:0;border-radius:8px;cursor:pointer;">Send magic link</button>
+      </div>
+
+      <div id="authLoggedIn" style="display:none;gap:8px;align-items:center;">
+        <span id="authUserEmail" style="opacity:.85;"></span>
+        <span id="authUnitRole" style="padding:4px 8px;border-radius:999px;background:#f1f5f9;">unit: — | role: —</span>
+        <button id="btnSignOut" style="padding:8px 12px;border:0;border-radius:8px;cursor:pointer;">Sign out</button>
+      </div>
+
+      <div id="authMsg" style="width:100%;opacity:.8;"></div>
+    </div>
+
     <!-- Tabs moved into header (sticky) -->
     <nav class="header-nav" aria-label="Primary">
       <button class="tabButton active header-tab" data-target="staffingTab" onclick="showTab('staffingTab', this)">
@@ -416,7 +434,8 @@
 
   <!-- Your client wrapper -->
   <script src="app/app.supabase.js"></script>
-
+  <script src="app/app.authUI.js"></script>
+  
   <!-- then init -->
   <script src="app/app.init.js"></script>
   <script src="script.js"></script>
