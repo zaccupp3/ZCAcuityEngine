@@ -68,16 +68,13 @@
   }
   
   // Expose
+  // Expose
   window.sb = {
     client,
     getSession: sbGetSession,
+    getUser: sbGetUser,
     signInWithEmail: sbSignInWithEmail,
     signOut: sbSignOut,
-
-    // already had:
     myUnitMemberships: sbMyUnitMemberships,
-
-    // ADD these:
-    getUser: sbGetUser,
     myUnitProfile: sbMyUnitProfile,
   };
