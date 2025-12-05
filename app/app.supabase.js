@@ -51,12 +51,33 @@
       .select("unit_id, role, units:unit_id ( id, name, code )");
   }
 
+  async function sbGetUser() {
+    const { data, error } = await client.auth.getUser();
+    return { user: data?.user || null, error };
+  }
+
+  async function sbMyUnitProfile() {
+    // returns { unit_id, role, units: {id,name,code} } or null if none
+    const { data, error } = await client
+      .from("unit_members")
+      .select("unit_id, role, units:unit_id ( id, name, code )")
+      .order("created_at", { ascending: false })
+      .limit(1);
+
+    return { row: (data && data[0]) ? data[0] : null, error };
+  }
+  
   // Expose
   window.sb = {
     client,
     getSession: sbGetSession,
     signInWithEmail: sbSignInWithEmail,
     signOut: sbSignOut,
+
+    // already had:
     myUnitMemberships: sbMyUnitMemberships,
+
+    // ADD these:
+    getUser: sbGetUser,
+    myUnitProfile: sbMyUnitProfile,
   };
-})();
