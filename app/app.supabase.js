@@ -67,14 +67,16 @@
     return { row: (data && data[0]) ? data[0] : null, error };
   }
   
-  // Expose
-  // Expose
-  window.sb = {
-    client,
-    getSession: sbGetSession,
-    getUser: sbGetUser,
-    signInWithEmail: sbSignInWithEmail,
-    signOut: sbSignOut,
-    myUnitMemberships: sbMyUnitMemberships,
-    myUnitProfile: sbMyUnitProfile,
-  };
+    // Expose
+    window.sb = {
+      client,
+      getSession: sbGetSession,
+      getUser: sbGetUser,
+      signInWithEmail: sbSignInWithEmail,
+      signOut: sbSignOut,
+      myUnitMemberships: sbMyUnitMemberships,
+      myUnitProfile: sbMyUnitProfile,
+    };
+
+    window.supabaseClient = client;
+  })();
