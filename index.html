@@ -35,25 +35,24 @@
     </div>
 
     <!-- Tabs moved into header (sticky) -->
-    <nav class="header-nav" aria-label="Primary">
-      <button class="tabButton active header-tab" data-target="staffingTab" onclick="showTab('staffingTab', this)">
+    <nav class="header-nav top-tabs" aria-label="Primary">
+      <button class="tabButton active header-tab" data-target="staffingTab">
         Staffing Details
       </button>
-      <button class="tabButton header-tab" data-target="patientDetailsTab" onclick="showTab('patientDetailsTab', this)">
+      <button class="tabButton header-tab" data-target="patientDetailsTab">
         Patient Details
       </button>
-      <button class="tabButton header-tab" data-target="highRiskTab" onclick="showTab('highRiskTab', this)">
+      <button class="tabButton header-tab" data-target="highRiskTab">
         High Risk Report
       </button>
-      <button class="tabButton header-tab" data-target="liveAssignmentTab" onclick="showTab('liveAssignmentTab', this)">
+      <button class="tabButton header-tab" data-target="liveAssignmentTab">
         LIVE Assignment
       </button>
-      <button class="tabButton header-tab" data-target="oncomingAssignmentTab" onclick="showTab('oncomingAssignmentTab', this)">
+      <button class="tabButton header-tab" data-target="oncomingAssignmentTab">
         Oncoming Assignment
       </button>
     </nav>
 
-    <!-- Right side buttons removed per request -->
     <div class="header-right"></div>
   </header>
 
@@ -65,13 +64,11 @@
       <h1>Staffing Details</h1>
 
       <div class="staffing-three-column">
-        <!-- LEFT COLUMN: Charge / Mentor / CTA -->
+        <!-- LEFT COLUMN: Leadership Team -->
         <div class="staff-column staff-column--support">
-          <h2>Support Roles</h2>
+          <h2>Leadership Team</h2>
 
-          <div class="staff-card">
-            <div class="staff-card-header">Current Shift</div>
-
+          <div class="staff-card leadership-card">
             <div class="staff-role-row">
               <label for="currentChargeName"><strong>Current Charge:</strong></label>
               <input id="currentChargeName" type="text" placeholder="Name" />
@@ -86,10 +83,8 @@
               <label for="currentCtaName"><strong>Current CTA:</strong></label>
               <input id="currentCtaName" type="text" placeholder="Name" />
             </div>
-          </div>
 
-          <div class="staff-card">
-            <div class="staff-card-header">Oncoming Shift</div>
+            <hr class="leadership-divider" />
 
             <div class="staff-role-row">
               <label for="incomingChargeName"><strong>Oncoming Charge:</strong></label>
@@ -221,44 +216,41 @@
       <div class="actions-row">
         <button onclick="window.populateLiveAssignment(false)">Populate Live Assignment</button>
         <button onclick="window.populateLiveAssignment(true)">Randomize Live Assignment</button>
-        <button onclick="clearRecentlyDischargedFlags()">Clear “Recently Discharged” Flags</button>
       </div>
 
-      <div class="live-top-bar">
-        <div class="discharge-bin">
-          <strong>Discharge Bin:</strong>
-          <span id="dischargeCount">0</span> recent this session
-          <button onclick="openDischargeHistoryModal()">View History</button>
-          <div
-            id="dischargeDropZone"
-            class="discharge-drop-zone"
-            ondragover="onDischargeDragOver(event)"
-            ondrop="onDischargeDrop(event)"
-          >
-            Drag here to discharge patient
-          </div>
-        </div>
-      </div>
+      <!-- ✅ RN + Queue region on top -->
+      <div class="live-layout live-layout--rn-with-queue">
 
-      <div class="live-layout">
-        <div class="live-column">
+        <!-- LEFT: RN grid -->
+        <div class="live-column live-column--rn">
           <h2>Current RN Assignments</h2>
+
+          <!-- ✅ RN cards render here; JS also injects the discharge bin as slot 9 -->
           <div id="liveNurseAssignments" class="assignment-grid live-grid live-grid-nurse"></div>
         </div>
 
-        <div class="live-column">
-          <h2>Current PCA Assignments</h2>
-          <div id="livePcaAssignments" class="assignment-grid live-grid live-grid-pca"></div>
-
-          <h2 style="margin-top: 24px;">Admit Queue</h2>
+        <!-- RIGHT: Admit Queue "Queue Area" -->
+        <div class="live-column live-column--queue">
+          <h2>Admit Queue</h2>
 
           <div class="actions-row">
             <button onclick="promptAddAdmit()">+ Add Admit</button>
           </div>
 
-          <div id="queueList" class="queue-list"></div>
+          <!-- keep SAME id so existing queue JS continues to work -->
+          <div id="queueList" class="queue-list queue-list--compact"></div>
         </div>
       </div>
+
+      <!-- ✅ PCA section below -->
+      <div class="live-layout live-layout--pca-only" style="margin-top: 16px;">
+        <div class="live-column">
+          <h2>Current PCA Assignments</h2>
+          <div id="livePcaAssignments" class="assignment-grid live-grid live-grid-pca"></div>
+        </div>
+      </div>
+
+      <!-- ❌ Removed old discharge row entirely (now lives in RN grid slot 9) -->
     </section>
 
     <!-- ONCOMING ASSIGNMENT TAB -->
@@ -278,8 +270,180 @@
     </section>
   </main>
 
-  <!-- MODALS (same as before) -->
-  <!-- ... your modals unchanged ... -->
+  <!-- MODALS -->
+  <div id="patientProfileModal" class="modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <span id="profileModalTitle">Patient Profile</span>
+        <button class="close-btn" onclick="closePatientProfileModal()">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="modal-row">
+          <label for="profGender"><strong>Gender:</strong></label>
+          <select id="profGender">
+            <option value="">-</option>
+            <option value="F">F</option>
+            <option value="M">M</option>
+            <option value="X">X</option>
+          </select>
+        </div>
+
+        <div class="modal-grid">
+          <div class="modal-column">
+            <h3>RN Acuity Tags</h3>
+            <label><input type="checkbox" id="profTele" /> Tele</label>
+            <label><input type="checkbox" id="profDrip" /> Drip</label>
+            <label><input type="checkbox" id="profNih" /> NIH</label>
+            <label><input type="checkbox" id="profBg" /> BG</label>
+            <label><input type="checkbox" id="profCiwa" /> CIWA/COWS</label>
+            <label><input type="checkbox" id="profRestraint" /> Restraint</label>
+            <label><input type="checkbox" id="profSitter" /> Sitter</label>
+            <label><input type="checkbox" id="profVpo" /> VPO</label>
+            <label><input type="checkbox" id="profIso" /> Isolation</label>
+            <label><input type="checkbox" id="profAdmit" /> Admit</label>
+            <label><input type="checkbox" id="profLateDc" /> Late DC</label>
+          </div>
+
+          <div class="modal-column">
+            <h3>PCA Acuity Tags</h3>
+            <label><input type="checkbox" id="profTelePca" /> Tele</label>
+            <label><input type="checkbox" id="profIsoPca" /> Isolation</label>
+            <label><input type="checkbox" id="profAdmitPca" /> Admit</label>
+            <label><input type="checkbox" id="profLateDcPca" /> Late DC</label>
+            <label><input type="checkbox" id="profChg" /> CHG</label>
+            <label><input type="checkbox" id="profFoley" /> Foley</label>
+            <label><input type="checkbox" id="profQ2" /> Q2 Turns</label>
+            <label><input type="checkbox" id="profHeavy" /> Heavy</label>
+            <label><input type="checkbox" id="profFeeder" /> Feeder</label>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button onclick="savePatientProfile()">Save</button>
+        <button onclick="closePatientProfileModal()">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="dischargeHistoryModal" class="modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <span>Discharge History (This Session)</span>
+        <button class="close-btn" onclick="closeDischargeHistoryModal()">&times;</button>
+      </div>
+      <div class="modal-body" id="dischargeHistoryBody"></div>
+    </div>
+  </div>
+
+  <div id="acuityModal" class="modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <span>High Acuity Summary</span>
+        <button class="close-btn" onclick="closeAcuityModal()">&times;</button>
+      </div>
+      <div class="modal-body" id="acuityReportBody"></div>
+    </div>
+  </div>
+
+  <!-- ASSIGN ADMIT MODAL -->
+  <div id="queueAssignModal" class="modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <span>Assign Admit to RN / PCA</span>
+        <button class="close-btn" onclick="closeQueueAssignModal()">&times;</button>
+      </div>
+
+      <div class="modal-body">
+        <p id="queueAssignInfo" style="margin-bottom: 12px; font-size: 14px; opacity: 0.8;">
+          Select the receiving RN, PCA, and the empty bed for this admit.
+        </p>
+
+        <div class="modal-row">
+          <label for="queueAssignBed"><strong>Receiving Bed (Empty):</strong></label>
+          <select id="queueAssignBed"></select>
+        </div>
+
+        <div class="modal-row">
+          <label for="queueAssignNurse"><strong>Receiving RN:</strong></label>
+          <select id="queueAssignNurse"></select>
+        </div>
+
+        <div class="modal-row">
+          <label for="queueAssignPca"><strong>Receiving PCA:</strong></label>
+          <select id="queueAssignPca"></select>
+        </div>
+
+        <p style="font-size: 12px; opacity: 0.7; margin-top: 8px;">
+          Tip: if you don’t see the bed you expect, make sure the room is marked empty in Patient Details or by discharge.
+        </p>
+      </div>
+
+      <div class="modal-footer">
+        <button onclick="confirmQueueAssign()">Assign</button>
+        <button onclick="closeQueueAssignModal()">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- PRE-ADMIT TAGS MODAL -->
+  <div id="admitDraftModal" class="modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <span id="admitDraftTitle">Pre-Admit Tags</span>
+        <button class="close-btn" onclick="closeAdmitDraftModal()">&times;</button>
+      </div>
+
+      <div class="modal-body">
+        <p id="admitDraftInfo" style="margin-bottom: 12px; font-size: 14px; opacity: 0.85;">
+          Set optional pre-admit tags. These will copy into the patient record when you assign this admit into a bed.
+        </p>
+
+        <div class="modal-row">
+          <label for="admitDraftGender"><strong>Gender (optional):</strong></label>
+          <select id="admitDraftGender">
+            <option value="">-</option>
+            <option value="F">F</option>
+            <option value="M">M</option>
+            <option value="X">X</option>
+          </select>
+        </div>
+
+        <div class="modal-grid" style="margin-top: 12px;">
+          <div class="modal-column">
+            <h3>RN Pre-Admit Tags</h3>
+            <label><input type="checkbox" id="adTele" /> Tele</label>
+            <label><input type="checkbox" id="adDrip" /> Drip</label>
+            <label><input type="checkbox" id="adNih" /> NIH</label>
+            <label><input type="checkbox" id="adBg" /> BG</label>
+            <label><input type="checkbox" id="adCiwa" /> CIWA/COWS</label>
+            <label><input type="checkbox" id="adRestraint" /> Restraint</label>
+            <label><input type="checkbox" id="adSitter" /> Sitter</label>
+            <label><input type="checkbox" id="adVpo" /> VPO</label>
+            <label><input type="checkbox" id="adIso" /> Isolation</label>
+            <label><input type="checkbox" id="adLateDc" /> Late DC</label>
+          </div>
+
+          <div class="modal-column">
+            <h3>PCA Pre-Admit Tags</h3>
+            <label><input type="checkbox" id="adChg" /> CHG</label>
+            <label><input type="checkbox" id="adFoley" /> Foley</label>
+            <label><input type="checkbox" id="adQ2" /> Q2 Turns</label>
+            <label><input type="checkbox" id="adHeavy" /> Heavy</label>
+            <label><input type="checkbox" id="adFeeder" /> Feeder</label>
+          </div>
+        </div>
+
+        <p style="font-size: 12px; opacity: 0.7; margin-top: 10px;">
+          Note: “Admit” itself is automatically set when the admit is placed into a bed.
+        </p>
+      </div>
+
+      <div class="modal-footer">
+        <button onclick="saveAdmitDraftFromModal()">Save Tags</button>
+        <button onclick="closeAdmitDraftModal()">Cancel</button>
+      </div>
+    </div>
+  </div>
 
   <script src="app/app.state.js"></script>
   <script src="app/app.queue.js"></script>
@@ -296,8 +460,9 @@
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
   <script src="app/app.supabase.js"></script>
   <script src="app/app.authUI.js"></script>
-
   <script src="app/app.init.js"></script>
+
+  <!-- Keep LAST so it can hook up handlers after DOM exists -->
   <script src="script.js"></script>
 </body>
 </html>

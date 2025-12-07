@@ -1,36 +1,50 @@
 // script.js
-// Tiny helper for switching tabs.
+// Tabs + Support Role Persistence
 
-window.showTab = function (sectionId, buttonEl) {
-  // 1) show/hide sections
-  const sections = document.querySelectorAll(".tab-section");
-  sections.forEach((sec) => {
-    sec.style.display = sec.id === sectionId ? "block" : "none";
-  });
+(function () {
+  function showTab(sectionId) {
+    const sections = document.querySelectorAll(".tab-section");
+    sections.forEach((sec) => {
+      sec.style.display = sec.id === sectionId ? "block" : "none";
+    });
 
-  // 2) set active button
-  const buttons = document.querySelectorAll(".tabButton");
-  buttons.forEach((btn) => btn.classList.remove("active"));
+    const buttons = document.querySelectorAll(".tabButton");
+    buttons.forEach((btn) => btn.classList.remove("active"));
 
-  // If caller didn't pass "this", find the matching button by data-target
-  const fallbackBtn =
-    buttonEl ||
-    document.querySelector(`.tabButton[data-target="${sectionId}"]`);
+    const activeBtn = document.querySelector(`.tabButton[data-target="${sectionId}"]`);
+    if (activeBtn) activeBtn.classList.add("active");
+  }
 
-  if (fallbackBtn) fallbackBtn.classList.add("active");
-};
+  // Expose for any legacy inline calls that still exist
+  window.showTab = function (sectionId, buttonEl) {
+    showTab(sectionId);
+  };
 
-(function supportRolePersistence() {
-  const ids = [
-    "currentChargeName",
-    "currentMentorName",
-    "currentCtaName",
-    "incomingChargeName",
-    "incomingMentorName",
-    "incomingCtaName",
-  ];
+  function wireTabs() {
+    const buttons = document.querySelectorAll(".tabButton[data-target]");
+    buttons.forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const target = btn.getAttribute("data-target");
+        if (target) showTab(target);
+      });
+    });
 
-  function load() {
+    // Default to Staffing tab if none active
+    const active = document.querySelector(".tabButton.active[data-target]");
+    const defaultTarget = active?.getAttribute("data-target") || "staffingTab";
+    showTab(defaultTarget);
+  }
+
+  function supportRolePersistence() {
+    const ids = [
+      "currentChargeName",
+      "currentMentorName",
+      "currentCtaName",
+      "incomingChargeName",
+      "incomingMentorName",
+      "incomingCtaName",
+    ];
+
     ids.forEach((id) => {
       const el = document.getElementById(id);
       if (!el) return;
@@ -44,10 +58,14 @@ window.showTab = function (sectionId, buttonEl) {
     });
   }
 
-  // Load after DOM is ready
+  function init() {
+    wireTabs();
+    supportRolePersistence();
+  }
+
   if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", load);
+    document.addEventListener("DOMContentLoaded", init);
   } else {
-    load();
+    init();
   }
 })();

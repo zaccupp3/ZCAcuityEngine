@@ -875,3 +875,481 @@ button{
     font-size: 15px;
   }
 }
+
+/* =====================================================
+   Staffing Details — tighten top spacing + leadership column tweaks
+   ===================================================== */
+
+/* Reduce extra grey space above page content */
+.tab-section {
+  padding-top: 10px; /* was 20px */
+}
+
+/* Tighten the H1 a bit so it sits closer to header */
+#staffingTab h1 {
+  margin-top: 8px;
+  margin-bottom: 12px;
+}
+
+/* Make the 3 columns align flush at the top */
+.staffing-three-column {
+  margin-top: 6px; /* reduce whitespace above cards */
+  align-items: flex-start;
+}
+
+/* Leadership column: keep it visually aligned and clean */
+.staff-column--support > h2 {
+  margin-top: 0; /* ensure header aligns with other column headers */
+}
+
+/* Make Leadership Team a single card, with a nice internal divider */
+.leadership-card {
+  padding-top: 14px;
+}
+
+.leadership-divider {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 12px 0;
+  opacity: 0.9;
+}
+
+/* =====================================================
+   LIVE: Admit Queue "Queue Area" (compact, above RN cards)
+===================================================== */
+
+.queue-area{
+  margin: 14px 0 18px;
+  background: #ffffff;
+  border: 1px solid var(--card-border, #dfe7f2);
+  border-radius: 10px;
+  box-shadow: var(--card-shadow, 0 1px 2px rgba(16,24,40,0.06));
+  padding: 12px 12px 10px;
+}
+
+/* Header row: title left, add button right */
+.queue-area-header{
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid #e5e7eb;
+  margin-bottom: 10px;
+}
+
+.queue-area-header button{
+  background: #e8f2ff;
+  padding: 8px 12px;
+  border-radius: 8px;
+  font-weight: 700;
+}
+
+/* Compact list container */
+.queue-list-compact{
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+
+  /* keeps it from taking over the page */
+  max-height: 240px;     /* tuned for ~3-4 admits */
+  overflow-y: auto;
+  padding-right: 6px;    /* room for scrollbar */
+}
+
+/* Make each admit row more compact inside the new area */
+.queue-list-compact .queue-item{
+  padding: 10px 10px;
+  border-radius: 10px;
+}
+
+/* If your queue item header is wide, tighten it */
+.queue-list-compact .queue-item-header{
+  gap: 10px;
+  align-items: center;
+}
+
+/* Buttons in queue item: smaller + tidy */
+.queue-list-compact .queue-item-actions button{
+  padding: 6px 10px;
+  border-radius: 8px;
+  font-weight: 700;
+}
+
+/* Slightly reduce text sizes so 3–4 items fit comfortably */
+.queue-list-compact .queue-item-title input{
+  font-size: 14px;
+  width: 170px;
+}
+
+.queue-list-compact .queue-item-tags{
+  font-size: 12px;
+  margin: 8px 0 0;
+}
+
+/* Nice scrollbar (optional) */
+.queue-list-compact::-webkit-scrollbar{
+  width: 10px;
+}
+.queue-list-compact::-webkit-scrollbar-thumb{
+  background: #d6dde8;
+  border-radius: 999px;
+}
+.queue-list-compact::-webkit-scrollbar-track{
+  background: transparent;
+}
+
+/* =====================================================
+   LIVE RN GRID — Add a "utility tile" in the 9th slot
+   Paste at VERY BOTTOM of style.css
+===================================================== */
+
+/* Make a 2-item layout where the RN grid + utility tile behave like a single grid */
+.live-rn-grid-with-utility{
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 12px;
+}
+
+/* The existing #liveNurseAssignments is already a 3-col grid.
+   We make it continue to be 3-col, then place a utility card that matches sizing. */
+#liveNurseAssignments{
+  grid-column: 1 / -1;
+}
+
+/* Utility card styling */
+.live-utility-tile{
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  border-radius: 10px;
+  box-shadow: var(--card-shadow);
+  overflow: hidden;
+  padding: 12px;
+}
+
+/* Header row inside utility tile */
+.live-utility-header{
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--table-divider);
+  margin-bottom: 10px;
+}
+
+.live-utility-meta{
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+  font-size: 14px;
+}
+
+/* Buttons inside the tile */
+.live-utility-btn{
+  background: #e8f2ff;
+  border: none;
+  padding: 6px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 13px;
+}
+.live-utility-btn:hover{
+  background: #d3e8ff;
+}
+
+/* Drop zone inside the tile */
+.discharge-drop-zone--tile{
+  border: 2px dashed #ff5252;
+  border-radius: 8px;
+  padding: 12px;
+  text-align: center;
+  font-weight: 700;
+  background: #fff5f5;
+}
+
+/* Place the utility tile so it "feels" like the 9th RN card:
+   we align it with the RN grid columns by matching width behavior */
+.live-column--rn .live-rn-grid-with-utility{
+  align-items: start;
+}
+
+/* On desktop, show utility tile under the RN grid, visually in the open area.
+   The RN grid already flows 3 columns; the extra tile naturally sits as the next block. */
+@media (min-width: 701px){
+  .live-utility-tile{
+    max-width: none;
+  }
+}
+
+/* On smaller screens, everything stacks cleanly */
+@media (max-width: 700px){
+  .live-utility-header,
+  .live-utility-meta{
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}
+
+/* =====================================================
+   LIVE: Discharge Bin as a dedicated 9th grid slot card
+===================================================== */
+
+#dischargeBinCard.discharge-card{
+  background: var(--card-bg, #fff);
+  border: 1px solid var(--card-border, #dfe7f2);
+  border-radius: 10px;
+  box-shadow: var(--card-shadow, 0 1px 2px rgba(16,24,40,0.06));
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 220px; /* helps it “feel” like a true grid tile */
+}
+
+#dischargeBinCard .discharge-card-header{
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+#dischargeBinCard .discharge-title{
+  font-weight: 800;
+  color: #0f172a;
+}
+
+#dischargeBinCard .discharge-clear-btn{
+  background: #e8f2ff;
+  border: 0;
+  border-radius: 8px;
+  padding: 6px 10px;
+  font-weight: 700;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+#dischargeBinCard .discharge-clear-btn:hover{
+  background: #d3e8ff;
+}
+
+#dischargeBinCard .discharge-meta{
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 13px;
+  color: #111827;
+}
+
+#dischargeBinCard .discharge-history-btn{
+  background: #e8f2ff;
+  border: 0;
+  border-radius: 8px;
+  padding: 6px 10px;
+  font-weight: 700;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+#dischargeBinCard .discharge-history-btn:hover{
+  background: #d3e8ff;
+}
+
+/* Make drop zone fit card, not full-width bar */
+#dischargeBinCard .discharge-drop-zone--card{
+  flex: 1;
+  min-height: 110px;
+  border: 2px dashed #ff5252;
+  border-radius: 10px;
+  background: #fff7f7;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 800;
+  color: #111827;
+  text-align: center;
+  padding: 10px;
+}
+
+#dischargeBinCard .discharge-helper{
+  font-size: 12px;
+  color: #6b7280;
+  line-height: 1.2;
+}
+
+/* =====================================================
+   LIVE RN area: reserve a right-side tile for Discharge Bin
+===================================================== */
+
+.rn-grid-with-discharge{
+  display: grid;
+  grid-template-columns: 2fr 1fr; /* RN area wide + discharge tile column */
+  gap: 12px;
+  align-items: start;
+}
+
+/* RN grid stays a grid itself (your existing rules still apply) */
+#liveNurseAssignments{
+  grid-column: 1 / 2;
+}
+
+/* Make RN cards 2-up inside the RN region so the discharge card feels like the 3rd column */
+#liveNurseAssignments{
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  align-items: start;
+}
+
+/* Responsive: if screen gets smaller, stack discharge under RN grid */
+@media (max-width: 1200px){
+  .rn-grid-with-discharge{
+    grid-template-columns: 1fr;
+  }
+  #dischargeBinCard{
+    grid-column: 1 / -1;
+  }
+  #liveNurseAssignments{
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (max-width: 700px){
+  #liveNurseAssignments{
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Discharge card styling (same as before, kept) */
+#dischargeBinCard.discharge-card{
+  background: var(--card-bg, #fff);
+  border: 1px solid var(--card-border, #dfe7f2);
+  border-radius: 10px;
+  box-shadow: var(--card-shadow, 0 1px 2px rgba(16,24,40,0.06));
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 220px;
+}
+
+#dischargeBinCard .discharge-card-header{
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+#dischargeBinCard .discharge-title{
+  font-weight: 800;
+  color: #0f172a;
+}
+
+#dischargeBinCard .discharge-clear-btn,
+#dischargeBinCard .discharge-history-btn{
+  background: #e8f2ff;
+  border: 0;
+  border-radius: 8px;
+  padding: 6px 10px;
+  font-weight: 700;
+  font-size: 12px;
+  cursor: pointer;
+}
+#dischargeBinCard .discharge-clear-btn:hover,
+#dischargeBinCard .discharge-history-btn:hover{
+  background: #d3e8ff;
+}
+
+#dischargeBinCard .discharge-meta{
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 13px;
+  color: #111827;
+}
+
+#dischargeBinCard .discharge-drop-zone--card{
+  flex: 1;
+  min-height: 110px;
+  border: 2px dashed #ff5252;
+  border-radius: 10px;
+  background: #fff7f7;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 800;
+  color: #111827;
+  text-align: center;
+  padding: 10px;
+}
+
+#dischargeBinCard .discharge-helper{
+  font-size: 12px;
+  color: #6b7280;
+  line-height: 1.2;
+}
+
+/* =========================
+   LIVE RN GRID: force 3x3
+   ========================= */
+
+/* RN assignments container should be a 3-col grid */
+#liveNurseAssignments.live-grid-nurse {
+  display: grid !important;
+  grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+  gap: 14px !important;
+  align-items: start !important;
+}
+
+/* If you have a generic .assignment-grid rule forcing 2 columns, override it */
+.assignment-grid.live-grid-nurse {
+  grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+}
+
+/* Make sure RN tiles behave as grid items */
+#liveNurseAssignments .nurseBlock,
+#liveNurseAssignments .dischargeBinCard {
+  width: 100%;
+  min-width: 0;
+}
+
+/* Pin discharge bin into the 9th slot: col 3 / row 3 */
+#dischargeBinCard.dischargeBinCard {
+  grid-column: 3 !important;
+  grid-row: 3 !important;
+}
+
+/* If the screen is too narrow for 3 columns, fall back gracefully */
+@media (max-width: 1100px) {
+  #liveNurseAssignments.live-grid-nurse {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
+  #dischargeBinCard.dischargeBinCard {
+    grid-column: auto !important;
+    grid-row: auto !important;
+  }
+}
+
+/* RN live grid should always be 3 columns */
+.live-grid-nurse {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(320px, 1fr));
+  gap: 16px;
+  align-items: start;
+}
+
+/* The reserved 9th slot */
+.rn-grid-slot-9 {
+  grid-column: 3;
+  grid-row: 3;
+  min-height: 220px;
+}
+
+/* Optional: make discharge card look consistent */
+.discharge-card .discharge-drop-zone {
+  min-height: 70px;
+}

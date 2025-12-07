@@ -73,10 +73,11 @@ function renderLiveAssignments() {
   const pcaContainer = document.getElementById("livePcaAssignments");
   if (!nurseContainer || !pcaContainer) return;
 
+  // Clear containers
   nurseContainer.innerHTML = "";
   pcaContainer.innerHTML = "";
 
-  // ----- RNs -----
+  // ---- RNs ----
   currentNurses.forEach(nurse => {
     const pts = (nurse.patients || [])
       .map(id => getPatientById(id))
@@ -127,7 +128,43 @@ function renderLiveAssignments() {
     `;
   });
 
-  // ----- PCAs -----
+  // ✅ Always append the 9th slot placeholder AFTER RN cards render
+  nurseContainer.innerHTML += `<div id="rnGridSlot9" class="rn-grid-slot-9"></div>`;
+
+  // ✅ Inject discharge card into slot 9
+  if (typeof window.ensureDischargeBinInRnGrid === "function") {
+    window.ensureDischargeBinInRnGrid();
+  } else {
+    // fallback inline injection if helper isn't defined elsewhere
+    const slot = document.getElementById("rnGridSlot9");
+    if (slot && !document.getElementById("dischargeBinCard")) {
+      slot.innerHTML = `
+        <div id="dischargeBinCard" class="assignment-card discharge-card">
+          <div class="assignment-header discharge-card-header">
+            <div><strong>Discharge Bin</strong></div>
+            <button onclick="clearRecentlyDischargedFlags()">Clear “Recently Discharged” Flags</button>
+          </div>
+
+          <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 12px;">
+            <div><strong>Recent:</strong> <span id="dischargeCount">0</span> this session</div>
+            <button onclick="openDischargeHistoryModal()">View History</button>
+          </div>
+
+          <div
+            id="dischargeDropZone"
+            class="discharge-drop-zone"
+            ondragover="onDischargeDragOver(event)"
+            ondrop="onDischargeDrop(event)"
+            style="margin:0 12px 12px 12px;"
+          >
+            Drag here to discharge patient
+          </div>
+        </div>
+      `;
+    }
+  }
+
+  // ---- PCAs ----
   currentPcas.forEach(pca => {
     const pts = (pca.patients || [])
       .map(id => getPatientById(id))
