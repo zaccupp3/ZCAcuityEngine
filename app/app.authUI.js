@@ -1,11 +1,16 @@
 // app/app.authUI.js
-// Wires the #authPanel UI to window.sb (Supabase wrapper)
-// Robust to missing helper methods; falls back to direct queries.
+// Wires the auth dropdown UI to window.sb (Supabase wrapper)
 
 (function () {
   function $(id) { return document.getElementById(id); }
 
   const el = {
+    // dropdown shell
+    menuBtn: $("authMenuBtn"),
+    dropdown: $("authDropdown"),
+    closeBtn: $("authDropdownClose"),
+
+    // existing auth ids (unchanged)
     status: $("authStatus"),
     loggedOut: $("authLoggedOut"),
     loggedIn: $("authLoggedIn"),
@@ -35,6 +40,25 @@
     return !!(window.sb && window.sb.client && window.sb.client.auth);
   }
 
+  function openDropdown() {
+    if (!el.dropdown) return;
+    el.dropdown.classList.add("open");
+    if (el.menuBtn) el.menuBtn.setAttribute("aria-expanded", "true");
+  }
+
+  function closeDropdown() {
+    if (!el.dropdown) return;
+    el.dropdown.classList.remove("open");
+    if (el.menuBtn) el.menuBtn.setAttribute("aria-expanded", "false");
+  }
+
+  function toggleDropdown() {
+    if (!el.dropdown) return;
+    const isOpen = el.dropdown.classList.contains("open");
+    if (isOpen) closeDropdown();
+    else openDropdown();
+  }
+
   async function getSessionSafe() {
     try {
       return await window.sb.client.auth.getSession();
@@ -44,12 +68,10 @@
   }
 
   async function getUnitProfileFallback() {
-    // Prefer helper if present
     if (typeof window.sb?.myUnitProfile === "function") {
       return await window.sb.myUnitProfile();
     }
 
-    // Fallback: direct query. RLS should limit rows to current user.
     const { data, error } = await window.sb.client
       .from("unit_members")
       .select("unit_id, role, units:unit_id ( id, name, code )")
@@ -93,7 +115,6 @@
     const email = session.user?.email || "(no email)";
     if (el.userEmail) el.userEmail.textContent = email;
 
-    // Pull role/unit
     const prof = await getUnitProfileFallback();
     if (prof?.error) {
       if (el.unitRole) el.unitRole.textContent = "unit: — | role: —";
@@ -145,15 +166,46 @@
     await refreshAuthUI();
   }
 
-  function wire() {
+  function wireDropdown() {
+    if (el.menuBtn) el.menuBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      toggleDropdown();
+    });
+
+    if (el.closeBtn) el.closeBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      closeDropdown();
+    });
+
+    // Close if click outside
+    document.addEventListener("click", (e) => {
+      if (!el.dropdown) return;
+      if (!el.dropdown.classList.contains("open")) return;
+
+      const clickedInside =
+        el.dropdown.contains(e.target) || (el.menuBtn && el.menuBtn.contains(e.target));
+
+      if (!clickedInside) closeDropdown();
+    });
+
+    // Close on ESC
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape") closeDropdown();
+    });
+  }
+
+  function wireAuthActions() {
     if (el.btnMagic) el.btnMagic.addEventListener("click", sendMagicLink);
     if (el.btnSignOut) el.btnSignOut.addEventListener("click", doSignOut);
 
-    // Keep UI in sync on login/logout events (only if ready)
     if (sbReady() && typeof window.sb.client.auth.onAuthStateChange === "function") {
       window.sb.client.auth.onAuthStateChange(() => refreshAuthUI());
     }
+  }
 
+  function wire() {
+    wireDropdown();
+    wireAuthActions();
     refreshAuthUI();
   }
 
