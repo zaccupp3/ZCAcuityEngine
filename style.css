@@ -4,15 +4,30 @@
 
 :root{
   --bg: #f4f6f8;
-  --text: #222;
+  --text: #111827;
   --muted: #6b7280;
 
   --brand: #00558c;
   --brand2: #0079c1;
 
   --card: #ffffff;
-  --border: #dde5ee;
-  --shadow: 0 2px 8px rgba(0,0,0,0.10);
+  --border: #d9e1ec;
+
+  /* NEW: cleaner “clinical” card palette (screenshot #1 vibe) */
+  --card-bg: #ffffff;
+  --card-border: #dfe7f2;
+  --card-shadow: 0 1px 2px rgba(16,24,40,0.06);
+  --card-shadow-hover: 0 2px 6px rgba(16,24,40,0.10);
+
+  --card-header-bg: #f3f6fb;      /* light header strip */
+  --card-header-text: #0f172a;
+
+  --table-head-bg: #edf3ff;       /* subtle blue-gray */
+  --table-row-hover: rgba(17,24,39,0.03);
+  --table-divider: #e5e7eb;
+
+  --pill-bg: #eef2ff;
+  --pill-text: #334155;
 }
 
 body {
@@ -41,7 +56,7 @@ hr {
 }
 
 /* =====================================================
-   TOP STICKY HEADER + INLINE TABS (NEW)
+   TOP STICKY HEADER + INLINE TABS
 ===================================================== */
 
 .app-header{
@@ -56,7 +71,6 @@ hr {
   padding: 10px 18px;
 }
 
-/* Left brand block */
 .app-header-left{
   display: flex;
   align-items: center;
@@ -103,7 +117,6 @@ hr {
   text-overflow: ellipsis;
 }
 
-/* Tabs live in header */
 .top-tabs{
   display: flex;
   align-items: center;
@@ -114,7 +127,6 @@ hr {
   padding-bottom: 2px;
 }
 
-/* Make header tabs feel like compact pills */
 .top-tabs .tabButton{
   flex: 0 0 auto;
   color: white;
@@ -136,7 +148,6 @@ hr {
   background: #008ce6;
 }
 
-/* Optional: nicer scrollbar for the header tabs */
 .top-tabs::-webkit-scrollbar{
   height: 8px;
 }
@@ -148,15 +159,13 @@ hr {
   background: transparent;
 }
 
-/* Hide subtitle on very small screens to keep tabs visible */
 @media (max-width: 720px){
   .app-header-left{ min-width: 220px; }
   .brand-subtitle{ display: none; }
 }
 
 /* =====================================================
-   LEGACY TABS BAR (OLD) — KEEP SAFE, BUT DISABLE VISUALLY
-   If your HTML no longer uses #header/tab-bar, this won’t matter.
+   LEGACY TABS BAR (OLD) — DISABLE
 ===================================================== */
 
 #header,
@@ -164,7 +173,7 @@ hr {
   display: none !important;
 }
 
-/* Base tab styles (also used by header tabs above) */
+/* Base tab styles */
 .tabButton {
   color: white;
   background: #0066c5;
@@ -174,14 +183,8 @@ hr {
   border-radius: 4px;
   font-weight: bold;
 }
-
-.tabButton.active {
-  background: #00a1ff;
-}
-
-.tabButton:hover {
-  background: #008ce6;
-}
+.tabButton.active { background: #00a1ff; }
+.tabButton:hover  { background: #008ce6; }
 
 .tab-section {
   display: none;
@@ -211,19 +214,8 @@ hr {
   margin-bottom: 8px;
 }
 
-.restrictionsGroup {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.restrictionOption {
-  font-size: 12px;
-}
-
-/* =========================
-   Staffing Details two-column layout
-========================= */
+.restrictionsGroup { display: flex; align-items: center; gap: 10px; }
+.restrictionOption { font-size: 12px; }
 
 .staffing-two-column {
   display: flex;
@@ -233,10 +225,7 @@ hr {
   flex-wrap: wrap;
 }
 
-.staff-column {
-  flex: 1;
-  min-width: 360px;
-}
+.staff-column { flex: 1; min-width: 360px; }
 
 .staff-column > h2 {
   margin: 0 0 8px;
@@ -253,13 +242,9 @@ hr {
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
 }
 
-.staff-card-header {
-  font-weight: 600;
-  margin-bottom: 8px;
-  color: #003c6d;
-}
+.staff-card-header { font-weight: 600; margin-bottom: 8px; color: #003c6d; }
 
-.staff-inline-controls {
+.staff-inline-controls{
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
@@ -267,24 +252,55 @@ hr {
   margin-bottom: 8px;
   font-size: 13px;
 }
+.staff-inline-controls label { font-weight: 500; }
+.staff-inline-controls select { padding: 2px 4px; }
+.staff-inline-controls button { padding: 4px 10px; font-size: 13px; }
 
-.staff-inline-controls label {
-  font-weight: 500;
+.staff-subtitle { font-weight: 600; font-size: 13px; margin: 4px 0 6px; }
+
+/* =========================
+   Staffing Details — 3-column layout (Support + Current + Oncoming)
+========================= */
+
+.staffing-three-column {
+  display: flex;
+  gap: 24px;
+  align-items: flex-start;
+  margin-top: 10px;
+  flex-wrap: wrap;
 }
 
-.staff-inline-controls select {
-  padding: 2px 4px;
+.staff-column--support {
+  min-width: 280px;
+  max-width: 360px;
 }
 
-.staff-inline-controls button {
-  padding: 4px 10px;
-  font-size: 13px;
+.staff-role-row {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 6px;
+  margin-bottom: 10px;
 }
 
-.staff-subtitle {
-  font-weight: 600;
-  font-size: 13px;
-  margin: 4px 0 6px;
+.staff-role-row input {
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 14px;
+}
+
+/* On wide screens: 3 columns; on smaller screens: stack nicely */
+@media (min-width: 1200px) {
+  .staffing-three-column {
+    flex-wrap: nowrap;
+  }
+  .staff-column--support {
+    flex: 0 0 320px;
+  }
+  .staffing-three-column .staff-column:not(.staff-column--support) {
+    flex: 1;
+    min-width: 360px;
+  }
 }
 
 /* =====================================================
@@ -307,9 +323,7 @@ hr {
   box-shadow: 0 1px 4px rgba(0,0,0,0.08);
 }
 
-.patientRow.empty {
-  opacity: 0.6;
-}
+.patientRow.empty { opacity: 0.6; }
 
 .patientRow strong {
   cursor: pointer;
@@ -318,32 +332,12 @@ hr {
   background: #e8f1ff;
 }
 
-.reviewBtn {
-  background: #eee;
-  border: none;
-  padding: 4px 6px;
-  cursor: pointer;
-}
+.reviewBtn { background: #eee; border: none; padding: 4px 6px; cursor: pointer; }
+.reviewBtn.reviewed { background: #b2ffc0; }
+.deleteBtn { background: #ffcccc; border: none; padding: 4px 6px; cursor: pointer; }
+.addBtn { background: #ccf2ff; border: none; padding: 4px 6px; cursor: pointer; }
 
-.reviewBtn.reviewed {
-  background: #b2ffc0;
-}
-
-.deleteBtn {
-  background: #ffcccc;
-  border: none;
-  padding: 4px 6px;
-  cursor: pointer;
-}
-
-.addBtn {
-  background: #ccf2ff;
-  border: none;
-  padding: 4px 6px;
-  cursor: pointer;
-}
-
-.room-link-btn {
+.room-link-btn{
   background: none;
   border: none;
   padding: 0;
@@ -352,144 +346,257 @@ hr {
   cursor: pointer;
   font: inherit;
 }
-.room-link-btn:focus {
-  outline: none;
+.room-link-btn:focus { outline: none; }
+
+/* =====================================================
+   LOAD SCORE COLORS (KEEP!)
+===================================================== */
+
+.load-good   { border-left: 10px solid #4CAF50; }
+.load-medium { border-left: 10px solid #ffc107; }
+.load-high   { border-left: 10px solid #ff5252; }
+
+/* =====================================================
+   ASSIGNMENT CARDS (RN + PCA) — CLEAN “TILE” THEME (NEW)
+   Applies to Live + Oncoming RN/PCA blocks while keeping load bars.
+===================================================== */
+
+/* Target the actual assignment blocks your renderer makes */
+#liveNurseAssignments .nurseBlock,
+#livePcaAssignments .pcaBlock,
+#assignmentOutput .nurseBlock,
+#pcaAssignmentOutput .pcaBlock,
+#liveNurseAssignments .liveCard,
+#livePcaAssignments .liveCard {
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  border-radius: 10px;
+  box-shadow: var(--card-shadow);
+  margin: 0;
+  overflow: hidden; /* so header strip looks crisp */
+}
+
+#liveNurseAssignments .nurseBlock:hover,
+#livePcaAssignments .pcaBlock:hover,
+#assignmentOutput .nurseBlock:hover,
+#pcaAssignmentOutput .pcaBlock:hover {
+  box-shadow: var(--card-shadow-hover);
+}
+
+/* Card “top area” (name + meta line). Your HTML uses .liveCardHeader/.card-meta in places */
+.liveCardHeader,
+.liveCard .card-meta,
+.card-meta {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+/* Make the top header area look like screenshot #1: subtle strip */
+#liveNurseAssignments .liveCardHeader,
+#livePcaAssignments .liveCardHeader,
+#assignmentOutput .liveCardHeader,
+#pcaAssignmentOutput .liveCardHeader,
+#liveNurseAssignments .liveCardHeader + div,
+#assignmentOutput .liveCardHeader + div {
+  background: var(--card-header-bg);
+  color: var(--card-header-text);
+}
+
+/* If your renderer doesn’t wrap the header in a dedicated element,
+   we still want the first row of content to read cleanly */
+#liveNurseAssignments .nurseBlock > div:first-child,
+#livePcaAssignments .pcaBlock > div:first-child,
+#assignmentOutput .nurseBlock > div:first-child,
+#pcaAssignmentOutput .pcaBlock > div:first-child {
+  padding: 10px 12px 6px;
+}
+
+#liveNurseAssignments .nurseBlock > div:first-child strong,
+#livePcaAssignments .pcaBlock > div:first-child strong,
+#assignmentOutput .nurseBlock > div:first-child strong,
+#pcaAssignmentOutput .pcaBlock > div:first-child strong{
+  color: #0f172a;
+}
+
+/* Meta line (Patients | Load Score) */
+.card-meta{
+  font-size: 14px;
+  color: #111827;
+  font-weight: 600;
+}
+
+/* Optional: small “Drivers/Report sources” lines read cleaner */
+#liveNurseAssignments .nurseBlock small,
+#livePcaAssignments .pcaBlock small,
+#assignmentOutput .nurseBlock small,
+#pcaAssignmentOutput .pcaBlock small{
+  color: var(--muted);
+}
+
+/* Tables inside assignment cards */
+#liveNurseAssignments table,
+#livePcaAssignments table,
+#assignmentOutput table,
+#pcaAssignmentOutput table{
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+  margin-top: 0;
+}
+
+/* Table header */
+#liveNurseAssignments th,
+#livePcaAssignments th,
+#assignmentOutput th,
+#pcaAssignmentOutput th{
+  background: var(--table-head-bg);
+  color: #0f172a;
+  font-weight: 700;
+  font-size: 15px;
+  padding: 10px 8px;
+  text-align: center;
+  border-bottom: 1px solid var(--table-divider);
+}
+
+/* Table cells */
+#liveNurseAssignments td,
+#livePcaAssignments td,
+#assignmentOutput td,
+#pcaAssignmentOutput td{
+  font-size: 15px; /* match your “Patients | Load Score” vibe */
+  padding: 10px 8px;
+  text-align: center;
+  vertical-align: middle;
+  border-bottom: 1px solid var(--table-divider);
+  background: #fff;
+}
+
+#liveNurseAssignments tbody tr:hover td,
+#livePcaAssignments tbody tr:hover td,
+#assignmentOutput tbody tr:hover td,
+#pcaAssignmentOutput tbody tr:hover td{
+  background: var(--table-row-hover);
+}
+
+/* Keep row height consistent */
+#liveNurseAssignments tbody tr,
+#livePcaAssignments tbody tr,
+#assignmentOutput tbody tr,
+#pcaAssignmentOutput tbody tr{
+  height: 34px;
+}
+
+/* Make sure 4th column (Prev RN/PCA) never disappears */
+#assignmentOutput table,
+#pcaAssignmentOutput table{
+  table-layout: auto !important;
+}
+#assignmentOutput th:nth-child(4),
+#assignmentOutput td:nth-child(4),
+#pcaAssignmentOutput th:nth-child(4),
+#pcaAssignmentOutput td:nth-child(4){
+  min-width: 110px;
+  white-space: nowrap;
+}
+
+/* Allow acuity notes to wrap a bit if needed without pushing Prev col off */
+#assignmentOutput th:nth-child(3),
+#assignmentOutput td:nth-child(3),
+#pcaAssignmentOutput th:nth-child(3),
+#pcaAssignmentOutput td:nth-child(3){
+  white-space: normal;
 }
 
 /* =====================================================
-   ASSIGNMENT CARDS (RN + PCA)
+   LIVE Assignment — layout rules (keep what you had)
 ===================================================== */
 
-.liveCard,
-.nurseBlock,
-.pcaBlock {
-  background: white;
-  margin-bottom: 20px;
-  padding: 10px;
-  border-radius: 6px;
-  box-shadow: var(--shadow);
-}
-
-.liveCardHeader,
-.liveCard .card-meta {
-  display: flex;
-  justify-content: space-between;
-  font-weight: bold;
-}
-
-.card-meta {
-  font-size: 13px;
-  color: #666;
-}
-
-table {
-  width: 100%;
-  border-collapse: collapse;
-  margin-top: 10px;
-}
-
-th {
-  background: #e6eefc;
-  padding: 6px;
-  font-size: 13px;
-}
-
-td {
-  padding: 6px;
-  border-bottom: 1px solid #ddd;
-}
-
-tr.dragging-row {
-  opacity: 0.4;
-}
-
-/* Load score colors */
-.load-good {
-  border-left: 10px solid #4CAF50;
-}
-
-.load-medium {
-  border-left: 10px solid #ffc107;
-}
-
-.load-high {
-  border-left: 10px solid #ff5252;
-}
-
-/* =========================
-   LIVE Assignment – 2-column layout
-========================= */
-
-#liveNurseAssignments,
-#livePcaAssignments {
+/* RN grid (3 across desktop, responsive down) */
+#liveNurseAssignments{
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 12px;
+  align-items: start;
+}
+@media (max-width: 1200px){
+  #liveNurseAssignments{ grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 700px){
+  #liveNurseAssignments{ grid-template-columns: 1fr; }
 }
 
-@media (max-width: 900px){
-  #liveNurseAssignments,
-  #livePcaAssignments{
-    grid-template-columns: 1fr;
-  }
+/* PCA row on LIVE: horizontal row with scroll if too many */
+#livePcaAssignments{
+  display: flex !important;
+  flex-wrap: nowrap;
+  gap: 10px;
+  align-items: stretch;
+  overflow-x: auto;
+  padding-bottom: 6px;
+}
+#livePcaAssignments .pcaBlock,
+#livePcaAssignments .liveCard{
+  flex: 0 0 240px;
+  max-width: 240px;
 }
 
-/* =========================
-   Assignment Generator Layout (Oncoming)
-========================= */
+/* =====================================================
+   ONCOMING Assignment — layout rules (grid that fills width)
+===================================================== */
 
 #assignmentOutput,
-#pcaAssignmentOutput {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 16px;
+#pcaAssignmentOutput{
+  display: grid;
+  gap: 12px;
+  align-items: start;
 }
 
-#assignmentOutput .nurseBlock,
-#pcaAssignmentOutput .pcaBlock {
-  flex: 1 1 calc(50% - 16px);
-  max-width: calc(50% - 16px);
-  box-sizing: border-box;
-  margin: 0;
+/* Incoming RN cards */
+#assignmentOutput{
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+@media (max-width: 1400px){
+  #assignmentOutput{ grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 900px){
+  #assignmentOutput{ grid-template-columns: 1fr; }
 }
 
-@media (max-width: 900px) {
-  #assignmentOutput .nurseBlock,
-  #pcaAssignmentOutput .pcaBlock {
-    flex: 1 1 100%;
-    max-width: 100%;
-  }
+/* Incoming PCA cards */
+#pcaAssignmentOutput{
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+@media (max-width: 1700px){
+  #pcaAssignmentOutput{ grid-template-columns: repeat(4, minmax(0, 1fr)); }
+}
+@media (max-width: 1400px){
+  #pcaAssignmentOutput{ grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+@media (max-width: 1100px){
+  #pcaAssignmentOutput{ grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 800px){
+  #pcaAssignmentOutput{ grid-template-columns: 1fr; }
 }
 
-#assignmentOutput table,
-#pcaAssignmentOutput table {
+/* Ensure the Oncoming PCA row “fills” width when fewer cards:
+   grid already does this; each card stretches to its column. */
+#pcaAssignmentOutput .pcaBlock{
   width: 100%;
-  table-layout: fixed;
-}
-
-#assignmentOutput th,
-#assignmentOutput td,
-#pcaAssignmentOutput th,
-#pcaAssignmentOutput td {
-  padding: 4px 6px;
-  font-size: 13px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 
 /* =====================================================
    HIGH ACUITY TILES
 ===================================================== */
 
-.tilesGrid {
+.tilesGrid{
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
   gap: 12px;
 }
 
-/* 5x grid for your acuityTiles container */
-#acuityTiles {
+#acuityTiles{
   margin-top: 1rem;
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));
@@ -497,7 +604,7 @@ tr.dragging-row {
   gap: 12px;
 }
 
-.acuity-tile {
+.acuity-tile{
   background: #ffffff;
   border-radius: 8px;
   padding: 10px 12px;
@@ -508,7 +615,7 @@ tr.dragging-row {
   justify-content: space-between;
 }
 
-.acuity-tile-title {
+.acuity-tile-title{
   font-size: 0.9rem;
   font-weight: 600;
   letter-spacing: 0.04em;
@@ -517,14 +624,14 @@ tr.dragging-row {
   margin-bottom: 4px;
 }
 
-.acuity-tile-count {
+.acuity-tile-count{
   font-size: 1.9rem;
   font-weight: 700;
   color: #111827;
   margin-bottom: 6px;
 }
 
-.acuity-tile-rooms {
+.acuity-tile-rooms{
   font-size: 0.8rem;
   color: #4b5563;
   line-height: 1.35;
@@ -532,28 +639,23 @@ tr.dragging-row {
   overflow-y: auto;
 }
 
-.acuity-tile-rooms strong {
+.acuity-tile-rooms strong{
   font-weight: 600;
   color: #111827;
 }
 
-@media (max-width: 1200px) {
-  #acuityTiles {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
+@media (max-width: 1200px){
+  #acuityTiles{ grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
-
-@media (max-width: 800px) {
-  #acuityTiles {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
+@media (max-width: 800px){
+  #acuityTiles{ grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
 /* =====================================================
    DISCHARGE BIN
 ===================================================== */
 
-#dischargeBin {
+#dischargeBin{
   background: #ffe6e6;
   padding: 12px;
   border: 2px dashed #ff5252;
@@ -567,63 +669,49 @@ tr.dragging-row {
    QUEUE LIST
 ===================================================== */
 
-.queueList {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
+.queueList{ display: flex; flex-direction: column; gap: 12px; }
 
-.queue-item {
+.queue-item{
   background: white;
   padding: 12px;
   border-radius: 6px;
   box-shadow: 0 1px 6px rgba(0,0,0,0.10);
 }
 
-.queue-item-header {
-  display: flex;
-  justify-content: space-between;
-}
+.queue-item-header{ display: flex; justify-content: space-between; }
 
-.queue-item-title input {
+.queue-item-title input{
   width: 150px;
   font-size: 16px;
 }
 
-.queue-item-tags {
+.queue-item-tags{
   margin: 10px 0;
   font-size: 13px;
   color: #555;
 }
 
-.queue-item-actions button {
-  margin-right: 8px;
-}
+.queue-item-actions button{ margin-right: 8px; }
 
 /* =====================================================
    BUTTONS
 ===================================================== */
 
-button {
+button{
   cursor: pointer;
   border-radius: 4px;
   border: none;
   padding: 6px 10px;
 }
 
-.queue-btn {
-  background: #e8f2ff;
-}
-
-.queue-btn:hover {
-  background: #d3e8ff;
-}
+.queue-btn{ background: #e8f2ff; }
+.queue-btn:hover{ background: #d3e8ff; }
 
 /* =====================================================
    MODALS
 ===================================================== */
 
-.modal {
+.modal{
   display: none;
   position: fixed;
   inset: 0;
@@ -633,7 +721,7 @@ button {
   z-index: 9999;
 }
 
-.modal-content {
+.modal-content{
   background: white;
   max-width: 550px;
   padding: 20px;
@@ -641,21 +729,19 @@ button {
   box-shadow: 0 4px 14px rgba(0,0,0,0.4);
 }
 
-.modal-grid {
+.modal-grid{
   display: grid;
   grid-template-columns: repeat(2, 1fr);
   gap: 6px;
 }
 
-.modal-section {
-  margin: 10px 0;
-}
+.modal-section{ margin: 10px 0; }
 
 /* =====================================================
    HISTORY
 ===================================================== */
 
-.history-entry {
+.history-entry{
   background: #f9f9f9;
   padding: 10px;
   border-radius: 6px;
@@ -663,712 +749,129 @@ button {
   border-left: 4px solid #008fff;
 }
 
-.history-entry-title {
-  font-weight: bold;
-}
-
-.history-entry-meta {
-  font-size: 12px;
-  color: #555;
-}
-
-.history-entry-tags {
-  margin: 8px 0;
-  font-size: 13px;
-}
+.history-entry-title{ font-weight: bold; }
+.history-entry-meta{ font-size: 12px; color: #555; }
+.history-entry-tags{ margin: 8px 0; font-size: 13px; }
 
 /* =========================
-   (Legacy / optional) Staffing Details 2-column layout
-   You can keep these; they won’t break anything.
-========================= */
-
-.staffing-layout {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-  margin-top: 12px;
-}
-
-.staffing-column {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-.staffing-column-title {
-  font-size: 1.1rem;
-  font-weight: 600;
-  margin-bottom: 4px;
-  color: #123;
-}
-
-.configGroup {
-  background: #f8fafc;
-  border: 1px solid #dde4ee;
-  border-radius: 6px;
-  padding: 10px 12px;
-}
-
-.configGroupHeader {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 6px;
-}
-
-.configGroupHeader h4 {
-  margin: 0;
-  font-size: 0.95rem;
-  font-weight: 600;
-  color: #123;
-}
-
-.configControls label {
-  font-size: 0.85rem;
-  color: #345;
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-}
-
-.configControls select {
-  padding: 2px 4px;
-  font-size: 0.85rem;
-}
-
-.staffList {
-  margin-top: 4px;
-}
-
-.pca-shift-row {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-  margin-top: 8px;
-  margin-bottom: 8px;
-}
-
-.pca-shift-row label {
-  font-weight: 500;
-}
-
-.pca-shift-row select {
-  padding: 2px 4px;
-  font-size: 0.9rem;
-}
-
-.pca-shift-hint {
-  font-size: 0.8rem;
-  color: #567;
-}
-
-@media (min-width: 900px) {
-  .staffing-layout {
-    flex-direction: row;
-    align-items: flex-start;
-  }
-
-  .staffing-column {
-    flex: 1;
-  }
-}
-
-/* =========================
-   LIVE Assignment – Compact Cards + Dense Layout
-   ========================= */
-
-.live-grid {
-  display: grid;
-  gap: 10px;
-  align-items: start;
-}
-
-/* RN grid: target 3 across on desktop, 2 on medium, 1 on small */
-.live-grid-nurse {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-}
-@media (max-width: 1200px) {
-  .live-grid-nurse {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-}
-@media (max-width: 760px) {
-  .live-grid-nurse {
-    grid-template-columns: 1fr;
-  }
-}
-
-/* PCA grid: target 4 across, allow 5 on very wide screens */
-.live-grid-pca {
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-}
-@media (min-width: 1600px) {
-  .live-grid-pca {
-    grid-template-columns: repeat(5, minmax(0, 1fr));
-  }
-}
-@media (max-width: 1200px) {
-  .live-grid-pca {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
-}
-@media (max-width: 900px) {
-  .live-grid-pca {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-}
-@media (max-width: 760px) {
-  .live-grid-pca {
-    grid-template-columns: 1fr;
-  }
-}
-
-/* Make assignment cards more compact (RN + PCA cards share .assignment-card) */
-.assignment-card {
-  padding: 10px 10px;
-  margin: 0; /* grid handles spacing */
-  border-radius: 10px;
-}
-
-/* Header tighter */
-.assignment-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 10px;
-  padding-bottom: 6px;
-  margin-bottom: 6px;
-  border-bottom: 1px solid #eef2f7;
-}
-
-/* If drivers line exists, keep it compact */
-.assignment-header > div:first-child > div {
-  margin-top: 2px !important;
-  line-height: 1.2;
-}
-
-/* Dense tables */
-.assignment-table {
-  width: 100%;
-  border-collapse: collapse;
-  table-layout: fixed;
-}
-
-.assignment-table thead th {
-  padding: 5px 6px;
-  font-size: 12px;
-  line-height: 1.1;
-}
-
-.assignment-table tbody td {
-  padding: 4px 6px;
-  font-size: 12px;
-  line-height: 1.15;
-  vertical-align: middle; /* key: align middle */
-}
-
-/* Make rows feel tighter */
-.assignment-table tbody tr {
-  height: 28px;
-}
-
-/* Column sizing: Room + Level narrow, Notes wide */
-.assignment-table th:nth-child(1),
-.assignment-table td:nth-child(1) {
-  width: 20%;
-  white-space: nowrap;
-}
-
-.assignment-table th:nth-child(2),
-.assignment-table td:nth-child(2) {
-  width: 18%;
-  white-space: nowrap;
-}
-
-.assignment-table th:nth-child(3),
-.assignment-table td:nth-child(3) {
-  width: 62%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-/* Optional: slightly reduce table header background heaviness */
-.assignment-table th {
-  background: #f3f7ff;
-}
-
-/* Reduce hover “jumpiness” and keep readable */
-.assignment-table tbody tr:hover {
-  background: rgba(0, 0, 0, 0.03);
-}
-
-/* =========================
-   LIVE Assignment – RN grid (3 / 3 / 2)
-   ========================= */
-
-#liveNurseAssignments {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr)); /* 3 across */
-  gap: 12px;
-  align-items: start;
-}
-
-/* Responsive fallbacks */
-@media (max-width: 1200px) {
-  #liveNurseAssignments {
-    grid-template-columns: repeat(2, minmax(0, 1fr)); /* 2 across */
-  }
-}
-
-@media (max-width: 700px) {
-  #liveNurseAssignments {
-    grid-template-columns: 1fr; /* stack */
-  }
-}
-
-/* Optional: help cards fit tighter in the grid */
-#liveNurseAssignments .nurseBlock,
-#liveNurseAssignments .liveCard {
-  margin: 0;
-  height: fit-content;
-}
-
-/* =========================
-   LIVE PCA — force horizontal card row
-   ========================= */
-
-/* Container that holds all PCA cards */
-#livePcaAssignments {
-  display: flex !important;
-  flex-wrap: nowrap;          /* keep them on one row */
-  gap: 10px;
-  align-items: stretch;
-  overflow-x: auto;           /* if too many cards, allow horizontal scroll */
-  padding-bottom: 6px;        /* breathing room for scrollbar */
-}
-
-/* Each PCA card */
-#livePcaAssignments .pcaBlock,
-#livePcaAssignments .liveCard {
-  flex: 0 0 240px;            /* fixed card width; tweak as needed */
-  max-width: 240px;
-  margin: 0 !important;
-}
-
-/* Make the table inside PCA cards more compact */
-#livePcaAssignments table {
-  margin-top: 6px;
-}
-
-#livePcaAssignments th,
-#livePcaAssignments td {
-  padding: 4px 6px;
-  vertical-align: middle;     /* align text nicely */
-  font-size: 12.5px;
-}
-
-/* =========================
-   LIVE Assignment tables: center headers + cells (RN + PCA)
-   ========================= */
-
-/* RN + PCA assignment areas */
-#liveNurseAssignments table,
-#livePcaAssignments table {
-  width: 100%;
-  border-collapse: collapse;
-}
-
-/* Center column titles */
-#liveNurseAssignments th,
-#livePcaAssignments th {
-  text-align: center !important;
-  vertical-align: middle !important;
-}
-
-/* Center all row content under the titles */
-#liveNurseAssignments td,
-#livePcaAssignments td {
-  text-align: center !important;
-  vertical-align: middle !important;
-}
-
-/* Keep rows feeling compact + consistently aligned */
-#liveNurseAssignments th,
-#liveNurseAssignments td,
-#livePcaAssignments th,
-#livePcaAssignments td {
-  padding: 6px 8px;          /* adjust smaller/larger if desired */
-  line-height: 1.2;
-}
-
-/* =====================================================
-   LIVE Assignment tables: bigger text + centered (RN & PCA)
+   HIGH RISK TILES — centered title + big count + bottom Rooms footer
    Paste at END of style.css
-===================================================== */
+   ========================= */
 
-/* Target only the tables inside LIVE assignment cards */
-#liveNurseAssignments table,
-#livePcaAssignments table {
-  width: 100%;
-  border-collapse: collapse;
-}
-
-/* Make headers + cells centered */
-#liveNurseAssignments th,
-#liveNurseAssignments td,
-#livePcaAssignments th,
-#livePcaAssignments td {
-  text-align: center !important;
-  vertical-align: middle !important;
-}
-
-/* Increase font sizes to match the Patients/Load Score line */
-#liveNurseAssignments th,
-#livePcaAssignments th {
-  font-size: 15px;        /* header slightly bold/clear */
-  font-weight: 700;
-  padding: 8px 6px;
-}
-
-#liveNurseAssignments td,
-#livePcaAssignments td {
-  font-size: 15px;        /* main value size */
-  padding: 8px 6px;
-}
-
-/* Optional: slightly increase row height consistency */
-#liveNurseAssignments tbody tr,
-#livePcaAssignments tbody tr {
-  height: 34px;
-}
-
-/* Keep the tables from feeling cramped on small screens */
-@media (max-width: 900px) {
-  #liveNurseAssignments th,
-  #liveNurseAssignments td,
-  #livePcaAssignments th,
-  #livePcaAssignments td {
-    font-size: 14px;
-    padding: 7px 5px;
-  }
-}
-
-/* =====================================================
-   ONCOMING ASSIGNMENT — match LIVE formatting
-   (copy/paste at VERY BOTTOM of style.css)
-===================================================== */
-
-/* 1) RN + PCA OUTPUT GRIDS — tighten + match Live-like density */
-#assignmentOutput,
-#pcaAssignmentOutput {
+#acuityTiles {
+  margin-top: 1rem;
   display: grid;
-  gap: 12px;
-  align-items: start;
-}
-
-/* Incoming RN cards: 3 across on wide screens, then 2, then 1 */
-#assignmentOutput {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-}
-
-@media (max-width: 1400px) {
-  #assignmentOutput {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-}
-
-@media (max-width: 900px) {
-  #assignmentOutput {
-    grid-template-columns: 1fr;
-  }
-}
-
-/* Incoming PCA cards: 5 across (if room), then 4, then 3, then 2, then 1 */
-#pcaAssignmentOutput {
   grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-auto-rows: minmax(140px, auto);
+  gap: 12px;
 }
 
-@media (max-width: 1700px) {
-  #pcaAssignmentOutput {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-  }
-}
+#acuityTiles .acuity-tile {
+  background: #ffffff;
+  border-radius: 10px;
+  padding: 14px 14px 12px;
+  border: 1px solid #e3e7ee;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.08);
 
-@media (max-width: 1400px) {
-  #pcaAssignmentOutput {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
-}
-
-@media (max-width: 1100px) {
-  #pcaAssignmentOutput {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-}
-
-@media (max-width: 800px) {
-  #pcaAssignmentOutput {
-    grid-template-columns: 1fr;
-  }
-}
-
-/* 2) Card compaction consistency (reuse your existing block styles) */
-#assignmentOutput .nurseBlock,
-#pcaAssignmentOutput .pcaBlock {
-  margin: 0;                 /* kill extra gaps */
-  padding: 10px;             /* compact */
-  border-radius: 6px;
-  box-sizing: border-box;
-}
-
-/* 3) Tables inside ONCOMING cards — compact + centered + bigger font */
-#assignmentOutput table,
-#pcaAssignmentOutput table {
-  width: 100%;
-  border-collapse: collapse;
-  table-layout: fixed;
-  margin-top: 8px;
-}
-
-#assignmentOutput th,
-#assignmentOutput td,
-#pcaAssignmentOutput th,
-#pcaAssignmentOutput td {
-  padding: 6px 8px;          /* compact but readable */
-  font-size: 15px;           /* base; body rows will be bumped below */
-  line-height: 1.2;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-
-  /* your request: center aligned with headers + middle aligned */
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between; /* pushes footer to bottom */
   text-align: center;
-  vertical-align: middle;
+  min-height: 140px;
 }
 
-/* Headers slightly emphasized */
-#assignmentOutput th,
-#pcaAssignmentOutput th {
+#acuityTiles .acuity-tile-title {
+  font-size: 0.95rem;
   font-weight: 700;
-}
-
-/* Body rows: make Room/Level/Acuity Notes values as large as meta line on cards */
-#assignmentOutput tbody td,
-#pcaAssignmentOutput tbody td {
-  font-size: 14px; /* close to the "Patients | Load Score" line size */
-}
-
-/* 4) If your Oncoming card meta uses .card-meta, keep it consistent */
-#assignmentOutput .card-meta,
-#pcaAssignmentOutput .card-meta {
-  font-size: 14px;
-  line-height: 1.2;
-}
-
-/* 5) Optional: tighten row height a touch */
-#assignmentOutput tr,
-#pcaAssignmentOutput tr {
-  height: 28px;
-}
-
-/* === Oncoming + Live tables: force 4 visible columns when present === */
-.assignment-table {
-  width: 100%;
-  border-collapse: collapse;
-  table-layout: auto !important; /* important: don't squeeze away the 4th col */
-}
-
-/* Center headers + cells like you wanted */
-.assignment-table th,
-.assignment-table td {
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #111827;
+  margin: 0 0 10px;
   text-align: center;
-  vertical-align: middle;
 }
 
-/* Give the 4th column room to exist */
-.assignment-table th:nth-child(4),
-.assignment-table td:nth-child(4) {
-  min-width: 110px;
-  white-space: nowrap;
+#acuityTiles .acuity-tile-count {
+  font-size: 44px;
+  font-weight: 800;
+  line-height: 1;
+  margin: 0;
+  color: #111827;
+  text-align: center;
 }
 
-/* Keep acuity notes readable without pushing col 4 off-screen */
-.assignment-table th:nth-child(3),
-.assignment-table td:nth-child(3) {
-  white-space: normal;
+#acuityTiles .acuity-tile-rooms {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid #e5e7eb;
+
+  text-align: left;     /* label style */
+  font-size: 13px;
+  color: #4b5563;
+  line-height: 1.25;
 }
 
-/* =====================================================
-   PATCH: LIVE PCA should fill the whole horizontal row
-   Paste at VERY BOTTOM to override earlier flex rules
-===================================================== */
-
-#livePcaAssignments{
-  display: grid !important;
-  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-  gap: 12px;
-  align-items: start;
-  width: 100%;
-  overflow: visible !important;   /* remove horizontal scroll behavior */
-  padding-bottom: 0;
-}
-
-/* Ensure PCA cards stretch instead of staying fixed-width */
-#livePcaAssignments .pcaBlock,
-#livePcaAssignments .liveCard{
-  width: 100% !important;
-  max-width: none !important;
-  flex: initial !important;
-  margin: 0 !important;
-}
-
-/* Optional: on very wide screens allow 5 across more easily */
-@media (min-width: 1600px){
-  #livePcaAssignments{
-    grid-template-columns: repeat(5, minmax(0, 1fr));
-  }
-}
-
-/* On medium screens prefer 4 across */
-@media (min-width: 1200px) and (max-width: 1599px){
-  #livePcaAssignments{
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-  }
-}
-
-/* On smaller screens, let auto-fit handle it naturally */
-
-/* =====================================================
-   PATCH: ONCOMING PCA should fill the whole horizontal row
-   Paste at VERY BOTTOM (after the Live PCA patch)
-===================================================== */
-
-#pcaAssignmentOutput{
-  display: grid !important;
-  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-  gap: 12px;
-  align-items: start;
-  width: 100%;
-}
-
-/* Ensure PCA cards stretch to the grid cell */
-#pcaAssignmentOutput .pcaBlock{
-  width: 100% !important;
-  max-width: none !important;
-  margin: 0 !important;
-}
-
-/* Optional: force 5 across on very wide screens, 4 across on typical desktop */
-@media (min-width: 1600px){
-  #pcaAssignmentOutput{
-    grid-template-columns: repeat(5, minmax(0, 1fr));
-  }
-}
-
-@media (min-width: 1200px) and (max-width: 1599px){
-  #pcaAssignmentOutput{
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-  }
-}
-
-/* =====================================================
-   HARD OVERRIDE: ONCOMING PCA should consume full width
-   Paste as LAST thing in style.css
-===================================================== */
-
-/* Force Oncoming PCA area to be a true stretching grid */
-#pcaAssignmentOutput{
-  display: grid !important;
-  width: 100% !important;
-  max-width: 100% !important;
-  justify-content: stretch !important;
-  align-content: start;
-  gap: 12px;
-
-  /* 4 cards -> each becomes 1fr (fills row). 5 -> 5 across on wide screens. */
-  grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
-}
-
-/* If you have 5 PCAs and screen is wide enough, go 5 across */
-@media (min-width: 1500px){
-  #pcaAssignmentOutput{
-    grid-template-columns: repeat(5, minmax(0, 1fr)) !important;
-  }
-}
-
-/* Responsive fallbacks */
-@media (max-width: 1200px){
-  #pcaAssignmentOutput{ grid-template-columns: repeat(3, minmax(0, 1fr)) !important; }
-}
-@media (max-width: 900px){
-  #pcaAssignmentOutput{ grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
-}
-@media (max-width: 700px){
-  #pcaAssignmentOutput{ grid-template-columns: 1fr !important; }
-}
-
-/* Kill any old widths coming from earlier rules */
-#pcaAssignmentOutput .pcaBlock,
-#pcaAssignmentOutput .liveCard,
-#pcaAssignmentOutput > *{
-  width: 100% !important;
-  max-width: none !important;
-  flex: initial !important;
-  margin: 0 !important;
-  box-sizing: border-box !important;
-}
-/* =====================================================
-   FIX: Oncoming PCA cards MUST stretch to fill the row
-   Paste at VERY BOTTOM of style.css
-===================================================== */
-
-/* Make the container a true full-width grid */
-#pcaAssignmentOutput{
-  display: grid !important;
-  width: 100% !important;
-  max-width: 100% !important;
-  gap: 16px !important;
-  align-items: start !important;
-  justify-content: stretch !important;
-
-  /* If there are 4 PCAs, we want 4 equal columns that fill the row */
-  grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
-}
-
-/* Let 5 fit when screen is wide */
-@media (min-width: 1500px){
-  #pcaAssignmentOutput{
-    grid-template-columns: repeat(5, minmax(0, 1fr)) !important;
-  }
+#acuityTiles .acuity-tile-rooms strong {
+  color: #111827;
+  font-weight: 700;
 }
 
 /* Responsive */
-@media (max-width: 1200px){
-  #pcaAssignmentOutput{ grid-template-columns: repeat(3, minmax(0, 1fr)) !important; }
+@media (max-width: 1200px) {
+  #acuityTiles { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
-@media (max-width: 900px){
-  #pcaAssignmentOutput{ grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
-}
-@media (max-width: 700px){
-  #pcaAssignmentOutput{ grid-template-columns: 1fr !important; }
+@media (max-width: 800px) {
+  #acuityTiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
-/* CRITICAL: remove the earlier 50% sizing rule AND force full stretch */
-#pcaAssignmentOutput .pcaBlock{
-  flex: unset !important;
-  width: auto !important;
-  max-width: none !important;
-  min-width: 0 !important;
-  justify-self: stretch !important;
+/* =====================================================
+   HIGH RISK REPORT — Square tiles + centered layout + bigger Rooms line
+   Paste at VERY BOTTOM of style.css
+===================================================== */
+
+#acuityTiles {
+  /* keep your grid, but ensure consistent square-ish tiles */
+  align-items: stretch;
 }
 
-/* Safety: in case .pcaBlock is wrapped or styled differently */
-#pcaAssignmentOutput > *{
-  width: auto !important;
-  max-width: none !important;
-  min-width: 0 !important;
-  justify-self: stretch !important;
+#acuityTiles .acuity-tile {
+  /* Make tiles square-ish: height ~= width.
+     This uses aspect-ratio, which is well supported in modern browsers. */
+  aspect-ratio: .85 / 0.55;
+  min-height: 180px; /* safety so they don't get too tiny */
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  text-align: center;
+}
+
+#acuityTiles .acuity-tile-title {
+  margin-top: 10px;
+  text-align: center;
+  font-weight: 800;
+}
+
+#acuityTiles .acuity-tile-count {
+  text-align: center;
+  font-size: 60px; /* big and punchy */
+  font-weight: 800;
+  line-height: 1;
+  margin: 6px 0 8px;
+}
+
+#acuityTiles .acuity-tile-footer {
+  margin-top: auto;
+  padding-top: 10px;
+  border-top: 1px solid #e5e7eb;
+  font-size: 16px;      /* BIGGER "Rooms:" */
+  font-weight: 700;
+  text-align: left;     /* reads nicely as a label */
+}
+
+@media (max-width: 900px) {
+  #acuityTiles .acuity-tile-count {
+    font-size: 60px;
+  }
+  #acuityTiles .acuity-tile-footer {
+    font-size: 15px;
+  }
 }

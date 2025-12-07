@@ -439,46 +439,76 @@ function pcaTagString(p) {
 // High-risk tiles
 // =========================
 
+function normalizeRoomLabel(room) {
+  // Accepts values like: "Room 12", "12", 12, "  room 12A "
+  return String(room ?? "")
+    .replace(/room\s*/i, "")
+    .trim();
+}
+
 function updateAcuityTiles() {
   const tilesEl = document.getElementById("acuityTiles");
   if (!tilesEl) return;
 
-  const active = patients.filter(p => !p.isEmpty);
-  const makeCount = key => active.filter(p => p[key]).length;
+  const active = (window.patients || patients || []).filter(p => p && !p.isEmpty);
 
   const config = [
-    { id: "tele", label: "Tele", count: makeCount("tele") },
-    { id: "drip", label: "Drips", count: makeCount("drip") },
-    { id: "nih", label: "NIH", count: makeCount("nih") },
-    { id: "bg", label: "BG Checks", count: makeCount("bg") },
-    { id: "ciwa", label: "CIWA/COWS", count: makeCount("ciwa") },
-    { id: "restraint", label: "Restraints", count: makeCount("restraint") },
-    { id: "sitter", label: "Sitters", count: makeCount("sitter") },
-    { id: "vpo", label: "VPO", count: makeCount("vpo") },
-    { id: "isolation", label: "Isolation", count: makeCount("isolation") },
-    { id: "admit", label: "Admits", count: makeCount("admit") },
-    { id: "lateDc", label: "Late DC", count: makeCount("lateDc") },
-    { id: "chg", label: "CHG", count: makeCount("chg") },
-    { id: "foley", label: "Foley", count: makeCount("foley") },
-    { id: "q2turns", label: "Q2 Turns", count: makeCount("q2turns") },
-    { id: "heavy", label: "Heavy", count: makeCount("heavy") },
-    { id: "feeder", label: "Feeders", count: makeCount("feeder") }
+    { id: "tele", label: "Tele", key: "tele" },
+    { id: "drip", label: "Drips", key: "drip" },
+    { id: "nih", label: "NIH", key: "nih" },
+    { id: "bg", label: "BG Checks", key: "bg" },
+    { id: "ciwa", label: "CIWA/COWS", key: "ciwa" },
+    { id: "restraint", label: "Restraints", key: "restraint" },
+    { id: "sitter", label: "Sitters", key: "sitter" },
+    { id: "vpo", label: "VPO", key: "vpo" },
+    { id: "isolation", label: "Isolation", key: "isolation" },
+    { id: "admit", label: "Admits", key: "admit" },
+    { id: "lateDc", label: "Late DC", key: "lateDc" },
+
+    { id: "chg", label: "CHG", key: "chg" },
+    { id: "foley", label: "Foley", key: "foley" },
+    { id: "q2turns", label: "Q2 Turns", key: "q2turns" },
+    { id: "heavy", label: "Heavy", key: "heavy" },
+    { id: "feeder", label: "Feeders", key: "feeder" }
   ];
 
-  tilesEl.innerHTML = config
-    .map(t => `
-      <div class="acuity-tile">
-        <div class="acuity-tile-title">${t.label}</div>
-        <div class="acuity-tile-count">${t.count}</div>
-      </div>
-    `)
+  const tiles = config.map(t => {
+    const rooms = active
+      .filter(p => !!p[t.key])
+      .map(p => normalizeRoomLabel(p.room))
+      .filter(Boolean);
+
+    return {
+      ...t,
+      count: rooms.length,
+      rooms
+    };
+  });
+
+  // Sort tiles: highest count first, then alphabetical label for ties
+  tiles.sort((a, b) => {
+    if (b.count !== a.count) return b.count - a.count;
+    return a.label.localeCompare(b.label);
+  });
+
+  tilesEl.innerHTML = tiles
+    .map(t => {
+      const roomsText = t.rooms.length ? t.rooms.join(", ") : "-";
+      return `
+        <div class="acuity-tile">
+          <div class="acuity-tile-title">${t.label}</div>
+          <div class="acuity-tile-count">${t.count}</div>
+          <div class="acuity-tile-footer">Rooms: ${roomsText}</div>
+        </div>
+      `;
+    })
     .join("");
 }
 
 function buildHighAcuityText() {
   const lines = [];
-  patients.forEach(p => {
-    if (p.isEmpty) return;
+  (window.patients || patients || []).forEach(p => {
+    if (!p || p.isEmpty) return;
     const tags = [];
     if (p.drip) tags.push("Drip");
     if (p.nih) tags.push("NIH");
@@ -493,7 +523,8 @@ function buildHighAcuityText() {
     if (p.heavy) tags.push("Heavy");
     if (p.feeder) tags.push("Feeder");
     if (!tags.length) return;
-    lines.push(`<div><strong>${p.room}</strong>: ${tags.join(", ")}</div>`);
+
+    lines.push(`<div><strong>${normalizeRoomLabel(p.room)}</strong>: ${tags.join(", ")}</div>`);
   });
 
   if (!lines.length) return "<p>No high-risk patients flagged.</p>";
