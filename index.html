@@ -20,13 +20,15 @@
       </div>
     </div>
 
-    <!-- Middle: Tabs -->
+    <!-- Middle: Tabs (UPDATED ORDER) -->
     <nav class="header-nav top-tabs" aria-label="Primary">
+      <button class="tabButton header-tab" data-target="environmentTab">Environment</button>
       <button class="tabButton active header-tab" data-target="staffingTab">Staffing Details</button>
       <button class="tabButton header-tab" data-target="patientDetailsTab">Patient Details</button>
       <button class="tabButton header-tab" data-target="highRiskTab">High Risk Report</button>
       <button class="tabButton header-tab" data-target="liveAssignmentTab">LIVE Assignment</button>
       <button class="tabButton header-tab" data-target="oncomingAssignmentTab">Oncoming Assignment</button>
+      <button class="tabButton header-tab" data-target="unitPulseTab">Unit Pulse</button>
     </nav>
 
     <!-- Right: Compact Auth Menu -->
@@ -66,6 +68,21 @@
 
   <!-- MAIN CONTENT -->
   <main class="main-container">
+
+    <!-- ENVIRONMENT TAB (NEW) -->
+    <section id="environmentTab" class="tab-section" style="display: none;">
+      <h1>Environment</h1>
+      <p>
+        Quick unit environment snapshot. (Placeholder tab—content coming soon.)
+      </p>
+
+      <div class="staff-card">
+        <div class="staff-card-header">Notes</div>
+        <div style="font-size:14px; color:#475569; line-height:1.4;">
+          Add environment metrics here (staffing strain, bed status, holds, throughput, etc.).
+        </div>
+      </div>
+    </section>
 
     <!-- STAFFING TAB -->
     <section id="staffingTab" class="tab-section" style="display: block;">
@@ -257,8 +274,6 @@
           <div id="livePcaAssignments" class="assignment-grid live-grid live-grid-pca"></div>
         </div>
       </div>
-
-      <!-- ❌ Removed old discharge row entirely (now lives in RN grid slot 9) -->
     </section>
 
     <!-- ONCOMING ASSIGNMENT TAB -->
@@ -276,6 +291,22 @@
       <h2 style="margin-top: 24px;">Incoming PCA Assignments</h2>
       <div id="pcaAssignmentOutput" class="assignment-grid two-column-grid"></div>
     </section>
+
+    <!-- UNIT PULSE TAB (NEW) -->
+    <section id="unitPulseTab" class="tab-section" style="display: none;">
+      <h1>Unit Pulse</h1>
+      <p>
+        Unit trend + pulse checks. (Placeholder tab—content coming soon.)
+      </p>
+
+      <div class="staff-card">
+        <div class="staff-card-header">Pulse Summary</div>
+        <div style="font-size:14px; color:#475569; line-height:1.4;">
+          Add pulse widgets here (high-risk totals over time, admits/discharges, workload distribution, etc.).
+        </div>
+      </div>
+    </section>
+
   </main>
 
   <!-- MODALS -->

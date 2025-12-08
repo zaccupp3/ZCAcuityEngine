@@ -1590,3 +1590,100 @@ button{
   .app-header-left{ min-width: 220px; }
   .brand-subtitle{ display: none; }
 }
+
+/* =========================
+   Patient Details — clean table/grid UI
+   ========================= */
+
+.patient-table-wrap{
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+  overflow: auto;
+}
+
+.patient-table{
+  width: 100%;
+  border-collapse: collapse;
+  min-width: 1200px; /* lets it scroll horizontally on small screens */
+}
+
+.patient-table thead th{
+  position: sticky;
+  top: 0;
+  background: var(--table-head-bg, #edf3ff);
+  z-index: 2;
+  padding: 10px 8px;
+  font-size: 13px;
+  text-align: left;
+  border-bottom: 1px solid var(--table-divider, #e5e7eb);
+}
+
+.patient-table tbody td{
+  padding: 10px 8px;
+  font-size: 13px;
+  vertical-align: middle;
+  border-bottom: 1px solid var(--table-divider, #e5e7eb); /* ✅ horizontal line between rows */
+}
+
+.patient-table tbody tr:hover td{
+  background: rgba(17,24,39,0.03);
+}
+
+/* Center Room column */
+.patient-table .col-room,
+.patient-table td.col-room{
+  text-align: center;
+  font-weight: 700;
+  width: 70px;
+}
+
+/* Status toggle buttons */
+.status-toggle{
+  display: inline-flex;
+  gap: 6px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 4px;
+}
+
+.status-btn{
+  border: 0;
+  padding: 6px 10px;
+  border-radius: 8px;
+  font-weight: 800;
+  font-size: 12px;
+  cursor: pointer;
+  background: transparent;
+}
+
+.status-btn.active{
+  background: #0066c5;
+  color: #fff;
+}
+
+.status-btn.empty.active{
+  background: #ef4444;
+}
+
+/* When room is empty, visually dim the row */
+.patient-row-empty td{
+  opacity: 0.55;
+}
+
+/* Tags grouping so it doesn’t look like a wall of checkboxes */
+.tags-wrap{
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 12px;
+  align-items: center;
+}
+
+.tags-wrap label{
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
