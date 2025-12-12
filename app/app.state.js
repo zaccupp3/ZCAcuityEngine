@@ -3,6 +3,11 @@
 // Core app state + storage + shared helpers
 // Canonical storage is on window.*, but we ALSO expose legacy bare globals
 // (currentNurses, incomingNurses, etc.) because other files still reference them.
+//
+// MULTI-UNIT UPDATE:
+// - Persist a separate workspace per unit in localStorage.
+// - Switching units saves the current unit workspace and loads the next unit workspace.
+// - Room labels (patient.room) are updated from unitSettings.beds without wiping acuity/tags.
 // ---------------------------------------------------------
 
 (function () {
@@ -23,7 +28,6 @@
   window.nextDischargeId = typeof window.nextDischargeId === "number" ? window.nextDischargeId : 1;
 
   // ============ MULTI-UNIT CORE ============
-  // These are the minimal "spine" fields needed for unit switching + settings propagation.
   window.availableUnits = Array.isArray(window.availableUnits) ? window.availableUnits : [];
   window.activeUnitId = typeof window.activeUnitId === "string" ? window.activeUnitId : (window.activeUnitId || null);
   window.activeUnitRole = typeof window.activeUnitRole === "string" ? window.activeUnitRole : (window.activeUnitRole || null);
@@ -31,9 +35,6 @@
 
   // ---------------------------------------------------------
   // LEGACY BARE GLOBALS (CRITICAL)
-  // ---------------------------------------------------------
-  // Other files reference these without window. If they don't exist, the app crashes.
-  // We intentionally use var so they become real globals.
   // ---------------------------------------------------------
   // eslint-disable-next-line no-var
   var currentNurses = window.currentNurses;
@@ -65,8 +66,15 @@
   // eslint-disable-next-line no-var
   var unitSettings = window.unitSettings;
 
-  // ============ STORAGE KEY ============
-  const STORAGE_KEY = "cupp_assignment_engine_v1";
+  // ============ STORAGE KEYS ============
+  // META = cross-unit settings like "active unit", cached memberships, etc.
+  const META_KEY = "cupp_assignment_engine_meta_v1";
+
+  // UNIT WORKSPACE = per-unit board state (patients/staff/queue/etc.)
+  function unitKey(unitId) {
+    const id = unitId ? String(unitId) : "local";
+    return `cupp_assignment_engine_unit_${id}_v1`;
+  }
 
   // ============ PATIENT DEFAULTS ============
 
@@ -104,33 +112,33 @@
     };
   }
 
-  // ============ UNIT BED LABEL MAPPING ============
-  // Keeps patient.id 1..32 stable, updates patient.room labels from unitSettings.beds[0..31]
-  function applyUnitBedMapping(settings) {
-    const beds = settings && Array.isArray(settings.beds) ? settings.beds : null;
-    if (!beds) return;
+  // Apply unit bed labels without wiping tags:
+  // We keep patient.id stable 1..32 and just overwrite patient.room.
+  function applyBedsToPatientRooms() {
+    const beds = Array.isArray(unitSettings?.beds) ? unitSettings.beds : null;
+    if (!beds || beds.length < 1) return;
 
-    if (beds.length !== 32) {
-      console.warn("[unit] beds must be length 32. Got:", beds.length);
-      return;
-    }
-
-    if (!Array.isArray(patients)) patients = [];
-    if (patients.length !== 32) return; // must already be ensured
+    // Ensure 32 patients exist first
+    ensureDefaultPatients();
 
     for (let i = 0; i < 32; i++) {
       const p = patients[i];
       if (!p) continue;
-      p.room = String(beds[i]);
+      const label = beds[i] != null ? String(beds[i]) : String(i + 1);
+      p.room = label;
     }
 
     window.patients = patients;
   }
 
   // Canonical: always have 32 rooms with stable IDs.
-  // IMPORTANT: even if we already have 32 patients, we still apply bed mapping if unitSettings.beds exists.
+  // Note: this creates patients if missing; it DOES NOT force any unit bed labels.
   function ensureDefaultPatients() {
     if (!Array.isArray(patients)) patients = [];
+    if (patients.length >= 32) {
+      window.patients = patients;
+      return;
+    }
 
     const existingById = new Map();
     patients.forEach(p => {
@@ -142,12 +150,12 @@
       if (existingById.has(i)) {
         const p = existingById.get(i);
 
+        // Default room label if missing (will be overwritten by applyBedsToPatientRooms if unitSettings.beds exists)
+        if (!p.room) p.room = String(i);
+
         // If missing, default to "occupied" to avoid silently flipping workflow
         if (typeof p.isEmpty !== "boolean") p.isEmpty = false;
         if (typeof p.recentlyDischarged !== "boolean") p.recentlyDischarged = false;
-
-        // If room missing, set a placeholder; mapping may overwrite below
-        if (!p.room) p.room = String(i);
 
         next.push(p);
       } else {
@@ -157,11 +165,6 @@
 
     patients = next;
     window.patients = patients;
-
-    // Apply unit bed labels if available (this is the critical fix)
-    if (unitSettings && typeof unitSettings === "object") {
-      applyUnitBedMapping(unitSettings);
-    }
   }
 
   // Blow away all patient data and recreate the 32-room default grid.
@@ -169,6 +172,7 @@
     patients = [];
     window.patients = patients;
     ensureDefaultPatients();
+    applyBedsToPatientRooms();
 
     if (typeof window.updateAcuityTiles === "function") window.updateAcuityTiles();
     if (typeof window.renderPatientList === "function") window.renderPatientList();
@@ -179,9 +183,30 @@
     saveState();
   }
 
+  // ============ UNIT SETTINGS APPLY (minimal hook) ============
+  function applyUnitSettings(nextSettings) {
+    unitSettings = nextSettings || null;
+    window.unitSettings = unitSettings;
+
+    // Update room labels from settings (without wiping patient tags)
+    applyBedsToPatientRooms();
+
+    if (typeof window.onUnitSettingsApplied === "function") {
+      try { window.onUnitSettingsApplied(unitSettings); } catch (e) { console.warn("onUnitSettingsApplied error", e); }
+    }
+
+    if (typeof window.renderPatientList === "function") window.renderPatientList();
+    if (typeof window.updateAcuityTiles === "function") window.updateAcuityTiles();
+    if (typeof window.renderLiveAssignments === "function") window.renderLiveAssignments();
+    if (typeof window.renderAssignmentOutput === "function") window.renderAssignmentOutput();
+    if (typeof window.renderPcaAssignmentOutput === "function") window.renderPcaAssignmentOutput();
+    if (typeof window.renderQueueList === "function") window.renderQueueList();
+
+    saveState();
+  }
+
   // ============ STORAGE HELPERS ============
 
-  // Fallback RN restrictions if app.staffing.js hasn’t run yet.
   function defaultRestrictions() {
     return {
       noMales: false,
@@ -192,16 +217,24 @@
     };
   }
 
-  function saveState() {
+  function saveMeta() {
     try {
-      const data = {
-        // multi-unit spine
+      const meta = {
         activeUnitId: activeUnitId || null,
         activeUnitRole: activeUnitRole || null,
-        unitSettings: unitSettings || null,
-        availableUnits: Array.isArray(availableUnits) ? availableUnits : [],
+        unitSettings: unitSettings || null, // cached copy for fast boot (real source is DB)
+        availableUnits: Array.isArray(availableUnits) ? availableUnits : []
+      };
+      localStorage.setItem(META_KEY, JSON.stringify(meta));
+    } catch (e) {
+      console.warn("Unable to save meta", e);
+    }
+  }
 
-        // existing state
+  function saveState() {
+    try {
+      // Save workspace for CURRENT unit
+      const data = {
         pcaShift,
 
         currentNurses: (currentNurses || []).map((n, i) => ({
@@ -243,32 +276,45 @@
         nextQueueId: typeof nextQueueId === "number" ? nextQueueId : 1
       };
 
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+      localStorage.setItem(unitKey(activeUnitId), JSON.stringify(data));
+
+      // Save cross-unit meta too
+      saveMeta();
     } catch (e) {
       console.warn("Unable to save state", e);
     }
   }
 
-  function loadStateFromStorage() {
+  function loadMeta() {
     try {
-      const raw = localStorage.getItem(STORAGE_KEY);
-      if (!raw) {
-        ensureDefaultPatients();
-        return false;
-      }
+      const raw = localStorage.getItem(META_KEY);
+      if (!raw) return false;
 
-      const data = JSON.parse(raw);
+      const meta = JSON.parse(raw);
 
-      // multi-unit spine
-      activeUnitId = data.activeUnitId || null;
-      activeUnitRole = data.activeUnitRole || null;
-      unitSettings = (data.unitSettings && typeof data.unitSettings === "object") ? data.unitSettings : null;
-      availableUnits = Array.isArray(data.availableUnits) ? data.availableUnits : [];
+      activeUnitId = meta.activeUnitId || null;
+      activeUnitRole = meta.activeUnitRole || null;
+      unitSettings = (meta.unitSettings && typeof meta.unitSettings === "object") ? meta.unitSettings : null;
+      availableUnits = Array.isArray(meta.availableUnits) ? meta.availableUnits : [];
 
       window.activeUnitId = activeUnitId;
       window.activeUnitRole = activeUnitRole;
       window.unitSettings = unitSettings;
       window.availableUnits = availableUnits;
+
+      return true;
+    } catch (e) {
+      console.warn("Unable to load meta", e);
+      return false;
+    }
+  }
+
+  function loadUnitWorkspace(unitId) {
+    try {
+      const raw = localStorage.getItem(unitKey(unitId));
+      if (!raw) return false;
+
+      const data = JSON.parse(raw);
 
       pcaShift = data.pcaShift || "day";
       window.pcaShift = pcaShift;
@@ -278,7 +324,6 @@
       currentPcas = Array.isArray(data.currentPcas) ? data.currentPcas : [];
       incomingPcas = Array.isArray(data.incomingPcas) ? data.incomingPcas : [];
 
-      // Push back onto window (canonical)
       window.currentNurses = currentNurses;
       window.incomingNurses = incomingNurses;
       window.currentPcas = currentPcas;
@@ -286,9 +331,6 @@
 
       patients = Array.isArray(data.patients) ? data.patients : [];
       window.patients = patients;
-
-      // Ensure 32 and apply bed mapping if settings exist
-      ensureDefaultPatients();
 
       dischargeHistory = Array.isArray(data.dischargeHistory) ? data.dischargeHistory : [];
       window.dischargeHistory = dischargeHistory;
@@ -302,7 +344,7 @@
       nextQueueId = typeof data.nextQueueId === "number" ? data.nextQueueId : 1;
       window.nextQueueId = nextQueueId;
 
-      // Re-bind bare globals so other files see updated arrays (not stale references)
+      // Re-bind bare globals
       currentNurses = window.currentNurses;
       incomingNurses = window.incomingNurses;
       currentPcas = window.currentPcas;
@@ -311,23 +353,31 @@
       admitQueue = window.admitQueue;
       dischargeHistory = window.dischargeHistory;
 
-      // Also keep local references aligned for multi-unit spine
-      activeUnitId = window.activeUnitId;
-      activeUnitRole = window.activeUnitRole;
-      unitSettings = window.unitSettings;
-      availableUnits = window.availableUnits;
-
       return true;
     } catch (e) {
-      console.warn("Unable to load state", e);
-      ensureDefaultPatients();
+      console.warn("Unable to load unit workspace", e);
       return false;
     }
+  }
+
+  function loadStateFromStorage() {
+    // 1) Load meta (active unit + cached settings + memberships)
+    loadMeta();
+
+    // 2) Load the workspace for the active unit (or "local" if none)
+    const ok = loadUnitWorkspace(activeUnitId);
+
+    // 3) Ensure canonical patients exist and apply bed labels if known
+    ensureDefaultPatients();
+    applyBedsToPatientRooms();
+
+    return ok;
   }
 
   function initFromStorageOrDefaults() {
     loadStateFromStorage();
     ensureDefaultPatients();
+    applyBedsToPatientRooms();
 
     if (typeof window.renderPatientList === "function") window.renderPatientList();
     if (typeof window.updateAcuityTiles === "function") window.updateAcuityTiles();
@@ -336,69 +386,88 @@
     if (typeof window.renderPcaAssignmentOutput === "function") window.renderPcaAssignmentOutput();
     if (typeof window.renderQueueList === "function") window.renderQueueList();
     if (typeof window.updateDischargeCount === "function") window.updateDischargeCount();
-  }
 
-  // ============ UNIT SETTINGS APPLY (minimal hook) ============
-  // This is intentionally conservative: it updates globals and triggers renders.
-  function applyUnitSettings(nextSettings) {
-    unitSettings = nextSettings || null;
-    window.unitSettings = unitSettings;
-
-    // If settings include beds, apply immediately
-    ensureDefaultPatients(); // ensures 32 then applies mapping
-    applyUnitBedMapping(unitSettings);
-
-    // Optional hooks other files can implement
-    if (typeof window.onUnitSettingsApplied === "function") {
-      try { window.onUnitSettingsApplied(unitSettings); } catch (e) { console.warn("onUnitSettingsApplied error", e); }
+    // Best-effort: if we have an activeUnitId but unitSettings is missing, load settings from Supabase.
+    if (window.activeUnitId && (!window.unitSettings || typeof window.unitSettings !== "object")) {
+      setTimeout(() => {
+        setActiveUnit(window.activeUnitId, window.activeUnitRole).catch(e => console.warn("setActiveUnit init load failed", e));
+      }, 0);
     }
-
-    // Re-render typical surfaces
-    if (typeof window.renderPatientList === "function") window.renderPatientList();
-    if (typeof window.updateAcuityTiles === "function") window.updateAcuityTiles();
-    if (typeof window.renderLiveAssignments === "function") window.renderLiveAssignments();
-    if (typeof window.renderAssignmentOutput === "function") window.renderAssignmentOutput();
-    if (typeof window.renderPcaAssignmentOutput === "function") window.renderPcaAssignmentOutput();
-    if (typeof window.renderQueueList === "function") window.renderQueueList();
-
-    saveState();
   }
 
-  // ============ ACTIVE UNIT SETTER (loads settings) ============
-  async function setActiveUnit(unitId, role) {
-    if (!unitId) {
+  // ============ ACTIVE UNIT SETTER (save current -> load next -> load settings) ============
+  async function setActiveUnit(nextUnitId, role) {
+    // Save workspace for current unit before switching
+    saveState();
+
+    if (!nextUnitId) {
       activeUnitId = null;
       activeUnitRole = null;
       window.activeUnitId = activeUnitId;
       window.activeUnitRole = activeUnitRole;
       applyUnitSettings(null);
-      saveState();
+      saveMeta();
       return { ok: true };
     }
 
-    activeUnitId = String(unitId);
+    activeUnitId = String(nextUnitId);
     activeUnitRole = role ? String(role) : (activeUnitRole || null);
 
     window.activeUnitId = activeUnitId;
     window.activeUnitRole = activeUnitRole;
 
-    // Load unit_settings for this unit (if sb is available)
+    // Load workspace for new unit (if exists); otherwise start clean for that unit
+    const loaded = loadUnitWorkspace(activeUnitId);
+    if (!loaded) {
+      // Clean slate for this unit (but keep system defaults)
+      currentNurses = [];
+      incomingNurses = [];
+      currentPcas = [];
+      incomingPcas = [];
+      admitQueue = [];
+      dischargeHistory = [];
+      nextQueueId = 1;
+      nextDischargeId = 1;
+      pcaShift = "day";
+
+      window.currentNurses = currentNurses;
+      window.incomingNurses = incomingNurses;
+      window.currentPcas = currentPcas;
+      window.incomingPcas = incomingPcas;
+      window.admitQueue = admitQueue;
+      window.dischargeHistory = dischargeHistory;
+      window.nextQueueId = nextQueueId;
+      window.nextDischargeId = nextDischargeId;
+      window.pcaShift = pcaShift;
+
+      patients = [];
+      window.patients = patients;
+      ensureDefaultPatients();
+    } else {
+      ensureDefaultPatients();
+    }
+
+    // Load unit_settings from Supabase (if available)
     if (window.sb && window.sb.getUnitSettings) {
       const { row, error } = await window.sb.getUnitSettings(activeUnitId);
       if (error) {
         console.warn("[unit] Failed to load unit_settings", error);
+        // Still apply any cached settings so the UI doesn't look broken
+        applyBedsToPatientRooms();
         saveState();
         return { ok: false, error };
       }
       applyUnitSettings(row);
-      return { ok: true, settings: row };
+    } else {
+      // Offline / no sb: still apply cached
+      applyBedsToPatientRooms();
+      saveState();
     }
 
-    saveState();
-    return { ok: true, settings: null };
+    return { ok: true };
   }
 
-  // ============ LOAD MEMBERSHIPS (optional convenience) ============
+  // ============ LOAD MEMBERSHIPS ============
   async function refreshMyUnits() {
     if (!window.sb || !window.sb.myUnitMemberships) {
       return { ok: false, error: new Error("Supabase not configured") };
@@ -418,11 +487,12 @@
     availableUnits = mapped;
     window.availableUnits = availableUnits;
 
+    // If no active unit yet, pick the newest membership
     if (!activeUnitId && mapped.length) {
       const first = mapped[0];
       await setActiveUnit(first.unit_id, first.role);
     } else {
-      saveState();
+      saveMeta();
     }
 
     return { ok: true, rows: mapped };
@@ -465,6 +535,7 @@
   }
 
   // ============ COMPATIBILITY HELPERS ============
+
   window.getRoomNumber = window.getRoomNumber || function getRoomNumber(p) {
     if (!p) return 9999;
     const roomVal = (typeof p === "object") ? (p.room ?? p.id ?? "") : p;
