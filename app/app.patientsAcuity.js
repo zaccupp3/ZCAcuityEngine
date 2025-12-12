@@ -6,8 +6,13 @@
 // CANONICAL SOURCE OF TRUTH:
 //   window.patients is an ARRAY of 32 patient objects with stable:
 //     - id: 1..32
-//     - room: "1".."32"
+//     - room: (display label) defaults to "1".."32"
 //   (Owned/initialized by app.state.js via ensureDefaultPatients())
+//
+// MULTI-UNIT ROOM SCHEMA SUPPORT (NEW):
+//   If window.unitSettings.room_schema.beds is present, we map
+//   patient.id (1..32) -> display label (e.g., "200A").
+//   Internal IDs remain stable for assignments/scoring.
 // ---------------------------------------------------------
 
 (function () {
@@ -32,6 +37,9 @@
         window.ensureDefaultPatients();
       }
     }
+
+    // Apply room schema mapping (best-effort, non-destructive)
+    applyRoomSchemaToPatients();
   }
 
   function getPatientById(id) {
@@ -40,15 +48,65 @@
     return safeArray(window.patients).find(p => p && Number(p.id) === num) || null;
   }
 
+  // IMPORTANT: Room labels may be non-numeric now (e.g., "200A").
+  // This function stays numeric-oriented for roommate pairing + legacy calls.
   function getPatientByRoom(roomNum) {
     ensurePatientsReady();
     const n = Number(roomNum);
-    // Canonical mapping: room == id (string), but we support either match
+    // Canonical legacy mapping: room == id (string), but we support either match
     return (
       safeArray(window.patients).find(p => p && Number(p.id) === n) ||
       safeArray(window.patients).find(p => p && Number(String(p.room || "").match(/\d+/)?.[0]) === n) ||
       null
     );
+  }
+
+  // =========================
+  // Room Schema Mapping (NEW)
+  // =========================
+
+  function getRoomSchemaBeds() {
+    const beds = window.unitSettings?.room_schema?.beds;
+    if (!Array.isArray(beds) || !beds.length) return null;
+    return beds.map(b => String(b).trim()).filter(Boolean);
+  }
+
+  function applyRoomSchemaToPatients() {
+    const beds = getRoomSchemaBeds();
+    if (!beds) return;
+
+    // Map first 32 bed labels onto patient ids 1..32.
+    // If fewer than 32 provided, fill remaining with default numeric labels.
+    const pArr = safeArray(window.patients).slice().sort((a, b) => Number(a?.id) - Number(b?.id));
+
+    for (let i = 0; i < 32; i++) {
+      const p = pArr[i];
+      if (!p) continue;
+
+      const label = beds[i] || String(p.id);
+
+      // Keep a stable internal numeric roomIndex for roommate pairing etc.
+      // (Do NOT depend on p.room being numeric anymore.)
+      p.roomIndex = Number(p.id);
+
+      // Display label used across UI (Patient Details, High Risk, etc.)
+      p.room = label;
+    }
+
+    window.patients = pArr;
+  }
+
+  function getRoomLabelForPatient(p) {
+    if (!p) return "";
+    // Prefer the mapped display label in p.room
+    return String(p.room || p.id || "");
+  }
+
+  function getRoommateId(patientId) {
+    // Roommate pairing should be based on internal bed index (id 1..32), not the display label.
+    const id = Number(patientId);
+    if (!id || id < 1) return null;
+    return (id % 2 === 0) ? (id - 1) : (id + 1);
   }
 
   // Treat isEmpty as a USER/WORKFLOW state (bed empty vs occupied).
@@ -100,19 +158,21 @@
   }
 
   // =========================
-  // Gender safety helper (if you already have canSetGender elsewhere)
+  // Gender safety helper
   // =========================
   function canSetGenderFallback(patient, newGender) {
     // If app already defines canSetGender, use it
     if (typeof window.canSetGender === "function") return window.canSetGender(patient, newGender);
 
-    // Otherwise, do a conservative roommate check:
-    // Rooms are paired (1&2, 3&4, ...). If roommate has a different gender, block.
-    const roomNum = Number(patient?.room || patient?.id || 0);
-    if (!roomNum || !newGender) return true;
+    // Conservative roommate check:
+    // Pairing is by internal bed index (id 1..32), NOT display labels.
+    const roomIndex = Number(patient?.roomIndex || patient?.id || 0);
+    if (!roomIndex || !newGender) return true;
 
-    const mateRoom = (roomNum % 2 === 0) ? roomNum - 1 : roomNum + 1;
-    const mate = getPatientByRoom(mateRoom);
+    const mateId = getRoommateId(roomIndex);
+    if (!mateId) return true;
+
+    const mate = getPatientById(mateId);
     if (!mate || mate.isEmpty) return true;
 
     const mateGender = (mate.gender || "").trim();
@@ -192,7 +252,7 @@
         <table class="patient-table">
           <thead>
             <tr>
-              <th class="col-room">Room</th>
+              <th class="col-room">Bed</th>
               <th>Status</th>
               <th>Gender</th>
               <th>RN Tags</th>
@@ -201,7 +261,7 @@
           </thead>
           <tbody>
             ${rows.map(p => {
-              const roomLabel = String(p.room || p.id || "");
+              const roomLabel = getRoomLabelForPatient(p);
               const empty = !!p.isEmpty;
 
               return `
@@ -209,7 +269,7 @@
                   <td class="col-room">${roomLabel}</td>
 
                   <td>
-                    <div class="status-toggle" role="group" aria-label="Room ${roomLabel} status">
+                    <div class="status-toggle" role="group" aria-label="Bed ${roomLabel} status">
                       <button
                         class="status-btn ${!empty ? "active" : ""}"
                         type="button"
@@ -542,7 +602,7 @@
     const tiles = config.map(t => {
       const rooms = active
         .filter(p => !!p[t.key])
-        .map(p => normalizeRoomLabel(p.room))
+        .map(p => normalizeRoomLabel(getRoomLabelForPatient(p)))
         .filter(Boolean);
 
       return { ...t, count: rooms.length, rooms };
@@ -556,7 +616,7 @@
         <div class="acuity-tile">
           <div class="acuity-tile-title">${t.label}</div>
           <div class="acuity-tile-count">${t.count}</div>
-          <div class="acuity-tile-footer">Rooms: ${roomsText}</div>
+          <div class="acuity-tile-footer">Beds: ${roomsText}</div>
         </div>
       `;
     }).join("");
@@ -584,7 +644,7 @@
       if (p.feeder) tags.push("Feeder");
       if (!tags.length) return;
 
-      lines.push(`<div><strong>${normalizeRoomLabel(p.room)}</strong>: ${tags.join(", ")}</div>`);
+      lines.push(`<div><strong>${normalizeRoomLabel(getRoomLabelForPatient(p))}</strong>: ${tags.join(", ")}</div>`);
     });
 
     if (!lines.length) return "<p>No high-risk patients flagged.</p>";
@@ -609,7 +669,7 @@
     currentProfilePatientId = Number(patientId);
 
     const titleEl = document.getElementById("profileModalTitle");
-    if (titleEl) titleEl.textContent = `Patient Profile – Room ${p.room || "?"}`;
+    if (titleEl) titleEl.textContent = `Patient Profile – Bed ${getRoomLabelForPatient(p) || "?"}`;
 
     const gSel = document.getElementById("profGender");
     if (gSel) gSel.value = p.gender || "";
@@ -708,6 +768,12 @@
   // =========================
 
   window.getPatientById = getPatientById;
+  window.getPatientByRoom = getPatientByRoom;
+
+  // Room schema helpers for other modules (Live/Oncoming renderers, queue, etc.)
+  window.applyRoomSchemaToPatients = applyRoomSchemaToPatients;
+  window.getRoomLabelForPatient = getRoomLabelForPatient;
+
   window.recomputeIsEmpty = recomputeIsEmpty;
   window.setBedEmptyState = setBedEmptyState;
 

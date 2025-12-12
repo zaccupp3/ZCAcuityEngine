@@ -2,6 +2,12 @@
 // ---------------------------------------------------------
 // Rendering + generator for Oncoming (incoming) assignments ONLY
 // Adds "Prev. RN / Prev. PCA" columns by referencing LIVE assignments.
+//
+// MULTI-UNIT ROOM SCHEMA SUPPORT (NEW):
+// - Uses window.getRoomLabelForPatient(p) if available to display bed labels
+//   (e.g., "200A") instead of assuming numeric rooms.
+// - Sorting remains stable via window.getRoomNumber helper (already handles digits),
+//   but we also fall back to sorting by patient.id when digits are not found.
 // ---------------------------------------------------------
 
 // -----------------------------
@@ -51,6 +57,28 @@ function getUniquePrevPcaCount(patientIds) {
 }
 
 // -----------------------------
+// Room label helpers (NEW)
+// -----------------------------
+
+function getBedLabel(p) {
+  if (!p) return "";
+  if (typeof window.getRoomLabelForPatient === "function") {
+    return window.getRoomLabelForPatient(p);
+  }
+  return String(p.room || p.id || "");
+}
+
+function safeSortPatientsForDisplay(a, b) {
+  // Prefer existing numeric sorter (extracts digits from room label),
+  // but if it can't find digits (returns 9999), fall back to id ordering.
+  const ga = (typeof window.getRoomNumber === "function") ? window.getRoomNumber(a) : 9999;
+  const gb = (typeof window.getRoomNumber === "function") ? window.getRoomNumber(b) : 9999;
+
+  if (ga !== gb) return ga - gb;
+  return (Number(a?.id) || 0) - (Number(b?.id) || 0);
+}
+
+// -----------------------------
 // RN Oncoming Render
 // -----------------------------
 function renderAssignmentOutput() {
@@ -65,7 +93,7 @@ function renderAssignmentOutput() {
     const pts = (nurse.patients || [])
       .map(pid => getPatientById(pid))
       .filter(p => p && !p.isEmpty)
-      .sort((a, b) => getRoomNumber(a) - getRoomNumber(b));
+      .sort(safeSortPatientsForDisplay);
 
     const loadScore = (typeof getNurseLoadScore === "function") ? getNurseLoadScore(nurse) : 0;
     const loadClass = (typeof getLoadClass === "function") ? getLoadClass(loadScore, "nurse") : "";
@@ -90,7 +118,7 @@ function renderAssignmentOutput() {
         <table class="assignment-table">
           <thead>
             <tr>
-              <th>Room</th>
+              <th>Bed</th>
               <th>Level</th>
               <th>Acuity Notes</th>
               <th>Prev. RN</th>
@@ -104,6 +132,7 @@ function renderAssignmentOutput() {
 
     pts.forEach(p => {
       const prevName = getPrevRnNameForPatient(p.id);
+      const bedLabel = getBedLabel(p);
 
       html += `
         <tr
@@ -112,7 +141,7 @@ function renderAssignmentOutput() {
           ondragend="onRowDragEnd(event)"
           ondblclick="openPatientProfileFromRoom(${p.id})"
         >
-          <td>${p.room || ""}</td>
+          <td>${bedLabel}</td>
           <td>${p.tele ? "Tele" : "MS"}</td>
           <td>${rnTagString(p)}</td>
           <td>${prevName || "-"}</td>
@@ -145,7 +174,7 @@ function renderPcaAssignmentOutput() {
     const pts = (pca.patients || [])
       .map(pid => getPatientById(pid))
       .filter(p => p && !p.isEmpty)
-      .sort((a, b) => getRoomNumber(a) - getRoomNumber(b));
+      .sort(safeSortPatientsForDisplay);
 
     const loadScore = (typeof getPcaLoadScore === "function") ? getPcaLoadScore(pca) : 0;
     const loadClass = (typeof getLoadClass === "function") ? getLoadClass(loadScore, "pca") : "";
@@ -170,7 +199,7 @@ function renderPcaAssignmentOutput() {
         <table class="assignment-table">
           <thead>
             <tr>
-              <th>Room</th>
+              <th>Bed</th>
               <th>Level</th>
               <th>Acuity Notes</th>
               <th>Prev. PCA</th>
@@ -184,6 +213,7 @@ function renderPcaAssignmentOutput() {
 
     pts.forEach(p => {
       const prevName = getPrevPcaNameForPatient(p.id);
+      const bedLabel = getBedLabel(p);
 
       html += `
         <tr
@@ -192,7 +222,7 @@ function renderPcaAssignmentOutput() {
           ondragend="onRowDragEnd(event)"
           ondblclick="openPatientProfileFromRoom(${p.id})"
         >
-          <td>${p.room || ""}</td>
+          <td>${bedLabel}</td>
           <td>${p.tele ? "Tele" : "MS"}</td>
           <td>${pcaTagString(p)}</td>
           <td>${prevName || "-"}</td>
@@ -232,10 +262,10 @@ function populateOncomingAssignment(randomize = false) {
 
   let list = activePatients.slice();
   if (randomize) list.sort(() => Math.random() - 0.5);
-  else list.sort((a, b) => getRoomNumber(a) - getRoomNumber(b));
+  else list.sort(safeSortPatientsForDisplay);
 
   if (typeof window.distributePatientsEvenly === "function") {
-    // ✅ Role-aware balancing (Fix #5)
+    // ✅ Role-aware balancing
     window.distributePatientsEvenly(incomingNurses, list, { randomize, role: "nurse" });
     window.distributePatientsEvenly(incomingPcas, list, { randomize, role: "pca" });
   } else {
