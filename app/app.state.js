@@ -104,13 +104,33 @@
     };
   }
 
-  // Canonical: always have 32 rooms with stable IDs.
-  function ensureDefaultPatients() {
-    if (!Array.isArray(patients)) patients = [];
-    if (patients.length >= 32) {
-      window.patients = patients;
+  // ============ UNIT BED LABEL MAPPING ============
+  // Keeps patient.id 1..32 stable, updates patient.room labels from unitSettings.beds[0..31]
+  function applyUnitBedMapping(settings) {
+    const beds = settings && Array.isArray(settings.beds) ? settings.beds : null;
+    if (!beds) return;
+
+    if (beds.length !== 32) {
+      console.warn("[unit] beds must be length 32. Got:", beds.length);
       return;
     }
+
+    if (!Array.isArray(patients)) patients = [];
+    if (patients.length !== 32) return; // must already be ensured
+
+    for (let i = 0; i < 32; i++) {
+      const p = patients[i];
+      if (!p) continue;
+      p.room = String(beds[i]);
+    }
+
+    window.patients = patients;
+  }
+
+  // Canonical: always have 32 rooms with stable IDs.
+  // IMPORTANT: even if we already have 32 patients, we still apply bed mapping if unitSettings.beds exists.
+  function ensureDefaultPatients() {
+    if (!Array.isArray(patients)) patients = [];
 
     const existingById = new Map();
     patients.forEach(p => {
@@ -121,11 +141,13 @@
     for (let i = 1; i <= 32; i++) {
       if (existingById.has(i)) {
         const p = existingById.get(i);
-        if (!p.room) p.room = String(i);
 
         // If missing, default to "occupied" to avoid silently flipping workflow
         if (typeof p.isEmpty !== "boolean") p.isEmpty = false;
         if (typeof p.recentlyDischarged !== "boolean") p.recentlyDischarged = false;
+
+        // If room missing, set a placeholder; mapping may overwrite below
+        if (!p.room) p.room = String(i);
 
         next.push(p);
       } else {
@@ -135,6 +157,11 @@
 
     patients = next;
     window.patients = patients;
+
+    // Apply unit bed labels if available (this is the critical fix)
+    if (unitSettings && typeof unitSettings === "object") {
+      applyUnitBedMapping(unitSettings);
+    }
   }
 
   // Blow away all patient data and recreate the 32-room default grid.
@@ -150,97 +177,6 @@
     if (typeof window.renderPcaAssignmentOutput === "function") window.renderPcaAssignmentOutput();
 
     saveState();
-  }
-
-  // ============ UNIT SETTINGS APPLY (minimal hook) ============
-  // This is intentionally conservative: it updates globals and triggers renders.
-  // More specialized behavior (room schema remapping etc.) can be layered in later.
-  function applyUnitSettings(nextSettings) {
-    unitSettings = nextSettings || null;
-    window.unitSettings = unitSettings;
-
-    // Optional hooks other files can implement
-    if (typeof window.onUnitSettingsApplied === "function") {
-      try { window.onUnitSettingsApplied(unitSettings); } catch (e) { console.warn("onUnitSettingsApplied error", e); }
-    }
-
-    // Re-render typical surfaces so settings (tags/rules/rooms) can take effect where supported
-    if (typeof window.renderPatientList === "function") window.renderPatientList();
-    if (typeof window.updateAcuityTiles === "function") window.updateAcuityTiles();
-    if (typeof window.renderLiveAssignments === "function") window.renderLiveAssignments();
-    if (typeof window.renderAssignmentOutput === "function") window.renderAssignmentOutput();
-    if (typeof window.renderPcaAssignmentOutput === "function") window.renderPcaAssignmentOutput();
-    if (typeof window.renderQueueList === "function") window.renderQueueList();
-
-    saveState();
-  }
-
-  // ============ ACTIVE UNIT SETTER (loads settings) ============
-  async function setActiveUnit(unitId, role) {
-    if (!unitId) {
-      activeUnitId = null;
-      activeUnitRole = null;
-      window.activeUnitId = activeUnitId;
-      window.activeUnitRole = activeUnitRole;
-      applyUnitSettings(null);
-      saveState();
-      return { ok: true };
-    }
-
-    activeUnitId = String(unitId);
-    activeUnitRole = role ? String(role) : (activeUnitRole || null);
-
-    window.activeUnitId = activeUnitId;
-    window.activeUnitRole = activeUnitRole;
-
-    // Load unit_settings for this unit (if sb is available)
-    if (window.sb && window.sb.getUnitSettings) {
-      const { row, error } = await window.sb.getUnitSettings(activeUnitId);
-      if (error) {
-        console.warn("[unit] Failed to load unit_settings", error);
-        // Keep prior settings if present; don't wipe user mid-demo
-        saveState();
-        return { ok: false, error };
-      }
-      applyUnitSettings(row);
-      return { ok: true, settings: row };
-    }
-
-    // If supabase not configured, just persist the selection
-    saveState();
-    return { ok: true, settings: null };
-  }
-
-  // ============ LOAD MEMBERSHIPS (optional convenience) ============
-  // Pulls memberships and populates availableUnits. Does NOT force UI changes.
-  async function refreshMyUnits() {
-    if (!window.sb || !window.sb.myUnitMemberships) {
-      return { ok: false, error: new Error("Supabase not configured") };
-    }
-
-    const { data, error } = await window.sb.myUnitMemberships();
-    if (error) return { ok: false, error };
-
-    const mapped = (data || [])
-      .map(r => ({
-        unit_id: r.unit_id,
-        role: r.role,
-        unit: r.units ? { id: r.units.id, name: r.units.name, code: r.units.code } : null
-      }))
-      .filter(x => x.unit_id && x.unit);
-
-    availableUnits = mapped;
-    window.availableUnits = availableUnits;
-
-    // If no active unit yet, pick the newest membership
-    if (!activeUnitId && mapped.length) {
-      const first = mapped[0];
-      await setActiveUnit(first.unit_id, first.role);
-    } else {
-      saveState();
-    }
-
-    return { ok: true, rows: mapped };
   }
 
   // ============ STORAGE HELPERS ============
@@ -350,6 +286,8 @@
 
       patients = Array.isArray(data.patients) ? data.patients : [];
       window.patients = patients;
+
+      // Ensure 32 and apply bed mapping if settings exist
       ensureDefaultPatients();
 
       dischargeHistory = Array.isArray(data.dischargeHistory) ? data.dischargeHistory : [];
@@ -398,15 +336,96 @@
     if (typeof window.renderPcaAssignmentOutput === "function") window.renderPcaAssignmentOutput();
     if (typeof window.renderQueueList === "function") window.renderQueueList();
     if (typeof window.updateDischargeCount === "function") window.updateDischargeCount();
+  }
 
-    // If we have an activeUnitId stored but no settings yet, attempt to load them (best-effort)
-    // Don’t block app boot; this is safe for demos and offline.
-    if (window.activeUnitId && (!window.unitSettings || typeof window.unitSettings !== "object")) {
-      // fire-and-forget style, but still awaited-ish in case someone calls init then expects settings
-      setTimeout(() => {
-        setActiveUnit(window.activeUnitId, window.activeUnitRole).catch(e => console.warn("setActiveUnit init load failed", e));
-      }, 0);
+  // ============ UNIT SETTINGS APPLY (minimal hook) ============
+  // This is intentionally conservative: it updates globals and triggers renders.
+  function applyUnitSettings(nextSettings) {
+    unitSettings = nextSettings || null;
+    window.unitSettings = unitSettings;
+
+    // If settings include beds, apply immediately
+    ensureDefaultPatients(); // ensures 32 then applies mapping
+    applyUnitBedMapping(unitSettings);
+
+    // Optional hooks other files can implement
+    if (typeof window.onUnitSettingsApplied === "function") {
+      try { window.onUnitSettingsApplied(unitSettings); } catch (e) { console.warn("onUnitSettingsApplied error", e); }
     }
+
+    // Re-render typical surfaces
+    if (typeof window.renderPatientList === "function") window.renderPatientList();
+    if (typeof window.updateAcuityTiles === "function") window.updateAcuityTiles();
+    if (typeof window.renderLiveAssignments === "function") window.renderLiveAssignments();
+    if (typeof window.renderAssignmentOutput === "function") window.renderAssignmentOutput();
+    if (typeof window.renderPcaAssignmentOutput === "function") window.renderPcaAssignmentOutput();
+    if (typeof window.renderQueueList === "function") window.renderQueueList();
+
+    saveState();
+  }
+
+  // ============ ACTIVE UNIT SETTER (loads settings) ============
+  async function setActiveUnit(unitId, role) {
+    if (!unitId) {
+      activeUnitId = null;
+      activeUnitRole = null;
+      window.activeUnitId = activeUnitId;
+      window.activeUnitRole = activeUnitRole;
+      applyUnitSettings(null);
+      saveState();
+      return { ok: true };
+    }
+
+    activeUnitId = String(unitId);
+    activeUnitRole = role ? String(role) : (activeUnitRole || null);
+
+    window.activeUnitId = activeUnitId;
+    window.activeUnitRole = activeUnitRole;
+
+    // Load unit_settings for this unit (if sb is available)
+    if (window.sb && window.sb.getUnitSettings) {
+      const { row, error } = await window.sb.getUnitSettings(activeUnitId);
+      if (error) {
+        console.warn("[unit] Failed to load unit_settings", error);
+        saveState();
+        return { ok: false, error };
+      }
+      applyUnitSettings(row);
+      return { ok: true, settings: row };
+    }
+
+    saveState();
+    return { ok: true, settings: null };
+  }
+
+  // ============ LOAD MEMBERSHIPS (optional convenience) ============
+  async function refreshMyUnits() {
+    if (!window.sb || !window.sb.myUnitMemberships) {
+      return { ok: false, error: new Error("Supabase not configured") };
+    }
+
+    const { data, error } = await window.sb.myUnitMemberships();
+    if (error) return { ok: false, error };
+
+    const mapped = (data || [])
+      .map(r => ({
+        unit_id: r.unit_id,
+        role: r.role,
+        unit: r.units ? { id: r.units.id, name: r.units.name, code: r.units.code } : null
+      }))
+      .filter(x => x.unit_id && x.unit);
+
+    availableUnits = mapped;
+    window.availableUnits = availableUnits;
+
+    if (!activeUnitId && mapped.length) {
+      const first = mapped[0];
+      await setActiveUnit(first.unit_id, first.role);
+    } else {
+      saveState();
+    }
+
+    return { ok: true, rows: mapped };
   }
 
   // ============ CLEAR “RECENTLY DISCHARGED” ============
@@ -446,8 +465,6 @@
   }
 
   // ============ COMPATIBILITY HELPERS ============
-
-  // Room sorting helper used throughout (patientsAcuity, assignmentsrender, queue, etc.)
   window.getRoomNumber = window.getRoomNumber || function getRoomNumber(p) {
     if (!p) return 9999;
     const roomVal = (typeof p === "object") ? (p.room ?? p.id ?? "") : p;
@@ -456,7 +473,6 @@
     return m ? Number(m[0]) : 9999;
   };
 
-  // Some older code calls without window prefix
   if (typeof window.getRoomNumber === "function" && typeof getRoomNumber === "undefined") {
     // eslint-disable-next-line no-var
     var getRoomNumber = window.getRoomNumber;
