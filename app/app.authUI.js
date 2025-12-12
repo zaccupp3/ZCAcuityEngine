@@ -1,5 +1,6 @@
 // app/app.authUI.js
 // Wires the auth dropdown UI to window.sb (Supabase wrapper)
+// Also refreshes unit memberships + active unit + role pill for multi-unit demo flows.
 
 (function () {
   function $(id) { return document.getElementById(id); }
@@ -81,6 +82,71 @@
     return { row: (data && data[0]) ? data[0] : null, error };
   }
 
+  function unitLabelFromMembership(m) {
+    const u = m?.unit || m?.units || null;
+    const name = u?.name || "";
+    const code = u?.code || "";
+    if (name && code) return `${name} (${code})`;
+    return name || code || (m?.unit_id || "—");
+  }
+
+  // Keep the little auth pill accurate to ACTIVE UNIT
+  function refreshAuthPill() {
+    const rows = Array.isArray(window.availableUnits) ? window.availableUnits : [];
+    const activeId = window.activeUnitId;
+
+    let unitLabel = "—";
+    let role = window.activeUnitRole || "—";
+
+    if (activeId) {
+      const match = rows.find(r => String(r.unit_id) === String(activeId));
+      if (match) {
+        unitLabel = unitLabelFromMembership(match);
+        role = match.role || role;
+      } else {
+        unitLabel = String(activeId);
+      }
+    }
+
+    if (el.unitRole) el.unitRole.textContent = `unit: ${unitLabel} | role: ${role}`;
+
+    // Let other UI elements (Finalize button, etc.) respond to role changes
+    if (typeof window.onAuthRoleChanged === "function") {
+      try { window.onAuthRoleChanged(); } catch (e) { console.warn("onAuthRoleChanged error", e); }
+    }
+  }
+
+  // After auth, refresh memberships + ensure active unit is set and settings loaded
+  async function refreshMembershipsAndUnit() {
+    if (!sbReady()) return { ok: false, error: new Error("Supabase not ready") };
+    if (typeof window.refreshMyUnits !== "function") {
+      return { ok: false, error: new Error("refreshMyUnits missing (app.state.js not loaded?)") };
+    }
+
+    const res = await window.refreshMyUnits();
+    if (!res?.ok) return res;
+
+    // If we have an activeUnitId, align role from memberships and load settings via setActiveUnit
+    const rows = Array.isArray(window.availableUnits) ? window.availableUnits : [];
+    if (window.activeUnitId) {
+      const match = rows.find(r => String(r.unit_id) === String(window.activeUnitId));
+      if (match && typeof window.setActiveUnit === "function") {
+        await window.setActiveUnit(match.unit_id, match.role || null);
+      } else if (typeof window.setActiveUnit === "function") {
+        // still try loading settings based on activeUnitId (role stays as-is)
+        await window.setActiveUnit(window.activeUnitId, window.activeUnitRole || null);
+      }
+    }
+
+    // Notify script.js to repopulate unit dropdowns
+    if (typeof window.onMembershipsUpdated === "function") {
+      try { window.onMembershipsUpdated(); } catch (e) { console.warn("onMembershipsUpdated error", e); }
+    }
+
+    refreshAuthPill();
+    return { ok: true };
+  }
+
   async function refreshAuthUI() {
     if (!sbReady()) {
       setStatus("Supabase not ready");
@@ -106,6 +172,11 @@
       showLoggedIn(false);
       if (el.userEmail) el.userEmail.textContent = "";
       if (el.unitRole) el.unitRole.textContent = "unit: — | role: —";
+
+      // Clear multi-unit context on sign-out (keep localStorage selection; but hide pill)
+      if (typeof window.onAuthRoleChanged === "function") {
+        try { window.onAuthRoleChanged(); } catch (_) {}
+      }
       return;
     }
 
@@ -115,17 +186,31 @@
     const email = session.user?.email || "(no email)";
     if (el.userEmail) el.userEmail.textContent = email;
 
-    const prof = await getUnitProfileFallback();
-    if (prof?.error) {
-      if (el.unitRole) el.unitRole.textContent = "unit: — | role: —";
-      setMsg(`Membership lookup error: ${prof.error.message || String(prof.error)}`);
-      return;
+    // Preferred path: refresh memberships and set active unit + settings
+    try {
+      const r = await refreshMembershipsAndUnit();
+      if (!r?.ok) console.warn("[auth] refreshMembershipsAndUnit not ok", r?.error);
+    } catch (e) {
+      console.warn("[auth] refreshMembershipsAndUnit failed", e);
     }
 
-    const row = prof?.row;
-    const unitName = row?.units?.name || row?.units?.code || "—";
-    const role = row?.role || "—";
-    if (el.unitRole) el.unitRole.textContent = `unit: ${unitName} | role: ${role}`;
+    // Fallback: if memberships didn't populate, at least show most recent membership
+    if (!Array.isArray(window.availableUnits) || !window.availableUnits.length) {
+      const prof = await getUnitProfileFallback();
+      if (prof?.error) {
+        if (el.unitRole) el.unitRole.textContent = "unit: — | role: —";
+        setMsg(`Membership lookup error: ${prof.error.message || String(prof.error)}`);
+        return;
+      }
+
+      const row = prof?.row;
+      const unitName = row?.units?.name || row?.units?.code || "—";
+      const role = row?.role || "—";
+      if (el.unitRole) el.unitRole.textContent = `unit: ${unitName} | role: ${role}`;
+    } else {
+      refreshAuthPill();
+    }
+
     setMsg("");
   }
 
@@ -163,6 +248,16 @@
     if (error) setMsg(error.message || String(error));
     else setMsg("");
 
+    // Best-effort clear of UI bits
+    if (el.userEmail) el.userEmail.textContent = "";
+    if (el.unitRole) el.unitRole.textContent = "unit: — | role: —";
+    showLoggedIn(false);
+
+    // Trigger downstream UI disable (Finalize etc.)
+    if (typeof window.onAuthRoleChanged === "function") {
+      try { window.onAuthRoleChanged(); } catch (_) {}
+    }
+
     await refreshAuthUI();
   }
 
@@ -199,7 +294,9 @@
     if (el.btnSignOut) el.btnSignOut.addEventListener("click", doSignOut);
 
     if (sbReady() && typeof window.sb.client.auth.onAuthStateChange === "function") {
-      window.sb.client.auth.onAuthStateChange(() => refreshAuthUI());
+      window.sb.client.auth.onAuthStateChange(async () => {
+        await refreshAuthUI();
+      });
     }
   }
 
@@ -209,6 +306,11 @@
     refreshAuthUI();
   }
 
-  window.authUI = { refreshAuthUI };
+  // Expose a few helpers other scripts can call
+  window.authUI = {
+    refreshAuthUI,
+    refreshAuthPill
+  };
+
   wire();
 })();

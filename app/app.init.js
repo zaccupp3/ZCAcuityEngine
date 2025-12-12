@@ -2,14 +2,42 @@
 // Central bootstrap for the entire app.
 // Runs once on DOMContentLoaded, sets up staffing, patients, and initial renders.
 
-window.addEventListener("DOMContentLoaded", () => {
+window.addEventListener("DOMContentLoaded", async () => {
   console.log("APP INIT: Starting initialization…");
 
   // Ensure base patient structure exists
   ensureDefaultPatients();
 
-  // Load state from localStorage (staff, patients, shift)
+  // Load state from localStorage (staff, patients, shift, activeUnitId if present)
   loadStateFromStorage();
+
+  // -----------------------------------------------------
+  // MULTI-UNIT BOOTSTRAP (minimal wiring for demo)
+  // - loads memberships -> availableUnits
+  // - ensures activeUnitId is set
+  // - loads/apply unit_settings for activeUnitId (best-effort)
+  // -----------------------------------------------------
+  if (window.sb && window.refreshMyUnits && typeof window.refreshMyUnits === "function") {
+    try {
+      const res = await window.refreshMyUnits();
+      if (!res?.ok) console.warn("[init] refreshMyUnits not ok", res?.error);
+    } catch (e) {
+      console.warn("[init] refreshMyUnits failed", e);
+    }
+  } else {
+    console.warn("[init] Supabase not configured or refreshMyUnits missing (offline/demo mode).");
+  }
+
+  // If activeUnitId exists but unitSettings isn't loaded yet, try loading now.
+  // (Also supports the case where memberships didn't load but unit selection is persisted.)
+  if (window.activeUnitId && window.setActiveUnit && typeof window.setActiveUnit === "function") {
+    try {
+      // don't override role if already set; setActiveUnit will keep it
+      await window.setActiveUnit(window.activeUnitId, window.activeUnitRole || null);
+    } catch (e) {
+      console.warn("[init] setActiveUnit failed", e);
+    }
+  }
 
   // Cache dropdown elements
   const currentNurseCountSel = document.getElementById("currentNurseCount");
@@ -66,7 +94,6 @@ window.addEventListener("DOMContentLoaded", () => {
   // -----------------------------------------------------
   const shiftSel = document.getElementById("pcaShift");
   if (shiftSel) shiftSel.value = pcaShift;
-
 
   // -----------------------------------------------------
   // AUTOFILL LIVE ASSIGNMENT (NEW!)

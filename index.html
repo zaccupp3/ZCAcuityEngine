@@ -31,8 +31,16 @@
       <button class="tabButton header-tab" data-target="unitPulseTab">Unit Pulse</button>
     </nav>
 
-    <!-- Right: Compact Auth Menu -->
+    <!-- Right: Unit Switch + Compact Auth Menu -->
     <div class="header-right">
+      <!-- Minimal unit switcher hook (wired in JS) -->
+      <div class="unit-switcher" style="display:flex; align-items:center; gap:8px; margin-right:10px;">
+        <span style="font-size:12px; opacity:0.75;">Unit</span>
+        <select id="unitSwitcher" style="max-width:220px;">
+          <option value="">—</option>
+        </select>
+      </div>
+
       <div id="authMenu" class="auth-menu">
         <button id="authMenuBtn" class="auth-menu-btn" type="button" aria-haspopup="menu" aria-expanded="false" title="Account">
           <span class="auth-avatar" aria-hidden="true">👤</span>
@@ -73,8 +81,50 @@
     <section id="environmentTab" class="tab-section" style="display: none;">
       <h1>Environment</h1>
       <p>
-        Quick unit environment snapshot. (Placeholder tab—content coming soon.)
+        Unit-scoped settings live here. Selecting a unit here should populate settings across all tabs.
       </p>
+
+      <div class="staff-card">
+        <div class="staff-card-header">Active Unit (Settings Scope)</div>
+
+        <div class="staff-inline-controls" style="gap:10px; flex-wrap:wrap;">
+          <label for="envUnitSelect"><strong>Unit:</strong></label>
+          <select id="envUnitSelect" style="min-width: 240px;">
+            <option value="">— Select a unit —</option>
+          </select>
+
+          <button id="btnEnvMakeActive" type="button">Make Active Unit</button>
+        </div>
+
+        <div style="margin-top: 10px; font-size: 12px; opacity: 0.8;">
+          Active unit: <strong id="envActiveUnitLabel">—</strong>
+        </div>
+      </div>
+
+      <div class="staff-card">
+        <div class="staff-card-header">Seed / Test Environment</div>
+
+        <div style="font-size:14px; color:#475569; line-height:1.4; margin-bottom:10px;">
+          Create standard demo units + settings in Supabase for quick investor demos.
+        </div>
+
+        <div class="actions-row" style="flex-wrap:wrap;">
+          <button id="btnSeed2South32" type="button">Seed: 2 South (200A–221B)</button>
+          <button id="btnSeed2SouthOverflow" type="button" disabled title="Coming soon">Seed: 2 South + Overflow</button>
+        </div>
+
+        <div style="margin-top: 10px; font-size: 12px; opacity: 0.8;">
+          Note: seeding requires you to be an owner/admin in the target unit(s) based on RLS.
+        </div>
+      </div>
+
+      <div class="staff-card">
+        <div class="staff-card-header">Loaded Unit Settings (Preview)</div>
+        <div style="font-size:12px; opacity:0.8; margin-bottom:8px;">
+          This is the current <code>unit_settings</code> payload loaded for the active unit.
+        </div>
+        <pre id="envSettingsPreview" style="white-space:pre-wrap; font-size:12px; background:#0b1220; color:#e5e7eb; padding:12px; border-radius:10px; overflow:auto; max-height:320px;">{}</pre>
+      </div>
 
       <div class="staff-card">
         <div class="staff-card-header">Notes</div>
@@ -280,9 +330,34 @@
     <section id="oncomingAssignmentTab" class="tab-section" style="display: none;">
       <h1>Oncoming Assignment (Incoming Staff)</h1>
 
-      <div class="actions-row">
+      <div class="actions-row" style="flex-wrap:wrap;">
         <button onclick="populateOncomingAssignment()">Populate Oncoming Assignment</button>
         <button onclick="rebalanceOncomingAssignment()">Re-generate / Rebalance</button>
+
+        <!-- Finalize / Shift Change hook (wired in JS) -->
+        <button id="btnFinalizeShift" type="button" title="Publishes Oncoming snapshot + analytics, then swaps Live ← Oncoming">
+          Finalize / Submit Shift Change
+        </button>
+      </div>
+
+      <div class="staff-card" style="margin-top: 12px;">
+        <div class="staff-card-header">Finalize Details</div>
+        <div class="staff-inline-controls" style="gap:10px; flex-wrap:wrap;">
+          <label for="finalizeShiftDate"><strong>Shift date:</strong></label>
+          <input id="finalizeShiftDate" type="date" />
+
+          <label for="finalizeShiftType"><strong>Shift type:</strong></label>
+          <select id="finalizeShiftType">
+            <option value="day">Day</option>
+            <option value="night">Night</option>
+          </select>
+
+          <div style="font-size:12px; opacity:0.75;">
+            (Charge/Admin/Owner only)
+          </div>
+        </div>
+
+        <div id="finalizeStatusMsg" style="margin-top:10px; font-size:12px; opacity:0.85;"></div>
       </div>
 
       <h2>Incoming RN Assignments</h2>
@@ -296,14 +371,42 @@
     <section id="unitPulseTab" class="tab-section" style="display: none;">
       <h1>Unit Pulse</h1>
       <p>
-        Unit trend + pulse checks. (Placeholder tab—content coming soon.)
+        Pulls unit-scoped shift metrics from Supabase and displays trends.
       </p>
 
       <div class="staff-card">
-        <div class="staff-card-header">Pulse Summary</div>
-        <div style="font-size:14px; color:#475569; line-height:1.4;">
-          Add pulse widgets here (high-risk totals over time, admits/discharges, workload distribution, etc.).
+        <div class="staff-card-header">Query Controls</div>
+
+        <div class="staff-inline-controls" style="gap:10px; flex-wrap:wrap;">
+          <label for="pulseFrom"><strong>From:</strong></label>
+          <input id="pulseFrom" type="date" />
+
+          <label for="pulseTo"><strong>To:</strong></label>
+          <input id="pulseTo" type="date" />
+
+          <label for="pulseShiftType"><strong>Shift:</strong></label>
+          <select id="pulseShiftType">
+            <option value="">All</option>
+            <option value="day">Day</option>
+            <option value="night">Night</option>
+          </select>
+
+          <button id="btnLoadPulse" type="button">Load Pulse</button>
         </div>
+
+        <div id="pulseStatusMsg" style="margin-top:10px; font-size:12px; opacity:0.85;"></div>
+      </div>
+
+      <div class="staff-card">
+        <div class="staff-card-header">Pulse Summary</div>
+        <div id="pulseSummary" style="font-size:14px; color:#475569; line-height:1.4;">
+          No data loaded yet.
+        </div>
+      </div>
+
+      <div class="staff-card">
+        <div class="staff-card-header">Metrics (Table)</div>
+        <div id="pulseTable" style="overflow:auto;"></div>
       </div>
     </section>
 

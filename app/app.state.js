@@ -15,12 +15,19 @@
   window.incomingPcas   = Array.isArray(window.incomingPcas)   ? window.incomingPcas   : [];
   window.patients       = Array.isArray(window.patients)       ? window.patients       : [];
 
-  window.admitQueue       = Array.isArray(window.admitQueue)      ? window.admitQueue      : [];
-  window.dischargeHistory = Array.isArray(window.dischargeHistory)? window.dischargeHistory: [];
+  window.admitQueue       = Array.isArray(window.admitQueue)       ? window.admitQueue       : [];
+  window.dischargeHistory = Array.isArray(window.dischargeHistory) ? window.dischargeHistory : [];
 
   window.pcaShift        = typeof window.pcaShift === "string" ? window.pcaShift : "day";
   window.nextQueueId     = typeof window.nextQueueId === "number" ? window.nextQueueId : 1;
   window.nextDischargeId = typeof window.nextDischargeId === "number" ? window.nextDischargeId : 1;
+
+  // ============ MULTI-UNIT CORE ============
+  // These are the minimal "spine" fields needed for unit switching + settings propagation.
+  window.availableUnits = Array.isArray(window.availableUnits) ? window.availableUnits : [];
+  window.activeUnitId = typeof window.activeUnitId === "string" ? window.activeUnitId : (window.activeUnitId || null);
+  window.activeUnitRole = typeof window.activeUnitRole === "string" ? window.activeUnitRole : (window.activeUnitRole || null);
+  window.unitSettings = (window.unitSettings && typeof window.unitSettings === "object") ? window.unitSettings : null;
 
   // ---------------------------------------------------------
   // LEGACY BARE GLOBALS (CRITICAL)
@@ -48,6 +55,15 @@
   var nextQueueId = window.nextQueueId;
   // eslint-disable-next-line no-var
   var nextDischargeId = window.nextDischargeId;
+
+  // eslint-disable-next-line no-var
+  var availableUnits = window.availableUnits;
+  // eslint-disable-next-line no-var
+  var activeUnitId = window.activeUnitId;
+  // eslint-disable-next-line no-var
+  var activeUnitRole = window.activeUnitRole;
+  // eslint-disable-next-line no-var
+  var unitSettings = window.unitSettings;
 
   // ============ STORAGE KEY ============
   const STORAGE_KEY = "cupp_assignment_engine_v1";
@@ -136,6 +152,97 @@
     saveState();
   }
 
+  // ============ UNIT SETTINGS APPLY (minimal hook) ============
+  // This is intentionally conservative: it updates globals and triggers renders.
+  // More specialized behavior (room schema remapping etc.) can be layered in later.
+  function applyUnitSettings(nextSettings) {
+    unitSettings = nextSettings || null;
+    window.unitSettings = unitSettings;
+
+    // Optional hooks other files can implement
+    if (typeof window.onUnitSettingsApplied === "function") {
+      try { window.onUnitSettingsApplied(unitSettings); } catch (e) { console.warn("onUnitSettingsApplied error", e); }
+    }
+
+    // Re-render typical surfaces so settings (tags/rules/rooms) can take effect where supported
+    if (typeof window.renderPatientList === "function") window.renderPatientList();
+    if (typeof window.updateAcuityTiles === "function") window.updateAcuityTiles();
+    if (typeof window.renderLiveAssignments === "function") window.renderLiveAssignments();
+    if (typeof window.renderAssignmentOutput === "function") window.renderAssignmentOutput();
+    if (typeof window.renderPcaAssignmentOutput === "function") window.renderPcaAssignmentOutput();
+    if (typeof window.renderQueueList === "function") window.renderQueueList();
+
+    saveState();
+  }
+
+  // ============ ACTIVE UNIT SETTER (loads settings) ============
+  async function setActiveUnit(unitId, role) {
+    if (!unitId) {
+      activeUnitId = null;
+      activeUnitRole = null;
+      window.activeUnitId = activeUnitId;
+      window.activeUnitRole = activeUnitRole;
+      applyUnitSettings(null);
+      saveState();
+      return { ok: true };
+    }
+
+    activeUnitId = String(unitId);
+    activeUnitRole = role ? String(role) : (activeUnitRole || null);
+
+    window.activeUnitId = activeUnitId;
+    window.activeUnitRole = activeUnitRole;
+
+    // Load unit_settings for this unit (if sb is available)
+    if (window.sb && window.sb.getUnitSettings) {
+      const { row, error } = await window.sb.getUnitSettings(activeUnitId);
+      if (error) {
+        console.warn("[unit] Failed to load unit_settings", error);
+        // Keep prior settings if present; don't wipe user mid-demo
+        saveState();
+        return { ok: false, error };
+      }
+      applyUnitSettings(row);
+      return { ok: true, settings: row };
+    }
+
+    // If supabase not configured, just persist the selection
+    saveState();
+    return { ok: true, settings: null };
+  }
+
+  // ============ LOAD MEMBERSHIPS (optional convenience) ============
+  // Pulls memberships and populates availableUnits. Does NOT force UI changes.
+  async function refreshMyUnits() {
+    if (!window.sb || !window.sb.myUnitMemberships) {
+      return { ok: false, error: new Error("Supabase not configured") };
+    }
+
+    const { data, error } = await window.sb.myUnitMemberships();
+    if (error) return { ok: false, error };
+
+    const mapped = (data || [])
+      .map(r => ({
+        unit_id: r.unit_id,
+        role: r.role,
+        unit: r.units ? { id: r.units.id, name: r.units.name, code: r.units.code } : null
+      }))
+      .filter(x => x.unit_id && x.unit);
+
+    availableUnits = mapped;
+    window.availableUnits = availableUnits;
+
+    // If no active unit yet, pick the newest membership
+    if (!activeUnitId && mapped.length) {
+      const first = mapped[0];
+      await setActiveUnit(first.unit_id, first.role);
+    } else {
+      saveState();
+    }
+
+    return { ok: true, rows: mapped };
+  }
+
   // ============ STORAGE HELPERS ============
 
   // Fallback RN restrictions if app.staffing.js hasn’t run yet.
@@ -152,6 +259,13 @@
   function saveState() {
     try {
       const data = {
+        // multi-unit spine
+        activeUnitId: activeUnitId || null,
+        activeUnitRole: activeUnitRole || null,
+        unitSettings: unitSettings || null,
+        availableUnits: Array.isArray(availableUnits) ? availableUnits : [],
+
+        // existing state
         pcaShift,
 
         currentNurses: (currentNurses || []).map((n, i) => ({
@@ -209,6 +323,17 @@
 
       const data = JSON.parse(raw);
 
+      // multi-unit spine
+      activeUnitId = data.activeUnitId || null;
+      activeUnitRole = data.activeUnitRole || null;
+      unitSettings = (data.unitSettings && typeof data.unitSettings === "object") ? data.unitSettings : null;
+      availableUnits = Array.isArray(data.availableUnits) ? data.availableUnits : [];
+
+      window.activeUnitId = activeUnitId;
+      window.activeUnitRole = activeUnitRole;
+      window.unitSettings = unitSettings;
+      window.availableUnits = availableUnits;
+
       pcaShift = data.pcaShift || "day";
       window.pcaShift = pcaShift;
 
@@ -248,6 +373,12 @@
       admitQueue = window.admitQueue;
       dischargeHistory = window.dischargeHistory;
 
+      // Also keep local references aligned for multi-unit spine
+      activeUnitId = window.activeUnitId;
+      activeUnitRole = window.activeUnitRole;
+      unitSettings = window.unitSettings;
+      availableUnits = window.availableUnits;
+
       return true;
     } catch (e) {
       console.warn("Unable to load state", e);
@@ -267,6 +398,15 @@
     if (typeof window.renderPcaAssignmentOutput === "function") window.renderPcaAssignmentOutput();
     if (typeof window.renderQueueList === "function") window.renderQueueList();
     if (typeof window.updateDischargeCount === "function") window.updateDischargeCount();
+
+    // If we have an activeUnitId stored but no settings yet, attempt to load them (best-effort)
+    // Don’t block app boot; this is safe for demos and offline.
+    if (window.activeUnitId && (!window.unitSettings || typeof window.unitSettings !== "object")) {
+      // fire-and-forget style, but still awaited-ish in case someone calls init then expects settings
+      setTimeout(() => {
+        setActiveUnit(window.activeUnitId, window.activeUnitRole).catch(e => console.warn("setActiveUnit init load failed", e));
+      }, 0);
+    }
   }
 
   // ============ CLEAR “RECENTLY DISCHARGED” ============
@@ -334,6 +474,11 @@
 
   window.openAcuityModal = openAcuityModal;
   window.closeAcuityModal = closeAcuityModal;
+
+  // multi-unit exports
+  window.applyUnitSettings = applyUnitSettings;
+  window.setActiveUnit = setActiveUnit;
+  window.refreshMyUnits = refreshMyUnits;
 
   // Also expose legacy bare global resetAllPatients if other scripts call it directly
   if (typeof resetAllPatients === "undefined") {
