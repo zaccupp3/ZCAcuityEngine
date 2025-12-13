@@ -33,6 +33,32 @@
 
   window.supabaseClient = client;
 
+  // ---- BOOT RESTORE (fix: session persists across refresh) ----
+  (async function bootRestoreSession() {
+    try {
+      // If Supabase can read session normally, great.
+      const p = client.auth.getSession();
+      const t = new Promise((_, rej) =>
+        setTimeout(() => rej(new Error("getSession timeout (boot)")), 2500)
+      );
+
+      const { data } = await Promise.race([p, t]);
+      if (data?.session) return; // already restored
+
+      // Otherwise: restore manually from localStorage
+      const key = client.auth.storageKey;
+      const raw = JSON.parse(localStorage.getItem(key) || "null");
+      if (!raw?.access_token || !raw?.refresh_token) return;
+
+      await client.auth.setSession({
+        access_token: raw.access_token,
+        refresh_token: raw.refresh_token,
+      });
+    } catch (e) {
+      console.warn("[supabase] bootRestoreSession failed", e);
+    }
+  })();
+  
   // ------------------------
   // Auth helpers
   // ------------------------

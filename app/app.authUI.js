@@ -62,11 +62,14 @@
 
   async function getSessionSafe() {
     try {
-      return await window.sb.client.auth.getSession();
+      const p = window.sb.client.auth.getSession();
+      const t = new Promise((_, rej) => setTimeout(() => rej(new Error("getSession timed out")), 2500));
+      return await Promise.race([p, t]);
     } catch (e) {
       return { data: { session: null }, error: e };
     }
   }
+
 
   async function getUnitProfileFallback() {
     if (typeof window.sb?.myUnitProfile === "function") {
