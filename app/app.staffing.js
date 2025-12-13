@@ -6,6 +6,8 @@
 // - app.state.js owns the core arrays and exposes live getters/setters on window.
 // - Do NOT reinitialize window.currentNurses/currentPcas/etc in this file.
 // - Just read/write currentNurses/currentPcas/incomingNurses/incomingPcas/pcaShift directly.
+// - CRITICAL FIX: whenever we mutate/replace arrays, we ALSO mirror them back onto window.*
+//   so saveState() persists the true source of truth.
 
 (function () {
   // Use the canonical restriction helper from app.state.js if present
@@ -13,8 +15,18 @@
     (typeof window.defaultRestrictions === "function")
       ? window.defaultRestrictions
       : function defaultRestrictionsFallback(oldRestriction) {
+          // keep your old fallback behavior
           return { noNih: oldRestriction === "noNih", noIso: false };
         };
+
+  function syncWindowRefs() {
+    // Keep window.* synchronized with legacy bare globals
+    window.currentNurses = currentNurses;
+    window.incomingNurses = incomingNurses;
+    window.currentPcas = currentPcas;
+    window.incomingPcas = incomingPcas;
+    window.pcaShift = pcaShift;
+  }
 
   // -------------------------
   // RN SETUP – CURRENT / INCOMING
@@ -48,6 +60,7 @@
     }
 
     currentNurses = next;
+    syncWindowRefs();
 
     window.renderCurrentNurseList();
     if (typeof window.renderLiveAssignments === "function") window.renderLiveAssignments();
@@ -82,6 +95,7 @@
     }
 
     incomingNurses = next;
+    syncWindowRefs();
 
     window.renderIncomingNurseList();
     if (typeof window.renderAssignmentOutput === "function") window.renderAssignmentOutput();
@@ -173,6 +187,9 @@
     if (!n) return;
     n.type = value;
     n.maxPatients = value === "tele" ? 4 : 5;
+
+    syncWindowRefs();
+
     if (typeof window.renderLiveAssignments === "function") window.renderLiveAssignments();
     if (typeof window.saveState === "function") window.saveState();
   };
@@ -182,6 +199,9 @@
     if (!n) return;
     n.type = value;
     n.maxPatients = value === "tele" ? 4 : 5;
+
+    syncWindowRefs();
+
     if (typeof window.renderAssignmentOutput === "function") window.renderAssignmentOutput();
     if (typeof window.saveState === "function") window.saveState();
   };
@@ -190,6 +210,9 @@
     const n = currentNurses && currentNurses[index];
     if (!n) return;
     n.name = String(value || "").trim() || `Current RN ${index + 1}`;
+
+    syncWindowRefs();
+
     if (typeof window.renderLiveAssignments === "function") window.renderLiveAssignments();
     if (typeof window.saveState === "function") window.saveState();
   };
@@ -198,6 +221,9 @@
     const n = incomingNurses && incomingNurses[index];
     if (!n) return;
     n.name = String(value || "").trim() || `Incoming RN ${index + 1}`;
+
+    syncWindowRefs();
+
     if (typeof window.renderAssignmentOutput === "function") window.renderAssignmentOutput();
     if (typeof window.saveState === "function") window.saveState();
   };
@@ -207,6 +233,9 @@
     if (!n) return;
     if (!n.restrictions) n.restrictions = getDefaultRestrictions();
     n.restrictions[key] = !!checked;
+
+    syncWindowRefs();
+
     if (typeof window.renderLiveAssignments === "function") window.renderLiveAssignments();
     if (typeof window.saveState === "function") window.saveState();
   };
@@ -216,6 +245,9 @@
     if (!n) return;
     if (!n.restrictions) n.restrictions = getDefaultRestrictions();
     n.restrictions[key] = !!checked;
+
+    syncWindowRefs();
+
     if (typeof window.renderAssignmentOutput === "function") window.renderAssignmentOutput();
     if (typeof window.saveState === "function") window.saveState();
   };
@@ -230,6 +262,8 @@
 
     (Array.isArray(currentPcas) ? currentPcas : []).forEach(p => (p.maxPatients = max));
     (Array.isArray(incomingPcas) ? incomingPcas : []).forEach(p => (p.maxPatients = max));
+
+    syncWindowRefs();
 
     if (typeof window.renderLiveAssignments === "function") window.renderLiveAssignments();
     if (typeof window.renderPcaAssignmentOutput === "function") window.renderPcaAssignmentOutput();
@@ -259,6 +293,7 @@
     }
 
     currentPcas = next;
+    syncWindowRefs();
 
     window.renderCurrentPcaList();
     if (typeof window.renderLiveAssignments === "function") window.renderLiveAssignments();
@@ -288,6 +323,7 @@
     }
 
     incomingPcas = next;
+    syncWindowRefs();
 
     window.renderIncomingPcaList();
     if (typeof window.renderPcaAssignmentOutput === "function") window.renderPcaAssignmentOutput();
@@ -350,6 +386,9 @@
     const p = currentPcas && currentPcas[index];
     if (!p) return;
     p.name = String(value || "").trim() || `Current PCA ${index + 1}`;
+
+    syncWindowRefs();
+
     if (typeof window.renderLiveAssignments === "function") window.renderLiveAssignments();
     if (typeof window.saveState === "function") window.saveState();
   };
@@ -358,6 +397,9 @@
     const p = incomingPcas && incomingPcas[index];
     if (!p) return;
     p.name = String(value || "").trim() || `Incoming PCA ${index + 1}`;
+
+    syncWindowRefs();
+
     if (typeof window.renderPcaAssignmentOutput === "function") window.renderPcaAssignmentOutput();
     if (typeof window.saveState === "function") window.saveState();
   };
@@ -367,6 +409,9 @@
     if (!p) return;
     if (!p.restrictions) p.restrictions = { noIso: false };
     p.restrictions.noIso = !!checked;
+
+    syncWindowRefs();
+
     if (typeof window.renderLiveAssignments === "function") window.renderLiveAssignments();
     if (typeof window.saveState === "function") window.saveState();
   };
@@ -376,6 +421,9 @@
     if (!p) return;
     if (!p.restrictions) p.restrictions = { noIso: false };
     p.restrictions.noIso = !!checked;
+
+    syncWindowRefs();
+
     if (typeof window.renderPcaAssignmentOutput === "function") window.renderPcaAssignmentOutput();
     if (typeof window.saveState === "function") window.saveState();
   };

@@ -16,6 +16,27 @@ if (typeof window.nextDischargeId !== "number") window.nextDischargeId = 1;
 // Helpers
 // -----------------------------
 
+function syncWindowRefs() {
+  // Ensure window.* and legacy bare globals stay aligned
+  // so app.state.js saveState() persists the correct arrays.
+  try {
+    window.currentNurses = currentNurses;
+    window.currentPcas = currentPcas;
+    window.incomingNurses = incomingNurses;
+    window.incomingPcas = incomingPcas;
+
+    window.patients = patients;
+
+    window.admitQueue = admitQueue;
+    window.dischargeHistory = window.dischargeHistory || dischargeHistory;
+    window.nextQueueId = typeof nextQueueId === "number" ? nextQueueId : window.nextQueueId;
+    window.nextDischargeId =
+      typeof window.nextDischargeId === "number" ? window.nextDischargeId : 1;
+  } catch (e) {
+    // no-op
+  }
+}
+
 function getStaffArray(context, role) {
   if (context === "live") return role === "nurse" ? currentNurses : currentPcas;
   return role === "nurse" ? incomingNurses : incomingPcas;
@@ -44,8 +65,14 @@ function rerenderAllBoards() {
   if (typeof window.renderPcaAssignmentOutput === "function") window.renderPcaAssignmentOutput();
   if (typeof window.renderPatientList === "function") window.renderPatientList();
   if (typeof window.updateAcuityTiles === "function") window.updateAcuityTiles();
-  if (typeof window.saveState === "function") window.saveState();
   if (typeof window.updateDischargeCount === "function") window.updateDischargeCount();
+}
+
+// Persist helper (centralized)
+function persistAndRefresh() {
+  syncWindowRefs();
+  if (typeof window.saveState === "function") window.saveState();
+  rerenderAllBoards();
 }
 
 // -----------------------------
@@ -92,7 +119,10 @@ function onRowDrop(event, context, role, newOwnerId) {
   if (!toOwner.patients.includes(pid)) toOwner.patients.push(pid);
 
   dragCtx = null;
-  rerenderAllBoards();
+
+  // ✅ this is the critical change:
+  // Always persist after every drag/drop so refresh doesn't lose layout.
+  persistAndRefresh();
 }
 
 function onRowDragEnd() {
@@ -162,9 +192,8 @@ function onDischargeDrop(event) {
 
   dragCtx = null;
 
-  // Persist + refresh
-  if (typeof window.saveState === "function") window.saveState();
-  rerenderAllBoards();
+  // ✅ persist after discharge
+  persistAndRefresh();
 }
 
 // -----------------------------
@@ -224,7 +253,7 @@ function reinstateDischargedPatient(index) {
     history.splice(index, 1);
     if (typeof window.updateDischargeCount === "function") window.updateDischargeCount();
     openDischargeHistoryModal();
-    if (typeof window.saveState === "function") window.saveState();
+    persistAndRefresh();
     return;
   }
 
@@ -249,10 +278,9 @@ function reinstateDischargedPatient(index) {
 
   history.splice(index, 1);
 
-  if (typeof window.saveState === "function") window.saveState();
+  persistAndRefresh();
 
   if (typeof window.updateDischargeCount === "function") window.updateDischargeCount();
-  rerenderAllBoards();
   openDischargeHistoryModal();
 }
 
@@ -284,14 +312,7 @@ function clearRecentlyDischargedFlags() {
     window.nextDischargeId = 1;
 
     // 3) Persist + re-render
-    if (typeof window.saveState === "function") window.saveState();
-    if (typeof window.updateDischargeCount === "function") window.updateDischargeCount();
-
-    if (typeof window.renderPatientList === "function") window.renderPatientList();
-    if (typeof window.updateAcuityTiles === "function") window.updateAcuityTiles();
-    if (typeof window.renderLiveAssignments === "function") window.renderLiveAssignments();
-    if (typeof window.renderAssignmentOutput === "function") window.renderAssignmentOutput();
-    if (typeof window.renderPcaAssignmentOutput === "function") window.renderPcaAssignmentOutput();
+    persistAndRefresh();
 
     console.log(
       `Cleared recently discharged flags for ${cleared} patient(s). Reset discharge session count/history.`

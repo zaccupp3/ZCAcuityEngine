@@ -1,8 +1,8 @@
 // app/app.state.js
 // ---------------------------------------------------------
 // Core app state + storage + shared helpers
-// Canonical storage is on window.*, but we ALSO expose legacy bare globals
-// (currentNurses, incomingNurses, etc.) because other files still reference them.
+// Canonical storage is on window.*
+// Legacy bare globals are kept in sync (critical for older files).
 //
 // MULTI-UNIT UPDATE:
 // - Persist a separate workspace per unit in localStorage.
@@ -12,8 +12,6 @@
 
 (function () {
   // ============ GLOBAL ARRAYS / VARS ============
-
-  // Create arrays on window if missing
   window.currentNurses  = Array.isArray(window.currentNurses)  ? window.currentNurses  : [];
   window.incomingNurses = Array.isArray(window.incomingNurses) ? window.incomingNurses : [];
   window.currentPcas    = Array.isArray(window.currentPcas)    ? window.currentPcas    : [];
@@ -27,57 +25,76 @@
   window.nextQueueId     = typeof window.nextQueueId === "number" ? window.nextQueueId : 1;
   window.nextDischargeId = typeof window.nextDischargeId === "number" ? window.nextDischargeId : 1;
 
-  // ============ MULTI-UNIT CORE ============
+  // multi-unit
   window.availableUnits = Array.isArray(window.availableUnits) ? window.availableUnits : [];
-  window.activeUnitId = typeof window.activeUnitId === "string" ? window.activeUnitId : (window.activeUnitId || null);
-  window.activeUnitRole = typeof window.activeUnitRole === "string" ? window.activeUnitRole : (window.activeUnitRole || null);
-  window.unitSettings = (window.unitSettings && typeof window.unitSettings === "object") ? window.unitSettings : null;
+  window.activeUnitId   = (typeof window.activeUnitId === "string") ? window.activeUnitId : (window.activeUnitId || null);
+  window.activeUnitRole = (typeof window.activeUnitRole === "string") ? window.activeUnitRole : (window.activeUnitRole || null);
+  window.unitSettings   = (window.unitSettings && typeof window.unitSettings === "object") ? window.unitSettings : null;
 
   // ---------------------------------------------------------
-  // LEGACY BARE GLOBALS (CRITICAL)
+  // LEGACY BARE GLOBALS (kept synced)
   // ---------------------------------------------------------
   // eslint-disable-next-line no-var
-  var currentNurses = window.currentNurses;
+  var currentNurses, incomingNurses, currentPcas, incomingPcas, patients;
   // eslint-disable-next-line no-var
-  var incomingNurses = window.incomingNurses;
+  var admitQueue, dischargeHistory, pcaShift, nextQueueId, nextDischargeId;
   // eslint-disable-next-line no-var
-  var currentPcas = window.currentPcas;
-  // eslint-disable-next-line no-var
-  var incomingPcas = window.incomingPcas;
-  // eslint-disable-next-line no-var
-  var patients = window.patients;
-  // eslint-disable-next-line no-var
-  var admitQueue = window.admitQueue;
-  // eslint-disable-next-line no-var
-  var dischargeHistory = window.dischargeHistory;
-  // eslint-disable-next-line no-var
-  var pcaShift = window.pcaShift;
-  // eslint-disable-next-line no-var
-  var nextQueueId = window.nextQueueId;
-  // eslint-disable-next-line no-var
-  var nextDischargeId = window.nextDischargeId;
+  var availableUnits, activeUnitId, activeUnitRole, unitSettings;
 
-  // eslint-disable-next-line no-var
-  var availableUnits = window.availableUnits;
-  // eslint-disable-next-line no-var
-  var activeUnitId = window.activeUnitId;
-  // eslint-disable-next-line no-var
-  var activeUnitRole = window.activeUnitRole;
-  // eslint-disable-next-line no-var
-  var unitSettings = window.unitSettings;
+  function syncFromWindow() {
+    currentNurses     = window.currentNurses;
+    incomingNurses    = window.incomingNurses;
+    currentPcas       = window.currentPcas;
+    incomingPcas      = window.incomingPcas;
+    patients          = window.patients;
+
+    admitQueue        = window.admitQueue;
+    dischargeHistory  = window.dischargeHistory;
+
+    pcaShift          = window.pcaShift;
+    nextQueueId       = window.nextQueueId;
+    nextDischargeId   = window.nextDischargeId;
+
+    availableUnits    = window.availableUnits;
+    activeUnitId      = window.activeUnitId;
+    activeUnitRole    = window.activeUnitRole;
+    unitSettings      = window.unitSettings;
+  }
+
+  function syncToWindow() {
+    window.currentNurses     = Array.isArray(currentNurses) ? currentNurses : [];
+    window.incomingNurses    = Array.isArray(incomingNurses) ? incomingNurses : [];
+    window.currentPcas       = Array.isArray(currentPcas) ? currentPcas : [];
+    window.incomingPcas      = Array.isArray(incomingPcas) ? incomingPcas : [];
+    window.patients          = Array.isArray(patients) ? patients : [];
+
+    window.admitQueue        = Array.isArray(admitQueue) ? admitQueue : [];
+    window.dischargeHistory  = Array.isArray(dischargeHistory) ? dischargeHistory : [];
+
+    window.pcaShift          = typeof pcaShift === "string" ? pcaShift : "day";
+    window.nextQueueId       = typeof nextQueueId === "number" ? nextQueueId : 1;
+    window.nextDischargeId   = typeof nextDischargeId === "number" ? nextDischargeId : 1;
+
+    window.availableUnits    = Array.isArray(availableUnits) ? availableUnits : [];
+    window.activeUnitId      = activeUnitId || null;
+    window.activeUnitRole    = activeUnitRole || null;
+    window.unitSettings      = unitSettings || null;
+
+    // Re-bind bare globals to the window arrays (so older files keep working)
+    syncFromWindow();
+  }
+
+  // initial sync
+  syncFromWindow();
 
   // ============ STORAGE KEYS ============
-  // META = cross-unit settings like "active unit", cached memberships, etc.
   const META_KEY = "cupp_assignment_engine_meta_v1";
-
-  // UNIT WORKSPACE = per-unit board state (patients/staff/queue/etc.)
   function unitKey(unitId) {
     const id = unitId ? String(unitId) : "local";
     return `cupp_assignment_engine_unit_${id}_v1`;
   }
 
   // ============ PATIENT DEFAULTS ============
-
   function makeEmptyPatient(id, roomNumber) {
     return {
       id,
@@ -85,58 +102,22 @@
       name: "",
       gender: "",
 
-      // RN tags
-      tele: false,
-      drip: false,
-      nih: false,
-      bg: false,
-      ciwa: false,
-      restraint: false,
-      sitter: false,
-      vpo: false,
-      isolation: false,
-      admit: false,
-      lateDc: false,
+      tele: false, drip: false, nih: false, bg: false, ciwa: false, restraint: false, sitter: false,
+      vpo: false, isolation: false, admit: false, lateDc: false,
 
-      // PCA tags
-      chg: false,
-      foley: false,
-      q2turns: false,
-      heavy: false,
-      feeder: false,
+      chg: false, foley: false, q2turns: false, heavy: false, feeder: false,
 
-      // Workflow flags
       isEmpty: true,
       recentlyDischarged: false,
       reviewed: false
     };
   }
 
-  // Apply unit bed labels without wiping tags:
-  // We keep patient.id stable 1..32 and just overwrite patient.room.
-  function applyBedsToPatientRooms() {
-    const beds = Array.isArray(unitSettings?.beds) ? unitSettings.beds : null;
-    if (!beds || beds.length < 1) return;
-
-    // Ensure 32 patients exist first
-    ensureDefaultPatients();
-
-    for (let i = 0; i < 32; i++) {
-      const p = patients[i];
-      if (!p) continue;
-      const label = beds[i] != null ? String(beds[i]) : String(i + 1);
-      p.room = label;
-    }
-
-    window.patients = patients;
-  }
-
-  // Canonical: always have 32 rooms with stable IDs.
-  // Note: this creates patients if missing; it DOES NOT force any unit bed labels.
   function ensureDefaultPatients() {
+    syncFromWindow();
     if (!Array.isArray(patients)) patients = [];
     if (patients.length >= 32) {
-      window.patients = patients;
+      syncToWindow();
       return;
     }
 
@@ -149,14 +130,9 @@
     for (let i = 1; i <= 32; i++) {
       if (existingById.has(i)) {
         const p = existingById.get(i);
-
-        // Default room label if missing (will be overwritten by applyBedsToPatientRooms if unitSettings.beds exists)
         if (!p.room) p.room = String(i);
-
-        // If missing, default to "occupied" to avoid silently flipping workflow
         if (typeof p.isEmpty !== "boolean") p.isEmpty = false;
         if (typeof p.recentlyDischarged !== "boolean") p.recentlyDischarged = false;
-
         next.push(p);
       } else {
         next.push(makeEmptyPatient(i, i));
@@ -164,13 +140,32 @@
     }
 
     patients = next;
-    window.patients = patients;
+    syncToWindow();
   }
 
-  // Blow away all patient data and recreate the 32-room default grid.
+  function applyBedsToPatientRooms() {
+    syncFromWindow();
+    const beds = Array.isArray(unitSettings?.beds) ? unitSettings.beds : null;
+    if (!beds || beds.length < 1) return;
+
+    ensureDefaultPatients();
+    syncFromWindow();
+
+    for (let i = 0; i < 32; i++) {
+      const p = patients[i];
+      if (!p) continue;
+      const label = beds[i] != null ? String(beds[i]) : String(i + 1);
+      p.room = label;
+    }
+
+    syncToWindow();
+  }
+
   function resetAllPatients() {
+    syncFromWindow();
     patients = [];
-    window.patients = patients;
+    syncToWindow();
+
     ensureDefaultPatients();
     applyBedsToPatientRooms();
 
@@ -183,12 +178,12 @@
     saveState();
   }
 
-  // ============ UNIT SETTINGS APPLY (minimal hook) ============
+  // ============ UNIT SETTINGS APPLY ============
   function applyUnitSettings(nextSettings) {
+    syncFromWindow();
     unitSettings = nextSettings || null;
-    window.unitSettings = unitSettings;
+    syncToWindow();
 
-    // Update room labels from settings (without wiping patient tags)
     applyBedsToPatientRooms();
 
     if (typeof window.onUnitSettingsApplied === "function") {
@@ -206,23 +201,17 @@
   }
 
   // ============ STORAGE HELPERS ============
-
   function defaultRestrictions() {
-    return {
-      noMales: false,
-      noFemales: false,
-      noTele: false,
-      noMS: false,
-      noFloat: false
-    };
+    return { noMales: false, noFemales: false, noTele: false, noMS: false, noFloat: false };
   }
 
   function saveMeta() {
     try {
+      syncFromWindow();
       const meta = {
         activeUnitId: activeUnitId || null,
         activeUnitRole: activeUnitRole || null,
-        unitSettings: unitSettings || null, // cached copy for fast boot (real source is DB)
+        unitSettings: unitSettings || null,
         availableUnits: Array.isArray(availableUnits) ? availableUnits : []
       };
       localStorage.setItem(META_KEY, JSON.stringify(meta));
@@ -233,11 +222,13 @@
 
   function saveState() {
     try {
-      // Save workspace for CURRENT unit
+      // IMPORTANT: always read from window.* (source of truth)
+      syncFromWindow();
+
       const data = {
-        pcaShift,
+        pcaShift: window.pcaShift || "day",
 
-        currentNurses: (currentNurses || []).map((n, i) => ({
+        currentNurses: (window.currentNurses || []).map((n, i) => ({
           id: n.id ?? i + 1,
           name: n.name,
           type: n.type,
@@ -245,7 +236,7 @@
           patients: Array.isArray(n.patients) ? n.patients.slice() : []
         })),
 
-        incomingNurses: (incomingNurses || []).map((n, i) => ({
+        incomingNurses: (window.incomingNurses || []).map((n, i) => ({
           id: n.id ?? i + 1,
           name: n.name,
           type: n.type,
@@ -253,32 +244,30 @@
           patients: Array.isArray(n.patients) ? n.patients.slice() : []
         })),
 
-        currentPcas: (currentPcas || []).map((p, i) => ({
+        currentPcas: (window.currentPcas || []).map((p, i) => ({
           id: p.id ?? i + 1,
           name: p.name,
           restrictions: p.restrictions || { noIso: false },
           patients: Array.isArray(p.patients) ? p.patients.slice() : []
         })),
 
-        incomingPcas: (incomingPcas || []).map((p, i) => ({
+        incomingPcas: (window.incomingPcas || []).map((p, i) => ({
           id: p.id ?? i + 1,
           name: p.name,
           restrictions: p.restrictions || { noIso: false },
           patients: Array.isArray(p.patients) ? p.patients.slice() : []
         })),
 
-        patients: (patients || []).map(p => ({ ...p })),
+        patients: (window.patients || []).map(p => ({ ...p })),
 
-        dischargeHistory: dischargeHistory || [],
-        nextDischargeId: typeof nextDischargeId === "number" ? nextDischargeId : 1,
+        dischargeHistory: Array.isArray(window.dischargeHistory) ? window.dischargeHistory : [],
+        nextDischargeId: typeof window.nextDischargeId === "number" ? window.nextDischargeId : 1,
 
-        admitQueue: admitQueue || [],
-        nextQueueId: typeof nextQueueId === "number" ? nextQueueId : 1
+        admitQueue: Array.isArray(window.admitQueue) ? window.admitQueue : [],
+        nextQueueId: typeof window.nextQueueId === "number" ? window.nextQueueId : 1
       };
 
-      localStorage.setItem(unitKey(activeUnitId), JSON.stringify(data));
-
-      // Save cross-unit meta too
+      localStorage.setItem(unitKey(window.activeUnitId), JSON.stringify(data));
       saveMeta();
     } catch (e) {
       console.warn("Unable to save state", e);
@@ -292,16 +281,12 @@
 
       const meta = JSON.parse(raw);
 
-      activeUnitId = meta.activeUnitId || null;
-      activeUnitRole = meta.activeUnitRole || null;
-      unitSettings = (meta.unitSettings && typeof meta.unitSettings === "object") ? meta.unitSettings : null;
-      availableUnits = Array.isArray(meta.availableUnits) ? meta.availableUnits : [];
+      window.activeUnitId   = meta.activeUnitId || null;
+      window.activeUnitRole = meta.activeUnitRole || null;
+      window.unitSettings   = (meta.unitSettings && typeof meta.unitSettings === "object") ? meta.unitSettings : null;
+      window.availableUnits = Array.isArray(meta.availableUnits) ? meta.availableUnits : [];
 
-      window.activeUnitId = activeUnitId;
-      window.activeUnitRole = activeUnitRole;
-      window.unitSettings = unitSettings;
-      window.availableUnits = availableUnits;
-
+      syncFromWindow();
       return true;
     } catch (e) {
       console.warn("Unable to load meta", e);
@@ -316,43 +301,21 @@
 
       const data = JSON.parse(raw);
 
-      pcaShift = data.pcaShift || "day";
-      window.pcaShift = pcaShift;
+      window.pcaShift       = data.pcaShift || "day";
+      window.currentNurses  = Array.isArray(data.currentNurses) ? data.currentNurses : [];
+      window.incomingNurses = Array.isArray(data.incomingNurses) ? data.incomingNurses : [];
+      window.currentPcas    = Array.isArray(data.currentPcas) ? data.currentPcas : [];
+      window.incomingPcas   = Array.isArray(data.incomingPcas) ? data.incomingPcas : [];
 
-      currentNurses = Array.isArray(data.currentNurses) ? data.currentNurses : [];
-      incomingNurses = Array.isArray(data.incomingNurses) ? data.incomingNurses : [];
-      currentPcas = Array.isArray(data.currentPcas) ? data.currentPcas : [];
-      incomingPcas = Array.isArray(data.incomingPcas) ? data.incomingPcas : [];
+      window.patients       = Array.isArray(data.patients) ? data.patients : [];
+      window.dischargeHistory = Array.isArray(data.dischargeHistory) ? data.dischargeHistory : [];
+      window.nextDischargeId  = (typeof data.nextDischargeId === "number") ? data.nextDischargeId : 1;
 
-      window.currentNurses = currentNurses;
-      window.incomingNurses = incomingNurses;
-      window.currentPcas = currentPcas;
-      window.incomingPcas = incomingPcas;
+      window.admitQueue     = Array.isArray(data.admitQueue) ? data.admitQueue : [];
+      window.nextQueueId    = (typeof data.nextQueueId === "number") ? data.nextQueueId : 1;
 
-      patients = Array.isArray(data.patients) ? data.patients : [];
-      window.patients = patients;
-
-      dischargeHistory = Array.isArray(data.dischargeHistory) ? data.dischargeHistory : [];
-      window.dischargeHistory = dischargeHistory;
-
-      nextDischargeId = typeof data.nextDischargeId === "number" ? data.nextDischargeId : 1;
-      window.nextDischargeId = nextDischargeId;
-
-      admitQueue = Array.isArray(data.admitQueue) ? data.admitQueue : [];
-      window.admitQueue = admitQueue;
-
-      nextQueueId = typeof data.nextQueueId === "number" ? data.nextQueueId : 1;
-      window.nextQueueId = nextQueueId;
-
-      // Re-bind bare globals
-      currentNurses = window.currentNurses;
-      incomingNurses = window.incomingNurses;
-      currentPcas = window.currentPcas;
-      incomingPcas = window.incomingPcas;
-      patients = window.patients;
-      admitQueue = window.admitQueue;
-      dischargeHistory = window.dischargeHistory;
-
+      // Sync legacy globals to match window.*
+      syncFromWindow();
       return true;
     } catch (e) {
       console.warn("Unable to load unit workspace", e);
@@ -361,23 +324,19 @@
   }
 
   function loadStateFromStorage() {
-    // 1) Load meta (active unit + cached settings + memberships)
     loadMeta();
+    const ok = loadUnitWorkspace(window.activeUnitId);
 
-    // 2) Load the workspace for the active unit (or "local" if none)
-    const ok = loadUnitWorkspace(activeUnitId);
-
-    // 3) Ensure canonical patients exist and apply bed labels if known
     ensureDefaultPatients();
     applyBedsToPatientRooms();
 
+    // Ensure bare globals match
+    syncFromWindow();
     return ok;
   }
 
   function initFromStorageOrDefaults() {
     loadStateFromStorage();
-    ensureDefaultPatients();
-    applyBedsToPatientRooms();
 
     if (typeof window.renderPatientList === "function") window.renderPatientList();
     if (typeof window.updateAcuityTiles === "function") window.updateAcuityTiles();
@@ -387,7 +346,6 @@
     if (typeof window.renderQueueList === "function") window.renderQueueList();
     if (typeof window.updateDischargeCount === "function") window.updateDischargeCount();
 
-    // Best-effort: if we have an activeUnitId but unitSettings is missing, load settings from Supabase.
     if (window.activeUnitId && (!window.unitSettings || typeof window.unitSettings !== "object")) {
       setTimeout(() => {
         setActiveUnit(window.activeUnitId, window.activeUnitRole).catch(e => console.warn("setActiveUnit init load failed", e));
@@ -395,71 +353,51 @@
     }
   }
 
-  // ============ ACTIVE UNIT SETTER (save current -> load next -> load settings) ============
+  // ============ ACTIVE UNIT SETTER ============
   async function setActiveUnit(nextUnitId, role) {
-    // Save workspace for current unit before switching
     saveState();
 
     if (!nextUnitId) {
-      activeUnitId = null;
-      activeUnitRole = null;
-      window.activeUnitId = activeUnitId;
-      window.activeUnitRole = activeUnitRole;
+      window.activeUnitId = null;
+      window.activeUnitRole = null;
       applyUnitSettings(null);
       saveMeta();
+      syncFromWindow();
       return { ok: true };
     }
 
-    activeUnitId = String(nextUnitId);
-    activeUnitRole = role ? String(role) : (activeUnitRole || null);
+    window.activeUnitId = String(nextUnitId);
+    window.activeUnitRole = role ? String(role) : (window.activeUnitRole || null);
 
-    window.activeUnitId = activeUnitId;
-    window.activeUnitRole = activeUnitRole;
-
-    // Load workspace for new unit (if exists); otherwise start clean for that unit
-    const loaded = loadUnitWorkspace(activeUnitId);
+    const loaded = loadUnitWorkspace(window.activeUnitId);
     if (!loaded) {
-      // Clean slate for this unit (but keep system defaults)
-      currentNurses = [];
-      incomingNurses = [];
-      currentPcas = [];
-      incomingPcas = [];
-      admitQueue = [];
-      dischargeHistory = [];
-      nextQueueId = 1;
-      nextDischargeId = 1;
-      pcaShift = "day";
-
-      window.currentNurses = currentNurses;
-      window.incomingNurses = incomingNurses;
-      window.currentPcas = currentPcas;
-      window.incomingPcas = incomingPcas;
-      window.admitQueue = admitQueue;
-      window.dischargeHistory = dischargeHistory;
-      window.nextQueueId = nextQueueId;
-      window.nextDischargeId = nextDischargeId;
-      window.pcaShift = pcaShift;
-
-      patients = [];
-      window.patients = patients;
+      window.currentNurses = [];
+      window.incomingNurses = [];
+      window.currentPcas = [];
+      window.incomingPcas = [];
+      window.admitQueue = [];
+      window.dischargeHistory = [];
+      window.nextQueueId = 1;
+      window.nextDischargeId = 1;
+      window.pcaShift = "day";
+      window.patients = [];
       ensureDefaultPatients();
     } else {
       ensureDefaultPatients();
     }
 
-    // Load unit_settings from Supabase (if available)
+    syncFromWindow();
+
     if (window.sb && window.sb.getUnitSettings) {
-      const { row, error } = await window.sb.getUnitSettings(activeUnitId);
+      const { row, error } = await window.sb.getUnitSettings(window.activeUnitId);
       if (error) {
         console.warn("[unit] Failed to load unit_settings", error);
-        // Still apply any cached settings so the UI doesn't look broken
         applyBedsToPatientRooms();
         saveState();
         return { ok: false, error };
       }
       applyUnitSettings(row);
     } else {
-      // Offline / no sb: still apply cached
       applyBedsToPatientRooms();
       saveState();
     }
@@ -484,26 +422,27 @@
       }))
       .filter(x => x.unit_id && x.unit);
 
-    availableUnits = mapped;
-    window.availableUnits = availableUnits;
+    window.availableUnits = mapped;
 
-    // If no active unit yet, pick the newest membership
-    if (!activeUnitId && mapped.length) {
+    if (!window.activeUnitId && mapped.length) {
       const first = mapped[0];
       await setActiveUnit(first.unit_id, first.role);
     } else {
       saveMeta();
     }
 
+    syncFromWindow();
     return { ok: true, rows: mapped };
   }
 
   // ============ CLEAR “RECENTLY DISCHARGED” ============
   function clearRecentlyDischargedFlags() {
+    syncFromWindow();
     (patients || []).forEach(p => {
       if (!p) return;
       p.recentlyDischarged = false;
     });
+    syncToWindow();
 
     if (typeof window.updateDischargeCount === "function") window.updateDischargeCount();
     if (typeof window.renderPatientList === "function") window.renderPatientList();
@@ -535,7 +474,6 @@
   }
 
   // ============ COMPATIBILITY HELPERS ============
-
   window.getRoomNumber = window.getRoomNumber || function getRoomNumber(p) {
     if (!p) return 9999;
     const roomVal = (typeof p === "object") ? (p.room ?? p.id ?? "") : p;
@@ -548,6 +486,33 @@
     // eslint-disable-next-line no-var
     var getRoomNumber = window.getRoomNumber;
   }
+
+  // ============ AUTOSAVE / SAVE-ON-REFRESH SAFETY ============
+  let __dirty = false;
+  let __saveTimer = null;
+
+  function markDirty() {
+    __dirty = true;
+    if (__saveTimer) return;
+    __saveTimer = setTimeout(() => {
+      __saveTimer = null;
+      if (!__dirty) return;
+      __dirty = false;
+      saveState();
+    }, 500);
+  }
+
+  window.markDirty = markDirty;
+
+  window.addEventListener("beforeunload", () => {
+    try { saveState(); } catch (_) {}
+  });
+
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "hidden") {
+      try { saveState(); } catch (_) {}
+    }
+  });
 
   // ============ EXPORT TO WINDOW ============
   window.ensureDefaultPatients = ensureDefaultPatients;
