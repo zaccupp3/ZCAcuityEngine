@@ -3,6 +3,36 @@
 
 (function () {
   // -----------------------------
+  // Quick Auth Debug Helpers (console)
+  // -----------------------------
+  // Usage in console:
+  //   await window.authDebug()
+  //   await window.authDebug(true)   // also tries refreshSession()
+  window.authDebug = async function authDebug(doRefresh = false) {
+    try {
+      if (!window.sb?.client?.auth) {
+        console.log("[authDebug] window.sb.client.auth missing");
+        return;
+      }
+
+      if (doRefresh && typeof window.sb.client.auth.refreshSession === "function") {
+        const rr = await window.sb.client.auth.refreshSession();
+        console.log("[authDebug] refreshSession()", rr);
+      }
+
+      const s = await window.sb.client.auth.getSession();
+      console.log("[authDebug] getSession()", s);
+
+      const u = await window.sb.client.auth.getUser();
+      console.log("[authDebug] getUser()", u);
+
+      console.log("[authDebug] activeUnitId:", window.activeUnitId, "activeUnitRole:", window.activeUnitRole);
+    } catch (e) {
+      console.warn("[authDebug] error", e);
+    }
+  };
+
+  // -----------------------------
   // Tabs
   // -----------------------------
   function showTab(sectionId) {
@@ -498,6 +528,9 @@
 
       // 3) Swap Live ← Oncoming and reset Oncoming
       swapLiveWithOncomingAndResetOncoming();
+
+      // OPTIONAL: If you want to use app.shiftChange.js instead of swapLiveWithOncoming...
+      // if (typeof window.finalizeShiftChange === "function") window.finalizeShiftChange();
 
       setText(msgId, `✅ Finalized! Snapshot + metrics saved for ${shift_date} (${shift_type}). Live board updated.`);
     } catch (e) {

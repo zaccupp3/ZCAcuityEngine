@@ -587,25 +587,30 @@
     </div>
   </div>
 
-  <script src="app/app.state.js"></script>
-  <script src="app/app.queue.js"></script>
-  <script src="app/app.staffing.js"></script>
-  <script src="app/app.patientsAcuity.js"></script>
-  <script src="app/app.assignmentsDrag.js"></script>
-  <script src="app/app.assignmentRules.js"></script>
+    <script src="app/app.state.js"></script>
+    <script src="app/app.queue.js"></script>
+    <script src="app/app.staffing.js"></script>
+    <script src="app/app.patientsAcuity.js"></script>
+    <script src="app/app.assignmentsDrag.js"></script>
+    <script src="app/app.assignmentRules.js"></script>
 
-  <script src="app/app.liveAssignments.js"></script>
-  <script src="app/app.assignmentsrender.js"></script>
-  <script src="app/app.modals.js"></script>
+    <script src="app/app.liveAssignments.js"></script>
+    <script src="app/app.assignmentsrender.js"></script>
+    <script src="app/app.modals.js"></script>
 
-  <script src="app/app.supabaseConfig.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
-  <script src="app/app.supabase.js"></script>
-  <script src="app/app.authUI.js"></script>
-  <script src="app/app.shiftChange.js"></script>
-  <script src="app/app.init.js"></script>
+    <!-- ✅ Supabase library FIRST -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 
-  <!-- Keep LAST so it can hook up handlers after DOM exists -->
-  <script src="script.js"></script>
-</body>
-</html>
+    <!-- ✅ then your config + wrapper + auth -->
+    <script src="app/app.supabaseConfig.js"></script>
+    <script src="app/app.supabase.js"></script>
+    <script src="app/app.authUI.js"></script>
+
+    <!-- ✅ shift change (logic), then init -->
+    <script src="app/app.shiftChange.js"></script>
+    <script src="app/app.init.js"></script>
+
+    <!-- Keep LAST so it can hook up handlers after DOM exists -->
+    <script src="script.js"></script>
+  </body>
+  </html>
