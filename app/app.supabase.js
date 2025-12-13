@@ -39,7 +39,7 @@
       // If Supabase can read session normally, great.
       const p = client.auth.getSession();
       const t = new Promise((_, rej) =>
-        setTimeout(() => rej(new Error("getSession timeout (boot)")), 2500)
+        setTimeout(() => rej(new Error("getSession timeout (boot)")), 3500)
       );
 
       const { data } = await Promise.race([p, t]);
