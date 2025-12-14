@@ -1,6 +1,8 @@
 // app/app.authUI.js
 // Wires the auth dropdown UI to window.sb (Supabase wrapper)
 // Also refreshes unit memberships + active unit + role pill for multi-unit demo flows.
+// CLOUD UNIT STATE:
+// - After login/memberships: load unit_state from cloud and subscribe realtime.
 
 (function () {
   function $(id) { return document.getElementById(id); }
@@ -70,7 +72,6 @@
     }
   }
 
-
   async function getUnitProfileFallback() {
     if (typeof window.sb?.myUnitProfile === "function") {
       return await window.sb.myUnitProfile();
@@ -113,7 +114,6 @@
 
     if (el.unitRole) el.unitRole.textContent = `unit: ${unitLabel} | role: ${role}`;
 
-    // Let other UI elements (Finalize button, etc.) respond to role changes
     if (typeof window.onAuthRoleChanged === "function") {
       try { window.onAuthRoleChanged(); } catch (e) { console.warn("onAuthRoleChanged error", e); }
     }
@@ -129,25 +129,59 @@
     const res = await window.refreshMyUnits();
     if (!res?.ok) return res;
 
-    // If we have an activeUnitId, align role from memberships and load settings via setActiveUnit
     const rows = Array.isArray(window.availableUnits) ? window.availableUnits : [];
+
+    // If we have an activeUnitId, align role from memberships and load settings via setActiveUnit
     if (window.activeUnitId) {
       const match = rows.find(r => String(r.unit_id) === String(window.activeUnitId));
       if (match && typeof window.setActiveUnit === "function") {
         await window.setActiveUnit(match.unit_id, match.role || null);
       } else if (typeof window.setActiveUnit === "function") {
-        // still try loading settings based on activeUnitId (role stays as-is)
         await window.setActiveUnit(window.activeUnitId, window.activeUnitRole || null);
       }
     }
 
-    // Notify script.js to repopulate unit dropdowns
     if (typeof window.onMembershipsUpdated === "function") {
       try { window.onMembershipsUpdated(); } catch (e) { console.warn("onMembershipsUpdated error", e); }
     }
 
     refreshAuthPill();
     return { ok: true };
+  }
+
+  async function syncCloudForActiveUnit() {
+    // Load + subscribe cloud unit_state if available
+    if (!window.activeUnitId) return;
+
+    if (!window.cloudSync) return;
+    if (typeof window.cloudSync.loadUnitStateFromCloud === "function") {
+      try {
+        const res = await window.cloudSync.loadUnitStateFromCloud(window.activeUnitId);
+        // If no row exists yet, seed (charge/admin/owner will publish through wrapped saveState)
+        if (res?.ok && res?.empty && typeof window.cloudSync.publishUnitStateDebounced === "function") {
+          window.cloudSync.publishUnitStateDebounced("seed-if-empty");
+        }
+      } catch (e) {
+        console.warn("[auth] cloud load failed", e);
+      }
+    }
+
+    if (typeof window.cloudSync.subscribeUnitState === "function") {
+      try {
+        await window.cloudSync.subscribeUnitState(window.activeUnitId);
+      } catch (e) {
+        console.warn("[auth] cloud subscribe failed", e);
+      }
+    }
+
+    // After cloud applied, refresh UI
+    try { if (typeof window.renderPatientList === "function") window.renderPatientList(); } catch {}
+    try { if (typeof window.updateAcuityTiles === "function") window.updateAcuityTiles(); } catch {}
+    try { if (typeof window.renderLiveAssignments === "function") window.renderLiveAssignments(); } catch {}
+    try { if (typeof window.renderAssignmentOutput === "function") window.renderAssignmentOutput(); } catch {}
+    try { if (typeof window.renderPcaAssignmentOutput === "function") window.renderPcaAssignmentOutput(); } catch {}
+    try { if (typeof window.renderQueueList === "function") window.renderQueueList(); } catch {}
+    try { if (typeof window.updateDischargeCount === "function") window.updateDischargeCount(); } catch {}
   }
 
   async function refreshAuthUI() {
@@ -176,7 +210,11 @@
       if (el.userEmail) el.userEmail.textContent = "";
       if (el.unitRole) el.unitRole.textContent = "unit: — | role: —";
 
-      // Clear multi-unit context on sign-out (keep localStorage selection; but hide pill)
+      // Stop realtime if any
+      if (window.cloudSync && typeof window.cloudSync.unsubscribeUnitState === "function") {
+        try { window.cloudSync.unsubscribeUnitState(); } catch {}
+      }
+
       if (typeof window.onAuthRoleChanged === "function") {
         try { window.onAuthRoleChanged(); } catch (_) {}
       }
@@ -213,6 +251,9 @@
     } else {
       refreshAuthPill();
     }
+
+    // ✅ Cloud load + realtime subscription for active unit
+    await syncCloudForActiveUnit();
 
     setMsg("");
   }
@@ -251,12 +292,15 @@
     if (error) setMsg(error.message || String(error));
     else setMsg("");
 
-    // Best-effort clear of UI bits
+    // Stop realtime if any
+    if (window.cloudSync && typeof window.cloudSync.unsubscribeUnitState === "function") {
+      try { window.cloudSync.unsubscribeUnitState(); } catch {}
+    }
+
     if (el.userEmail) el.userEmail.textContent = "";
     if (el.unitRole) el.unitRole.textContent = "unit: — | role: —";
     showLoggedIn(false);
 
-    // Trigger downstream UI disable (Finalize etc.)
     if (typeof window.onAuthRoleChanged === "function") {
       try { window.onAuthRoleChanged(); } catch (_) {}
     }
@@ -275,7 +319,6 @@
       closeDropdown();
     });
 
-    // Close if click outside
     document.addEventListener("click", (e) => {
       if (!el.dropdown) return;
       if (!el.dropdown.classList.contains("open")) return;
@@ -286,7 +329,6 @@
       if (!clickedInside) closeDropdown();
     });
 
-    // Close on ESC
     document.addEventListener("keydown", (e) => {
       if (e.key === "Escape") closeDropdown();
     });
@@ -309,7 +351,6 @@
     refreshAuthUI();
   }
 
-  // Expose a few helpers other scripts can call
   window.authUI = {
     refreshAuthUI,
     refreshAuthPill
