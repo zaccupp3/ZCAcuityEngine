@@ -1716,3 +1716,66 @@ button{
 .auth-ghost-btn:hover{
   background: #f8fafc;
 } 
+
+/* =====================================================
+   Assignment icons: 💡 explanation + ! rule-flag
+   Paste at VERY BOTTOM of style.css
+===================================================== */
+
+.icon-row{
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 2px;
+}
+
+.icon-btn{
+  width: 28px;
+  height: 28px;
+  border-radius: 999px;
+  border: 1px solid rgba(15, 23, 42, 0.15);
+  background: #ffffff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  font-weight: 900;
+  line-height: 1;
+  user-select: none;
+  box-shadow: 0 1px 2px rgba(16,24,40,0.06);
+}
+
+.icon-btn:hover{
+  transform: translateY(-1px);
+  box-shadow: 0 2px 6px rgba(16,24,40,0.10);
+}
+
+.icon-btn:active{
+  transform: translateY(0px);
+  box-shadow: 0 1px 2px rgba(16,24,40,0.06);
+}
+
+.icon-bulb{
+  font-size: 16px;
+}
+
+/* Yellow warning */
+.flag-warn{
+  background: #fbbf24;         /* amber */
+  border-color: #f59e0b;
+  color: #111827;
+}
+
+/* Red violation */
+.flag-bad{
+  background: #ef4444;         /* red */
+  border-color: #dc2626;
+  color: #ffffff;
+}
+
+/* Make the "!" look centered and bold */
+.flag-warn,
+.flag-bad{
+  font-size: 16px;
+  font-weight: 900;
+}

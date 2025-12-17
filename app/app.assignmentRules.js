@@ -2,6 +2,11 @@
 // ---------------------------------------------------------
 // Smarter distribution helpers for distributing patients across staff.
 // Goal: keep counts even AND balance acuity load (RN/PCA scores).
+//
+// + Phase 1 additions:
+// - Hard rule checks (RN + PCA): counts per owner, and unavoidable vs avoidable.
+// - Swap suggestions: find a simple patient swap between two owners that reduces
+//   rule breaks / stacking (especially BG).
 // ---------------------------------------------------------
 
 (function () {
@@ -22,6 +27,25 @@
 
   function getId(p) {
     return typeof p === "object" ? p.id : p;
+  }
+
+  function resolvePatient(idOrObj) {
+    const p = toPatientObj(idOrObj);
+    if (!p || p.isEmpty) return null;
+    return p;
+  }
+
+  function sum(obj, key, amount) {
+    obj[key] = (obj[key] || 0) + (amount || 0);
+  }
+
+  function isOn(p, keys) {
+    // flexible: supports multiple possible property names
+    // e.g. ["bg","bgChecks","bloodSugar"] etc
+    for (const k of keys) {
+      if (p && p[k]) return true;
+    }
+    return false;
   }
 
   // -----------------------------
@@ -51,26 +75,276 @@
 
   function ownerProjectedLoad(owner, role, extraPatientObj) {
     const ids = safeArray(owner && owner.patients);
-    let sum = 0;
+    let sumLoad = 0;
 
     // sum existing
     for (const id of ids) {
       const p = (typeof window.getPatientById === "function") ? window.getPatientById(id) : null;
       if (!p || p.isEmpty) continue;
-      sum += (role === "pca") ? pcaPatientScore(p) : rnPatientScore(p);
+      sumLoad += (role === "pca") ? pcaPatientScore(p) : rnPatientScore(p);
     }
 
     // add hypothetical patient
     if (extraPatientObj && !extraPatientObj.isEmpty) {
-      sum += (role === "pca") ? pcaPatientScore(extraPatientObj) : rnPatientScore(extraPatientObj);
+      sumLoad += (role === "pca") ? pcaPatientScore(extraPatientObj) : rnPatientScore(extraPatientObj);
     }
 
+    return sumLoad;
+  }
+
+  // =========================================================
+  // Phase 1: Hard rule checking + swap suggestions
+  // =========================================================
+
+  // Hard rules you described (defaults; can be overridden by unit settings later)
+  const RN_LIMITS = {
+    drip: 1,
+    nih: 1,
+    bg: 2,
+    ciwa: 1,
+    restraint: 1,
+    sitter: 1,
+    vpo: 1,
+    isolation: 2, // allow 1–2
+    admit: 1,
+    lateDc: 1
+  };
+
+  const PCA_LIMITS = {
+    // tele: balanced evenly (handled by score/swap suggestions more than "red rule"),
+    // but we can still flag extreme stacking later if you want.
+    chg: 1,     // keep even
+    foley: 1,   // keep even
+    q2turns: 1, // keep even
+    feeder: 1,  // keep even
+    heavy: 1,   // keep even
+    isolation: 2,
+    admit: 1,
+    lateDc: 1
+  };
+
+  // These key maps let us read your patient objects even if property names vary slightly.
+  const RN_TAG_KEYS = {
+    drip: ["drip", "drips"],
+    nih: ["nih"],
+    bg: ["bg", "bgChecks"],
+    ciwa: ["ciwa", "cows", "ciwaCows"],
+    restraint: ["restraint", "restraints"],
+    sitter: ["sitter"],
+    vpo: ["vpo"],
+    isolation: ["isolation", "iso"],
+    admit: ["admit"],
+    lateDc: ["lateDc", "lateDC", "latedc"]
+  };
+
+  const PCA_TAG_KEYS = {
+    tele: ["telePca", "tele"], // some builds use tele for both
+    chg: ["chg"],
+    foley: ["foley"],
+    q2turns: ["q2turns", "q2Turns"],
+    feeder: ["feeder", "feeders"],
+    heavy: ["heavy"],
+    isolation: ["isolation", "isoPca", "iso"],
+    admit: ["admitPca", "admit"],
+    lateDc: ["lateDcPca", "lateDc", "lateDC", "latedc"]
+  };
+
+  function countTagsForOwner(owner, role) {
+    const counts = {};
+    const ids = safeArray(owner && owner.patients);
+
+    for (const id of ids) {
+      const p = resolvePatient(id);
+      if (!p) continue;
+
+      if (role === "pca") {
+        for (const tag in PCA_TAG_KEYS) {
+          if (isOn(p, PCA_TAG_KEYS[tag])) sum(counts, tag, 1);
+        }
+      } else {
+        for (const tag in RN_TAG_KEYS) {
+          if (isOn(p, RN_TAG_KEYS[tag])) sum(counts, tag, 1);
+        }
+      }
+    }
+
+    return counts;
+  }
+
+  function countTagsForUnit(owners, role) {
+    const total = {};
+    for (const o of safeArray(owners)) {
+      const c = countTagsForOwner(o, role);
+      for (const k in c) sum(total, k, c[k]);
+    }
+    return total;
+  }
+
+  function unavoidableThreshold(totalTagCount, ownerCount, limitPerOwner) {
+    // If a unit has more of a tag than "limit * owners", then SOMEONE must exceed.
+    return totalTagCount > (ownerCount * limitPerOwner);
+  }
+
+  function evaluateOwnerHardRules(owner, ownersAll, role, limitsOverride) {
+    const limits = limitsOverride || (role === "pca" ? PCA_LIMITS : RN_LIMITS);
+    const ownerCount = Math.max(1, safeArray(ownersAll).length);
+
+    const ownerCounts = countTagsForOwner(owner, role);
+    const unitCounts = countTagsForUnit(ownersAll, role);
+
+    const violations = [];
+    const warnings = [];
+
+    for (const tag in limits) {
+      const limit = limits[tag];
+      const mine = ownerCounts[tag] || 0;
+      if (mine <= limit) continue;
+
+      const unitTotal = unitCounts[tag] || 0;
+      const unavoidable = unavoidableThreshold(unitTotal, ownerCount, limit);
+
+      // "red" vs "amber" (unavoidable but still worth highlighting)
+      const severity = unavoidable ? "warning" : "violation";
+
+      const msg =
+        role === "pca"
+          ? `PCA rule: ${tag} is stacked (${mine} > ${limit})`
+          : `RN rule: ${tag} is stacked (${mine} > ${limit})`;
+
+      const rec = {
+        tag,
+        mine,
+        limit,
+        unitTotal,
+        ownerCount,
+        unavoidable,
+        severity,
+        message: msg
+      };
+
+      if (severity === "violation") violations.push(rec);
+      else warnings.push(rec);
+    }
+
+    return {
+      counts: ownerCounts,
+      violations,
+      warnings,
+      // helpful for UI
+      hasRuleBreak: violations.length > 0,
+      hasAnyFlag: (violations.length + warnings.length) > 0
+    };
+  }
+
+  // Public: evaluate all owners at once
+  // Returns a map keyed by owner.name (fallback index)
+  window.evaluateAssignmentHardRules = function (owners, role, limitsOverride) {
+    const list = safeArray(owners).filter(Boolean);
+    const out = {};
+    list.forEach((o, idx) => {
+      const key = o?.name || o?.label || `owner_${idx + 1}`;
+      out[key] = evaluateOwnerHardRules(o, list, role === "pca" ? "pca" : "nurse", limitsOverride);
+    });
+    return out;
+  };
+
+  // ---------------------------------------------------------
+  // Swap suggestion (simple but effective)
+  // ---------------------------------------------------------
+  function cloneOwnerPatients(owner) {
+    return safeArray(owner && owner.patients).slice();
+  }
+
+  function computePenaltyForOwnerEval(evalObj, role) {
+    // "violation" should matter more than "warning"
+    const v = safeArray(evalObj?.violations).length;
+    const w = safeArray(evalObj?.warnings).length;
+
+    // Extra weight for BG stacking specifically (you called it out a lot)
+    const bgPenalty =
+      (evalObj?.violations || []).some(x => x.tag === "bg") ? 3 : 0;
+
+    return (v * 10) + (w * 4) + bgPenalty;
+  }
+
+  function computeTotalPenalty(owners, role, limitsOverride) {
+    let sum = 0;
+    const list = safeArray(owners).filter(Boolean);
+    for (let i = 0; i < list.length; i++) {
+      const ev = evaluateOwnerHardRules(list[i], list, role, limitsOverride);
+      sum += computePenaltyForOwnerEval(ev, role);
+    }
     return sum;
   }
 
-  // -----------------------------
-  // MAIN: distributePatientsEvenly
-  // -----------------------------
+  // Finds the best 1-for-1 swap between two owners that reduces penalty.
+  // Works well for 8 RNs x 4 pts each.
+  window.suggestBestSwap = function (owners, role, limitsOverride) {
+    const list = safeArray(owners).filter(Boolean);
+    if (list.length < 2) return { ok: false, reason: "Need at least 2 owners" };
+
+    const basePenalty = computeTotalPenalty(list, role === "pca" ? "pca" : "nurse", limitsOverride);
+
+    let best = null;
+
+    for (let a = 0; a < list.length; a++) {
+      for (let b = a + 1; b < list.length; b++) {
+        const A = list[a];
+        const B = list[b];
+
+        const Apts = safeArray(A.patients);
+        const Bpts = safeArray(B.patients);
+        if (!Apts.length || !Bpts.length) continue;
+
+        for (let i = 0; i < Apts.length; i++) {
+          for (let j = 0; j < Bpts.length; j++) {
+            // simulate swap
+            const Aclone = cloneOwnerPatients(A);
+            const Bclone = cloneOwnerPatients(B);
+
+            const tmp = Aclone[i];
+            Aclone[i] = Bclone[j];
+            Bclone[j] = tmp;
+
+            const originalA = A.patients;
+            const originalB = B.patients;
+
+            A.patients = Aclone;
+            B.patients = Bclone;
+
+            const newPenalty = computeTotalPenalty(list, role === "pca" ? "pca" : "nurse", limitsOverride);
+
+            // revert
+            A.patients = originalA;
+            B.patients = originalB;
+
+            const improvement = basePenalty - newPenalty;
+            if (improvement <= 0) continue;
+
+            if (!best || improvement > best.improvement) {
+              best = {
+                ownerA: A?.name || `owner_${a + 1}`,
+                ownerB: B?.name || `owner_${b + 1}`,
+                patientFromA: Apts[i],
+                patientFromB: Bpts[j],
+                improvement,
+                basePenalty,
+                newPenalty
+              };
+            }
+          }
+        }
+      }
+    }
+
+    if (!best) return { ok: true, found: false, basePenalty };
+
+    return { ok: true, found: true, ...best };
+  };
+
+  // =========================================================
+  // MAIN: distributePatientsEvenly (your existing logic)
+  // =========================================================
   // owners: array of nurse/PCA objects (must have .patients array)
   // patients: array of patient objects or ids
   // options:
