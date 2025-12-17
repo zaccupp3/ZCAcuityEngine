@@ -1,8 +1,13 @@
 // app/app.authUI.js
-// Wires the auth dropdown UI to window.sb (Supabase wrapper)
-// Also refreshes unit memberships + active unit + role pill for multi-unit demo flows.
-// CLOUD UNIT STATE:
-// - After login/memberships: load unit_state from cloud and subscribe realtime.
+// Auth dropdown UI for Supabase:
+// - Magic link + Email/Password sign in/up
+// - Reset password email + Set new password (recovery flow)
+// - Refresh memberships + active unit + role pill
+// - Starts cloud sync after auth
+//
+// Fixes included:
+// ✅ Recovery panel triggers from URL OR PASSWORD_RECOVERY event
+// ✅ Longer session timeout to avoid “fake sign-out” when UI is busy
 
 (function () {
   function $(id) { return document.getElementById(id); }
@@ -13,17 +18,34 @@
     dropdown: $("authDropdown"),
     closeBtn: $("authDropdownClose"),
 
-    // existing auth ids (unchanged)
+    // auth blocks
     status: $("authStatus"),
     loggedOut: $("authLoggedOut"),
     loggedIn: $("authLoggedIn"),
+    msg: $("authMsg"),
+
+    // signed out inputs/buttons
     emailInput: $("authEmail"),
+    passwordInput: $("authPassword"),
     btnMagic: $("btnMagicLink"),
+    btnSignInPw: $("btnSignInPassword"),
+    btnSignUpPw: $("btnSignUpPassword"),
+    btnResetPw: $("btnResetPassword"),
+
+    // recovery UI
+    recoveryBlock: $("authRecovery"),
+    newPw1: $("authNewPassword"),
+    newPw2: $("authNewPassword2"),
+    btnSetPw: $("btnSetNewPassword"),
+
+    // signed in
     btnSignOut: $("btnSignOut"),
     userEmail: $("authUserEmail"),
     unitRole: $("authUnitRole"),
-    msg: $("authMsg"),
   };
+
+  // remembers if Supabase explicitly told us we're in recovery
+  let sawPasswordRecoveryEvent = false;
 
   function setMsg(text) {
     if (!el.msg) return;
@@ -62,10 +84,41 @@
     else openDropdown();
   }
 
+  function showRecoveryUI(show) {
+    if (!el.recoveryBlock) return;
+    el.recoveryBlock.style.display = show ? "flex" : "none";
+  }
+
+  function clearRecoveryHash() {
+    // remove tokens/hash from URL after password is set
+    try {
+      if (window.location.hash) {
+        history.replaceState(null, document.title, window.location.pathname + window.location.search);
+      }
+    } catch {}
+  }
+
+  function urlIndicatesRecovery() {
+    // Supabase usually returns recovery links in hash
+    const h = window.location.hash || "";
+    const q = window.location.search || "";
+    return (
+      h.includes("type=recovery") ||
+      h.includes("recovery") ||
+      q.includes("type=recovery") ||
+      q.includes("recovery")
+    );
+  }
+
+  function isRecoveryMode() {
+    return sawPasswordRecoveryEvent || urlIndicatesRecovery();
+  }
+
   async function getSessionSafe() {
     try {
       const p = window.sb.client.auth.getSession();
-      const t = new Promise((_, rej) => setTimeout(() => rej(new Error("getSession timed out")), 3500));
+      // ✅ longer timeout so we don’t “fake sign out” during UI work
+      const t = new Promise((_, rej) => setTimeout(() => rej(new Error("getSession timed out")), 10000));
       return await Promise.race([p, t]);
     } catch (e) {
       return { data: { session: null }, error: e };
@@ -94,7 +147,6 @@
     return name || code || (m?.unit_id || "—");
   }
 
-  // Keep the little auth pill accurate to ACTIVE UNIT
   function refreshAuthPill() {
     const rows = Array.isArray(window.availableUnits) ? window.availableUnits : [];
     const activeId = window.activeUnitId;
@@ -119,7 +171,6 @@
     }
   }
 
-  // After auth, refresh memberships + ensure active unit is set and settings loaded
   async function refreshMembershipsAndUnit() {
     if (!sbReady()) return { ok: false, error: new Error("Supabase not ready") };
     if (typeof window.refreshMyUnits !== "function") {
@@ -131,7 +182,6 @@
 
     const rows = Array.isArray(window.availableUnits) ? window.availableUnits : [];
 
-    // If we have an activeUnitId, align role from memberships and load settings via setActiveUnit
     if (window.activeUnitId) {
       const match = rows.find(r => String(r.unit_id) === String(window.activeUnitId));
       if (match && typeof window.setActiveUnit === "function") {
@@ -150,14 +200,12 @@
   }
 
   async function syncCloudForActiveUnit() {
-    // Load + subscribe cloud unit_state if available
     if (!window.activeUnitId) return;
-
     if (!window.cloudSync) return;
+
     if (typeof window.cloudSync.loadUnitStateFromCloud === "function") {
       try {
         const res = await window.cloudSync.loadUnitStateFromCloud(window.activeUnitId);
-        // If no row exists yet, seed (charge/admin/owner will publish through wrapped saveState)
         if (res?.ok && res?.empty && typeof window.cloudSync.publishUnitStateDebounced === "function") {
           window.cloudSync.publishUnitStateDebounced("seed-if-empty");
         }
@@ -174,7 +222,6 @@
       }
     }
 
-    // After cloud applied, refresh UI
     try { if (typeof window.renderPatientList === "function") window.renderPatientList(); } catch {}
     try { if (typeof window.updateAcuityTiles === "function") window.updateAcuityTiles(); } catch {}
     try { if (typeof window.renderLiveAssignments === "function") window.renderLiveAssignments(); } catch {}
@@ -189,16 +236,21 @@
       setStatus("Supabase not ready");
       setMsg("Missing Supabase config (URL / anon key) or library not loaded.");
       showLoggedIn(false);
+      showRecoveryUI(false);
       if (el.unitRole) el.unitRole.textContent = "unit: — | role: —";
       return;
     }
 
+    // Show recovery UI if URL or auth event indicates recovery
+    showRecoveryUI(isRecoveryMode());
+    if (isRecoveryMode()) openDropdown();
+
     const { data, error } = await getSessionSafe();
+
     if (error) {
-      setStatus("Error");
-      setMsg(error.message || String(error));
-      showLoggedIn(false);
-      if (el.unitRole) el.unitRole.textContent = "unit: — | role: —";
+      // ✅ Don’t force a “Signed out” UI just because session fetch timed out
+      setStatus("Auth check delayed");
+      setMsg("Auth check is taking longer than expected. Try again or refresh.");
       return;
     }
 
@@ -210,7 +262,6 @@
       if (el.userEmail) el.userEmail.textContent = "";
       if (el.unitRole) el.unitRole.textContent = "unit: — | role: —";
 
-      // Stop realtime if any
       if (window.cloudSync && typeof window.cloudSync.unsubscribeUnitState === "function") {
         try { window.cloudSync.unsubscribeUnitState(); } catch {}
       }
@@ -227,7 +278,7 @@
     const email = session.user?.email || "(no email)";
     if (el.userEmail) el.userEmail.textContent = email;
 
-    // Preferred path: refresh memberships and set active unit + settings
+    // memberships + active unit
     try {
       const r = await refreshMembershipsAndUnit();
       if (!r?.ok) console.warn("[auth] refreshMembershipsAndUnit not ok", r?.error);
@@ -235,7 +286,6 @@
       console.warn("[auth] refreshMembershipsAndUnit failed", e);
     }
 
-    // Fallback: if memberships didn't populate, at least show most recent membership
     if (!Array.isArray(window.availableUnits) || !window.availableUnits.length) {
       const prof = await getUnitProfileFallback();
       if (prof?.error) {
@@ -243,7 +293,6 @@
         setMsg(`Membership lookup error: ${prof.error.message || String(prof.error)}`);
         return;
       }
-
       const row = prof?.row;
       const unitName = row?.units?.name || row?.units?.code || "—";
       const role = row?.role || "—";
@@ -252,24 +301,20 @@
       refreshAuthPill();
     }
 
-    // ✅ Cloud load + realtime subscription for active unit
     await syncCloudForActiveUnit();
-
-    setMsg("");
+    if (!isRecoveryMode()) setMsg("");
   }
 
+  // ---- Auth actions ----
+
   async function sendMagicLink() {
-    if (!sbReady()) {
-      setMsg("Supabase not ready yet. Refresh and try again.");
-      return;
-    }
+    if (!sbReady()) return setMsg("Supabase not ready yet. Refresh and try again.");
 
     const email = (el.emailInput?.value || "").trim();
     if (!email) return setMsg("Enter an email first.");
 
     if (typeof window.sb?.signInWithEmail !== "function") {
-      setMsg("Auth helper missing (sb.signInWithEmail). Update app.supabase.js export.");
-      return;
+      return setMsg("Auth helper missing (sb.signInWithEmail). Update app.supabase.js export.");
     }
 
     setMsg("Sending magic link...");
@@ -279,12 +324,91 @@
     setMsg("Magic link sent. Check your email.");
   }
 
+  async function signInWithPassword() {
+    if (!sbReady()) return setMsg("Supabase not ready yet. Refresh and try again.");
+
+    const email = (el.emailInput?.value || "").trim();
+    const password = (el.passwordInput?.value || "").trim();
+    if (!email) return setMsg("Enter an email first.");
+    if (!password) return setMsg("Enter a password.");
+
+    if (typeof window.sb?.signInWithPassword !== "function") {
+      return setMsg("Auth helper missing (sb.signInWithPassword). Update app.supabase.js export.");
+    }
+
+    setMsg("Signing in...");
+    const { error } = await window.sb.signInWithPassword(email, password);
+    if (error) return setMsg(error.message || String(error));
+
+    setMsg("");
+    await refreshAuthUI();
+  }
+
+  async function signUpWithPassword() {
+    if (!sbReady()) return setMsg("Supabase not ready yet. Refresh and try again.");
+
+    const email = (el.emailInput?.value || "").trim();
+    const password = (el.passwordInput?.value || "").trim();
+    if (!email) return setMsg("Enter an email first.");
+    if (!password) return setMsg("Enter a password.");
+
+    if (typeof window.sb?.signUpWithPassword !== "function") {
+      return setMsg("Auth helper missing (sb.signUpWithPassword). Update app.supabase.js export.");
+    }
+
+    setMsg("Creating account...");
+    const { error } = await window.sb.signUpWithPassword(email, password);
+    if (error) return setMsg(error.message || String(error));
+
+    setMsg("Account created. If required, confirm your email, then sign in.");
+    await refreshAuthUI();
+  }
+
+  async function sendPasswordReset() {
+    if (!sbReady()) return setMsg("Supabase not ready yet. Refresh and try again.");
+
+    const email = (el.emailInput?.value || "").trim();
+    if (!email) return setMsg("Enter your email first.");
+
+    setMsg("Sending password reset email...");
+    const { error } = await window.sb.client.auth.resetPasswordForEmail(email, {
+      redirectTo: window.location.origin
+    });
+    if (error) return setMsg(error.message || String(error));
+
+    setMsg("Password reset email sent. Open it to set your password.");
+  }
+
+  async function setNewPassword() {
+    if (!sbReady()) return setMsg("Supabase not ready yet. Refresh and try again.");
+
+    const p1 = (el.newPw1?.value || "").trim();
+    const p2 = (el.newPw2?.value || "").trim();
+
+    if (!p1 || p1.length < 8) return setMsg("New password must be at least 8 characters.");
+    if (p1 !== p2) return setMsg("Passwords do not match.");
+
+    setMsg("Setting new password...");
+    const { error } = await window.sb.client.auth.updateUser({ password: p1 });
+    if (error) return setMsg(error.message || String(error));
+
+    // success
+    sawPasswordRecoveryEvent = false;
+    clearRecoveryHash();
+    showRecoveryUI(false);
+
+    if (el.newPw1) el.newPw1.value = "";
+    if (el.newPw2) el.newPw2.value = "";
+
+    setMsg("Password set. You can now sign in with email + password.");
+    await refreshAuthUI();
+  }
+
   async function doSignOut() {
     if (!sbReady()) return;
 
     if (typeof window.sb?.signOut !== "function") {
-      setMsg("Auth helper missing (sb.signOut). Update app.supabase.js export.");
-      return;
+      return setMsg("Auth helper missing (sb.signOut). Update app.supabase.js export.");
     }
 
     setMsg("Signing out...");
@@ -292,10 +416,12 @@
     if (error) setMsg(error.message || String(error));
     else setMsg("");
 
-    // Stop realtime if any
     if (window.cloudSync && typeof window.cloudSync.unsubscribeUnitState === "function") {
       try { window.cloudSync.unsubscribeUnitState(); } catch {}
     }
+
+    sawPasswordRecoveryEvent = false;
+    showRecoveryUI(false);
 
     if (el.userEmail) el.userEmail.textContent = "";
     if (el.unitRole) el.unitRole.textContent = "unit: — | role: —";
@@ -307,6 +433,8 @@
 
     await refreshAuthUI();
   }
+
+  // ---- Wiring ----
 
   function wireDropdown() {
     if (el.menuBtn) el.menuBtn.addEventListener("click", (e) => {
@@ -336,10 +464,36 @@
 
   function wireAuthActions() {
     if (el.btnMagic) el.btnMagic.addEventListener("click", sendMagicLink);
+    if (el.btnSignInPw) el.btnSignInPw.addEventListener("click", signInWithPassword);
+    if (el.btnSignUpPw) el.btnSignUpPw.addEventListener("click", signUpWithPassword);
+    if (el.btnResetPw) el.btnResetPw.addEventListener("click", sendPasswordReset);
+    if (el.btnSetPw) el.btnSetPw.addEventListener("click", setNewPassword);
     if (el.btnSignOut) el.btnSignOut.addEventListener("click", doSignOut);
 
+    if (el.passwordInput) {
+      el.passwordInput.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") signInWithPassword();
+      });
+    }
+    if (el.newPw2) {
+      el.newPw2.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") setNewPassword();
+      });
+    }
+
+    // If URL already indicates recovery, open the dropdown and show it
+    if (urlIndicatesRecovery()) {
+      openDropdown();
+      showRecoveryUI(true);
+    }
+
     if (sbReady() && typeof window.sb.client.auth.onAuthStateChange === "function") {
-      window.sb.client.auth.onAuthStateChange(async () => {
+      window.sb.client.auth.onAuthStateChange(async (event) => {
+        if (event === "PASSWORD_RECOVERY") {
+          sawPasswordRecoveryEvent = true;
+          openDropdown();
+          showRecoveryUI(true);
+        }
         await refreshAuthUI();
       });
     }

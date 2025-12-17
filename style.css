@@ -1687,3 +1687,32 @@ button{
   gap: 6px;
   white-space: nowrap;
 }
+
+/* =====================================================
+   AUTH DROPDOWN — add secondary + ghost button styles
+   Paste at VERY BOTTOM of style.css
+===================================================== */
+
+.auth-secondary-btn{
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: #e8f2ff;
+  color: #003c6d;
+  font-weight: 800;
+  border: 1px solid #cfe3ff;
+}
+.auth-secondary-btn:hover{
+  background: #d3e8ff;
+}
+
+.auth-ghost-btn{
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: #ffffff;
+  color: #0f172a;
+  font-weight: 800;
+  border: 1px solid #cbd5e1;
+}
+.auth-ghost-btn:hover{
+  background: #f8fafc;
+} 

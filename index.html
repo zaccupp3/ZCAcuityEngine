@@ -56,7 +56,40 @@
           <div id="authLoggedOut" class="auth-block" style="display:none;">
             <label class="auth-label" for="authEmail">Email</label>
             <input id="authEmail" type="email" placeholder="you@domain.com" class="auth-input">
-            <button id="btnMagicLink" class="auth-primary-btn" type="button">Send magic link</button>
+
+            <label class="auth-label" for="authPassword" style="margin-top:8px;">Password</label>
+            <input id="authPassword" type="password" placeholder="••••••••" class="auth-input" autocomplete="current-password">
+
+            <div style="display:flex; gap:8px; margin-top:10px; flex-wrap:wrap;">
+              <button id="btnSignInPassword" class="auth-primary-btn" type="button">Sign in</button>
+              <button id="btnSignUpPassword" class="auth-secondary-btn" type="button">Sign up</button>
+              <button id="btnMagicLink" class="auth-ghost-btn" type="button">Magic link</button>
+            </div>
+
+            <div style="display:flex; gap:8px; margin-top:10px; flex-wrap:wrap;">
+              <button id="btnResetPassword" class="auth-ghost-btn" type="button">Set / Reset password</button>
+            </div>
+
+            <div style="margin-top:8px; font-size:12px; opacity:0.75; line-height:1.3;">
+              Tip: If you originally used magic link, click <strong>Set / Reset password</strong> once to create a password for the same account.
+            </div>
+          </div>
+
+          <!-- ✅ Password Recovery / Set New Password (shows when recovery link is opened) -->
+          <div id="authRecovery" class="auth-block" style="display:none; margin-top:10px;">
+            <div style="font-weight:800; font-size:13px; color:#0f172a;">Set New Password</div>
+
+            <label class="auth-label" for="authNewPassword">New password</label>
+            <input id="authNewPassword" type="password" class="auth-input" placeholder="At least 8 characters" autocomplete="new-password">
+
+            <label class="auth-label" for="authNewPassword2">Confirm new password</label>
+            <input id="authNewPassword2" type="password" class="auth-input" placeholder="Repeat new password" autocomplete="new-password">
+
+            <button id="btnSetNewPassword" class="auth-primary-btn" type="button">Save new password</button>
+
+            <div style="font-size:12px; opacity:0.75; line-height:1.3;">
+              After saving, you can sign in normally using email + password.
+            </div>
           </div>
 
           <!-- Signed in -->
@@ -293,18 +326,12 @@
         <button onclick="window.populateLiveAssignment(true)">Randomize Live Assignment</button>
       </div>
 
-      <!-- ✅ RN + Queue region on top -->
       <div class="live-layout live-layout--rn-with-queue">
-
-        <!-- LEFT: RN grid -->
         <div class="live-column live-column--rn">
           <h2>Current RN Assignments</h2>
-
-          <!-- ✅ RN cards render here; JS also injects the discharge bin as slot 9 -->
           <div id="liveNurseAssignments" class="assignment-grid live-grid live-grid-nurse"></div>
         </div>
 
-        <!-- RIGHT: Admit Queue "Queue Area" -->
         <div class="live-column live-column--queue">
           <h2>Admit Queue</h2>
 
@@ -312,12 +339,10 @@
             <button onclick="promptAddAdmit()">+ Add Admit</button>
           </div>
 
-          <!-- keep SAME id so existing queue JS continues to work -->
           <div id="queueList" class="queue-list queue-list--compact"></div>
         </div>
       </div>
 
-      <!-- ✅ PCA section below -->
       <div class="live-layout live-layout--pca-only" style="margin-top: 16px;">
         <div class="live-column">
           <h2>Current PCA Assignments</h2>
@@ -334,7 +359,6 @@
         <button onclick="populateOncomingAssignment()">Populate Oncoming Assignment</button>
         <button onclick="rebalanceOncomingAssignment()">Re-generate / Rebalance</button>
 
-        <!-- Finalize / Shift Change hook (wired in JS) -->
         <button id="btnFinalizeShift" type="button" title="Publishes Oncoming snapshot + analytics, then swaps Live ← Oncoming">
           Finalize / Submit Shift Change
         </button>
@@ -367,7 +391,7 @@
       <div id="pcaAssignmentOutput" class="assignment-grid two-column-grid"></div>
     </section>
 
-    <!-- UNIT PULSE TAB (NEW) -->
+    <!-- UNIT PULSE TAB -->
     <section id="unitPulseTab" class="tab-section" style="display: none;">
       <h1>Unit Pulse</h1>
       <p>
@@ -587,30 +611,30 @@
     </div>
   </div>
 
-    <script src="app/app.state.js"></script>
-    <script src="app/app.queue.js"></script>
-    <script src="app/app.staffing.js"></script>
-    <script src="app/app.patientsAcuity.js"></script>
-    <script src="app/app.assignmentsDrag.js"></script>
-    <script src="app/app.assignmentRules.js"></script>
+  <script src="app/app.state.js"></script>
+  <script src="app/app.queue.js"></script>
+  <script src="app/app.staffing.js"></script>
+  <script src="app/app.patientsAcuity.js"></script>
+  <script src="app/app.assignmentsDrag.js"></script>
+  <script src="app/app.assignmentRules.js"></script>
 
-    <script src="app/app.liveAssignments.js"></script>
-    <script src="app/app.assignmentsrender.js"></script>
-    <script src="app/app.modals.js"></script>
+  <script src="app/app.liveAssignments.js"></script>
+  <script src="app/app.assignmentsrender.js"></script>
+  <script src="app/app.modals.js"></script>
 
-    <!-- ✅ Supabase library FIRST -->
-    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+  <!-- ✅ Supabase library FIRST -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 
-    <!-- ✅ then your config + wrapper + auth -->
-    <script src="app/app.supabaseConfig.js"></script>
-    <script src="app/app.supabase.js"></script>
-    <script src="app/app.authUI.js"></script>
+  <!-- ✅ then your config + wrapper + auth -->
+  <script src="app/app.supabaseConfig.js"></script>
+  <script src="app/app.supabase.js"></script>
+  <script src="app/app.authUI.js"></script>
 
-    <!-- ✅ shift change (logic), then init -->
-    <script src="app/app.shiftChange.js"></script>
-    <script src="app/app.init.js"></script>
+  <!-- ✅ shift change (logic), then init -->
+  <script src="app/app.shiftChange.js"></script>
+  <script src="app/app.init.js"></script>
 
-    <!-- Keep LAST so it can hook up handlers after DOM exists -->
-    <script src="script.js"></script>
-  </body>
-  </html>
+  <!-- Keep LAST so it can hook up handlers after DOM exists -->
+  <script src="script.js"></script>
+</body>
+</html>
