@@ -6,6 +6,7 @@
 // Adds:
 // - 💡 Lightbulb icon (plain-language explanation per RN/PCA)
 // - ! icon (yellow warning vs red violation) based on hard-rule checks
+//   Hover shows WHICH rule(s) and counts (e.g., bg: 3 > 2)
 // ---------------------------------------------------------
 
 // -----------------------------
@@ -70,17 +71,18 @@ function safeSortPatientsForDisplay(a, b) {
 }
 
 // -----------------------------
-// Explanation + rule flag helpers (NEW)
+// Explanation + rule flag helpers
 // -----------------------------
 function safeGetPerOwnerExplain(owner, ownersAll, role) {
   try {
     if (window.explain && typeof window.explain.perOwner === "function") {
+      // IMPORTANT: explain.perOwner returns a STRING in your app.explanations.js
       return window.explain.perOwner(owner, ownersAll, role);
     }
   } catch (e) {
     console.warn("[explain] perOwner failed", e);
   }
-  return null;
+  return "";
 }
 
 function safeGetRuleEvalMap(ownersAll, role) {
@@ -101,44 +103,28 @@ function getOwnerRuleEval(owner, ownersAll, role) {
   const key = owner?.name || owner?.label || null;
   if (key && map[key]) return map[key];
 
-  // fallback: try to find by name-ish
-  const keys = Object.keys(map);
-  const foundKey = keys.find(k => String(k).toLowerCase() === String(key).toLowerCase());
-  if (foundKey) return map[foundKey];
+  // fallback: try case-insensitive
+  if (key) {
+    const keys = Object.keys(map);
+    const foundKey = keys.find(k => String(k).toLowerCase() === String(key).toLowerCase());
+    if (foundKey) return map[foundKey];
+  }
 
+  // final fallback: try to find by index-ish key if engine used owner_#
+  // (this is best-effort; usually name keys work)
   return null;
 }
 
-function buildRuleIconHtml(ruleEval) {
+function buildRuleTooltip(ruleEval) {
   if (!ruleEval) return "";
-
   const v = Array.isArray(ruleEval.violations) ? ruleEval.violations : [];
   const w = Array.isArray(ruleEval.warnings) ? ruleEval.warnings : [];
-  const hasV = v.length > 0;
-  const hasW = w.length > 0;
+  if (!v.length && !w.length) return "";
 
-  if (!hasV && !hasW) return "";
-
-  const severityClass = hasV ? "flag-bad" : "flag-warn";
-  const titleParts = [];
-
-  v.forEach(x => titleParts.push(x.message || `${x.tag} (${x.mine} > ${x.limit})`));
-  w.forEach(x => titleParts.push(x.message || `${x.tag} (${x.mine} > ${x.limit})`));
-
-  const title = titleParts.join(" • ");
-
-  // ! icon (colored circle via CSS)
-  return `<button class="icon-btn ${severityClass}" type="button" title="${escapeHtml(title)}" onclick="window.__openRuleExplain && window.__openRuleExplain('${escapeJs(ownerSafeName(ruleEval))}', '${escapeJs(severityClass)}')">!</button>`;
-}
-
-function ownerSafeName(ruleEval) {
-  // used only for debugging in onclick; keep it safe
-  return (ruleEval && ruleEval.counts) ? "owner" : "owner";
-}
-
-function buildBulbIconHtml(explainText, fallbackTitle) {
-  const title = explainText || fallbackTitle || "Why this assignment looks like this";
-  return `<button class="icon-btn icon-bulb" type="button" title="${escapeHtml(title)}" onclick="window.__openOwnerExplain && window.__openOwnerExplain(this)">💡</button>`;
+  const parts = [];
+  v.forEach(x => parts.push(`❗ ${x.tag}: ${x.mine} > ${x.limit}`));
+  w.forEach(x => parts.push(`⚠ ${x.tag}: ${x.mine} > ${x.limit} (may be unavoidable)`));
+  return parts.join(" • ");
 }
 
 function escapeHtml(str) {
@@ -150,25 +136,15 @@ function escapeHtml(str) {
     .replace(/'/g, "&#039;");
 }
 
-function escapeJs(str) {
-  return String(str || "").replace(/\\/g, "\\\\").replace(/'/g, "\\'");
-}
-
-// Simple popups (keep it lightweight for now)
+// Simple popup for bulb (kept lightweight)
 window.__openOwnerExplain = function (btnEl) {
   try {
-    // We store full text on data attribute (set below)
     const text = btnEl?.getAttribute("data-explain") || btnEl?.title || "";
     if (!text) return;
     alert(text);
   } catch (e) {
     console.warn("__openOwnerExplain failed", e);
   }
-};
-
-window.__openRuleExplain = function () {
-  // For now the tooltip carries the detail. If you want: we can open a modal later.
-  // Leaving this stub so onclick doesn’t error.
 };
 
 // -----------------------------
@@ -183,7 +159,6 @@ function renderAssignmentOutput() {
   let html = "";
 
   const allOwners = Array.isArray(window.incomingNurses) ? window.incomingNurses : [];
-  const ruleMap = safeGetRuleEvalMap(allOwners, "nurse") || null;
 
   incomingNurses.forEach(nurse => {
     const pts = (nurse.patients || [])
@@ -200,16 +175,14 @@ function renderAssignmentOutput() {
 
     const reportSources = getUniquePrevRnCount(nurse.patients || []);
 
-    // NEW: explanations + rule flags
-    const ex = safeGetPerOwnerExplain(nurse, allOwners, "nurse");
-    const explainText = (ex && (ex.text || ex.message || ex.summary)) ? (ex.text || ex.message || ex.summary) : "";
-    const ruleEval = ruleMap ? (ruleMap[nurse?.name] || null) : getOwnerRuleEval(nurse, allOwners, "nurse");
+    // ✅ Explanation is a STRING
+    const explainText = safeGetPerOwnerExplain(nurse, allOwners, "nurse") || "";
+
+    // ✅ Always use robust lookup for rule eval
+    const ruleEval = getOwnerRuleEval(nurse, allOwners, "nurse");
     const vCount = ruleEval?.violations?.length || 0;
     const wCount = ruleEval?.warnings?.length || 0;
-
-    const ruleTitle = (vCount || wCount)
-      ? `${vCount ? `${vCount} rule break(s)` : ""}${vCount && wCount ? " + " : ""}${wCount ? `${wCount} warning(s)` : ""}`
-      : "";
+    const ruleTip = buildRuleTooltip(ruleEval);
 
     html += `
       <div class="assignment-card ${loadClass}">
@@ -230,9 +203,7 @@ function renderAssignmentOutput() {
               ${
                 (vCount || wCount)
                   ? `<button class="icon-btn ${vCount ? "flag-bad" : "flag-warn"}" type="button"
-                      title="${escapeHtml(ruleTitle)}">${
-                        "!"
-                      }</button>`
+                      title="${escapeHtml(ruleTip || "Rule flag(s) present")}">!</button>`
                   : ``
               }
             </div>
@@ -297,7 +268,6 @@ function renderPcaAssignmentOutput() {
   let html = "";
 
   const allOwners = Array.isArray(window.incomingPcas) ? window.incomingPcas : [];
-  const ruleMap = safeGetRuleEvalMap(allOwners, "pca") || null;
 
   incomingPcas.forEach(pca => {
     const pts = (pca.patients || [])
@@ -314,16 +284,14 @@ function renderPcaAssignmentOutput() {
 
     const reportSources = getUniquePrevPcaCount(pca.patients || []);
 
-    // NEW: explanations + rule flags
-    const ex = safeGetPerOwnerExplain(pca, allOwners, "pca");
-    const explainText = (ex && (ex.text || ex.message || ex.summary)) ? (ex.text || ex.message || ex.summary) : "";
-    const ruleEval = ruleMap ? (ruleMap[pca?.name] || null) : getOwnerRuleEval(pca, allOwners, "pca");
+    // ✅ Explanation is a STRING
+    const explainText = safeGetPerOwnerExplain(pca, allOwners, "pca") || "";
+
+    // ✅ Always use robust lookup for rule eval
+    const ruleEval = getOwnerRuleEval(pca, allOwners, "pca");
     const vCount = ruleEval?.violations?.length || 0;
     const wCount = ruleEval?.warnings?.length || 0;
-
-    const ruleTitle = (vCount || wCount)
-      ? `${vCount ? `${vCount} rule break(s)` : ""}${vCount && wCount ? " + " : ""}${wCount ? `${wCount} warning(s)` : ""}`
-      : "";
+    const ruleTip = buildRuleTooltip(ruleEval);
 
     html += `
       <div class="assignment-card ${loadClass}">
@@ -337,14 +305,14 @@ function renderPcaAssignmentOutput() {
 
             <div class="icon-row">
               <button class="icon-btn icon-bulb" type="button"
-                data-explain="${escapeHtml(explainText || "Quick take: trying to keep CHG/foley/q2/heavy/feeders spread evenly, and avoid stacking ISO/admit/late DC when we can.")}"
+                data-explain="${escapeHtml(explainText || "Quick take: trying to keep CHG/foley/Q2/heavy/feeders spread evenly, and avoid stacking ISO/admit/late DC when we can.")}"
                 title="Quick explanation"
                 onclick="window.__openOwnerExplain(this)">💡</button>
 
               ${
                 (vCount || wCount)
                   ? `<button class="icon-btn ${vCount ? "flag-bad" : "flag-warn"}" type="button"
-                      title="${escapeHtml(ruleTitle)}">!</button>`
+                      title="${escapeHtml(ruleTip || "Rule flag(s) present")}">!</button>`
                   : ``
               }
             </div>
@@ -425,16 +393,9 @@ function populateOncomingAssignment(randomize = false) {
     window.distributePatientsEvenly(incomingNurses, list, { randomize, role: "nurse" });
     window.distributePatientsEvenly(incomingPcas, list, { randomize, role: "pca" });
   } else {
-    list.forEach((p, i) => {
-      const n = incomingNurses[i % incomingNurses.length];
-      if (!Array.isArray(n.patients)) n.patients = [];
-      n.patients.push(p.id);
-    });
-    list.forEach((p, i) => {
-      const pc = incomingPcas[i % incomingPcas.length];
-      if (!Array.isArray(pc.patients)) pc.patients = [];
-      pc.patients.push(p.id);
-    });
+    alert("ERROR: distributePatientsEvenly is not loaded. Oncoming assignment would have used round-robin fallback, so generation is blocked. Check script order + app.assignmentRules.js loading.");
+    console.error("distributePatientsEvenly missing — check index.html script order and app.assignmentRules.js.");
+    return;
   }
 
   renderAssignmentOutput();
