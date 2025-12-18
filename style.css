@@ -1779,3 +1779,378 @@ button{
   font-size: 16px;
   font-weight: 900;
 }
+
+/* =====================================================
+   FRESH UI POLISH (Radix-ish vibe)
+   Paste near VERY BOTTOM of style.css
+===================================================== */
+
+/* Softer page background gradient */
+:root{
+  --bg: #f6f7fb;               /* slightly cleaner */
+  --text: #0f172a;
+  --muted: #64748b;
+
+  /* fresher card tokens */
+  --card-bg: rgba(255,255,255,0.92);
+  --card-border: rgba(148,163,184,0.35);
+  --card-shadow: 0 10px 30px rgba(2,6,23,0.06);
+  --card-shadow-hover: 0 14px 40px rgba(2,6,23,0.10);
+
+  --table-head-bg: rgba(226,232,240,0.55);
+  --table-divider: rgba(148,163,184,0.30);
+  --table-row-hover: rgba(2,6,23,0.03);
+}
+
+body{
+  background:
+    radial-gradient(900px 600px at 15% 0%, rgba(99,102,241,0.10), transparent 60%),
+    radial-gradient(900px 600px at 85% 15%, rgba(236,72,153,0.08), transparent 55%),
+    radial-gradient(900px 600px at 60% 100%, rgba(14,165,233,0.10), transparent 55%),
+    var(--bg);
+}
+
+/* Slightly cleaner typography everywhere */
+h1,h2,h3{
+  color: var(--text) !important;
+  letter-spacing: -0.01em;
+}
+
+/* Make form controls feel modern */
+input, select, textarea{
+  border-radius: 12px;
+  border: 1px solid rgba(148,163,184,0.45);
+  background: rgba(255,255,255,0.92);
+  outline: none;
+}
+input:focus, select:focus, textarea:focus{
+  border-color: rgba(59,130,246,0.65);
+  box-shadow: 0 0 0 4px rgba(59,130,246,0.15);
+}
+
+/* Modern button baseline (keeps your colors, upgrades shape/hover) */
+button{
+  border-radius: 12px;
+  transition: transform 120ms ease, box-shadow 120ms ease, background 120ms ease;
+}
+button:hover{
+  transform: translateY(-1px);
+  box-shadow: 0 10px 20px rgba(2,6,23,0.08);
+}
+button:active{
+  transform: translateY(0px);
+  box-shadow: 0 6px 12px rgba(2,6,23,0.06);
+}
+
+/* Applies to your major blocks without changing HTML */
+.staffBlock,
+.staff-card,
+.queue-area,
+.queue-item,
+.patientRow,
+.assignment-card,
+#dischargeBinCard,
+#liveNurseAssignments .nurseBlock,
+#livePcaAssignments .pcaBlock,
+#assignmentOutput .nurseBlock,
+#pcaAssignmentOutput .pcaBlock{
+  background: var(--card-bg) !important;
+  border: 1px solid var(--card-border) !important;
+  border-radius: 16px !important;
+  box-shadow: var(--card-shadow) !important;
+  backdrop-filter: blur(6px);
+}
+
+.staffBlock:hover,
+.staff-card:hover,
+.queue-area:hover,
+.queue-item:hover,
+.patientRow:hover,
+.assignment-card:hover,
+#dischargeBinCard:hover,
+#liveNurseAssignments .nurseBlock:hover,
+#livePcaAssignments .pcaBlock:hover{
+  box-shadow: var(--card-shadow-hover) !important;
+}
+
+/* Table headers softer */
+.assignment-table th,
+#liveNurseAssignments th,
+#livePcaAssignments th,
+#assignmentOutput th,
+#pcaAssignmentOutput th{
+  background: var(--table-head-bg) !important;
+  border-bottom: 1px solid var(--table-divider) !important;
+}
+
+/* Row dividers softer */
+.assignment-table td,
+#liveNurseAssignments td,
+#livePcaAssignments td,
+#assignmentOutput td,
+#pcaAssignmentOutput td{
+  border-bottom: 1px solid var(--table-divider) !important;
+}
+
+.app-header{
+  background: rgba(255,255,255,0.85) !important;
+  backdrop-filter: blur(10px);
+  border-bottom: 1px solid rgba(148,163,184,0.35) !important;
+}
+
+/* Tabs become softer pills */
+.top-tabs .tabButton{
+  border-radius: 999px !important;
+  padding: 9px 14px !important;
+  background: rgba(2,132,199,0.85) !important;  /* still your vibe */
+}
+.top-tabs .tabButton.active{
+  background: rgba(59,130,246,0.95) !important;
+  box-shadow: 0 10px 18px rgba(59,130,246,0.18);
+}
+
+/* =====================================================
+   PAGE BACKGROUND: blue fade (#8EC8F6)
+   Paste at VERY BOTTOM of style.css
+===================================================== */
+
+:root{
+  --bg: #f4f6f8;          /* keep your base */
+  --bg-accent: #8EC8F6;   /* new blue fade */
+}
+
+/* Apply a soft blue gradient like your reference */
+body{
+  background: radial-gradient(1200px 700px at 10% 0%, rgba(142,200,246,0.55), rgba(142,200,246,0.0) 60%),
+              radial-gradient(1100px 650px at 90% 10%, rgba(142,200,246,0.40), rgba(142,200,246,0.0) 55%),
+              linear-gradient(180deg, rgba(142,200,246,0.18), var(--bg) 45%);
+}
+
+/* =====================================================
+   RESTORE LOAD CATEGORY BARS (green/yellow/red)
+   Works for: .nurseBlock / .pcaBlock / .assignment-card
+===================================================== */
+
+/* Ensure the left load bar always shows */
+.load-good,
+.load-medium,
+.load-high{
+  border-left-width: 10px !important;
+  border-left-style: solid !important;
+}
+
+/* Explicit colors (don’t let other rules override) */
+.load-good{   border-left-color: #4CAF50 !important; }
+.load-medium{ border-left-color: #ffc107 !important; }
+.load-high{   border-left-color: #ff5252 !important; }
+
+/* Apply even if the load class is on the card wrapper */
+.assignment-card.load-good,
+.assignment-card.load-medium,
+.assignment-card.load-high,
+.nurseBlock.load-good,
+.nurseBlock.load-medium,
+.nurseBlock.load-high,
+.pcaBlock.load-good,
+.pcaBlock.load-medium,
+.pcaBlock.load-high{
+  border-left-width: 10px !important;
+  border-left-style: solid !important;
+}
+
+/* Make sure your “tile” border doesn’t visually hide the bar */
+.assignment-card,
+.nurseBlock,
+.pcaBlock{
+  overflow: hidden; /* keeps bar clean and crisp */
+}
+
+/* =====================================================
+   AUTH GATE (Full-page login screen)
+===================================================== */
+
+.auth-gate{
+  position: fixed;
+  inset: 0;
+  z-index: 99999;
+  display: none;              /* shown when not authed */
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+
+  /* soft gradient like your reference */
+  background:
+    radial-gradient(900px 520px at 15% 10%, rgba(142,200,246,0.55), rgba(142,200,246,0.0) 60%),
+    radial-gradient(900px 520px at 85% 20%, rgba(142,200,246,0.35), rgba(142,200,246,0.0) 55%),
+    linear-gradient(180deg, rgba(142,200,246,0.18), #f4f6f8 45%);
+}
+
+.auth-gate.show{ display: flex; }
+
+.auth-card{
+  width: 100%;
+  max-width: 430px;
+  background: rgba(255,255,255,0.92);
+  border: 1px solid rgba(15,23,42,0.10);
+  border-radius: 18px;
+  box-shadow: 0 18px 50px rgba(15,23,42,0.12);
+  padding: 22px 22px 18px;
+  backdrop-filter: blur(10px);
+}
+
+.auth-brand{
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.auth-brand-dot{
+  width: 44px;
+  height: 44px;
+  border-radius: 14px;
+  background: linear-gradient(135deg, #8EC8F6, #0066c5, #f37021);
+  box-shadow: 0 8px 18px rgba(15,23,42,0.12);
+  flex: 0 0 auto;
+}
+
+.auth-title{
+  font-size: 22px;
+  font-weight: 900;
+  color: #0f172a;
+  letter-spacing: 0.2px;
+}
+
+.auth-subtitle{
+  font-size: 13px;
+  font-weight: 600;
+  color: #475569;
+  margin-top: 3px;
+}
+
+.auth-form{ display: flex; flex-direction: column; gap: 12px; }
+
+.auth-field{ display: flex; flex-direction: column; gap: 6px; }
+
+.auth-label{
+  font-size: 12px;
+  font-weight: 800;
+  color: #334155;
+}
+
+.auth-input{
+  width: 100%;
+  padding: 12px 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(15,23,42,0.16);
+  background: rgba(255,255,255,0.95);
+  font-size: 14px;
+  outline: none;
+}
+
+.auth-input:focus{
+  border-color: rgba(0,102,197,0.55);
+  box-shadow: 0 0 0 4px rgba(142,200,246,0.35);
+}
+
+.auth-password-wrap{
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.auth-eye{
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  font-size: 16px;
+  opacity: 0.75;
+}
+
+.auth-row{
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 2px;
+}
+
+.auth-remember{
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #334155;
+}
+
+.auth-link{
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 800;
+  color: #1d4ed8;
+}
+
+.auth-link:hover{ text-decoration: underline; }
+
+.auth-primary{
+  width: 100%;
+  padding: 12px 14px;
+  border-radius: 14px;
+  border: 0;
+  cursor: pointer;
+  background: linear-gradient(180deg, #111827, #0b1220);
+  color: #fff;
+  font-weight: 900;
+  letter-spacing: 0.3px;
+}
+
+.auth-primary:hover{ filter: brightness(1.05); }
+
+.auth-divider{
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  gap: 10px;
+  margin: 6px 0 2px;
+  color: #64748b;
+  font-weight: 800;
+  font-size: 12px;
+}
+.auth-divider::before,
+.auth-divider::after{
+  content: "";
+  height: 1px;
+  background: rgba(15,23,42,0.12);
+}
+
+.auth-secondary{
+  width: 100%;
+  padding: 12px 14px;
+  border-radius: 14px;
+  border: 1px solid rgba(15,23,42,0.16);
+  background: rgba(255,255,255,0.9);
+  cursor: pointer;
+  font-weight: 900;
+  color: #0f172a;
+}
+
+.auth-secondary:hover{
+  background: rgba(255,255,255,1);
+}
+
+.auth-msg{
+  min-height: 18px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #475569;
+  margin-top: 2px;
+}
+.auth-msg.error{ color: #b91c1c; }
+.auth-msg.ok{ color: #065f46; }

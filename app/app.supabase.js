@@ -148,3 +148,143 @@
     insertAnalyticsShiftMetrics: sbInsertAnalyticsShiftMetrics
   };
 })();
+
+window.afterAuthRoute = async function (session) {
+  // 1) fetch memberships (your RLS should enforce what they can see)
+  // 2) choose activeUnitId
+  // 3) re-render / init normally
+
+  // Placeholder:
+  if (typeof window.setActiveUnitFromMembership === "function") {
+    await window.setActiveUnitFromMembership();
+  }
+
+  if (typeof window.renderAll === "function") window.renderAll();
+};
+
+// ---------------------------------------------------------
+// Unit State (cloud) helpers (matches app.init.js expectations)
+// Required by app.init.js:
+// - sb.getUnitState(unitId) -> { row, error }
+// - sb.upsertUnitState(payload) -> { row, error }
+// - sb.subscribeUnitState(unitId, onChange) -> channel-like with unsubscribe()
+// ---------------------------------------------------------
+
+(function () {
+  if (!window.sb) window.sb = {};
+  const sb = window.sb;
+
+  const UNIT_STATE_TABLE = "unit_state"; // expects columns: unit_id, state (jsonb), version (int), updated_by, updated_at
+
+  function hasClient() {
+    return !!(sb.client && typeof sb.client.from === "function");
+  }
+
+  function safeUnitId(unitId) {
+    return unitId ? String(unitId) : null;
+  }
+
+  // --------
+  // GET ROW
+  // --------
+  sb.getUnitState = async function (unitId) {
+    const uid = safeUnitId(unitId);
+    if (!uid) return { row: null, error: new Error("Missing unitId") };
+
+    if (!hasClient()) return { row: null, error: new Error("Supabase client not ready") };
+
+    try {
+      const { data, error } = await sb.client
+        .from(UNIT_STATE_TABLE)
+        .select("*")
+        .eq("unit_id", uid)
+        .limit(1)
+        .maybeSingle();
+
+      if (error) return { row: null, error };
+      return { row: data || null, error: null };
+    } catch (e) {
+      return { row: null, error: e };
+    }
+  };
+
+  // ------------
+  // UPSERT ROW
+  // ------------
+  sb.upsertUnitState = async function (payload) {
+    if (!hasClient()) return { row: null, error: new Error("Supabase client not ready") };
+    if (!payload || !payload.unit_id) return { row: null, error: new Error("Missing payload.unit_id") };
+
+    const uid = String(payload.unit_id);
+
+    // Ensure updated_at always exists for ordering/debugging
+    const next = {
+      ...payload,
+      unit_id: uid,
+      updated_at: payload.updated_at || new Date().toISOString()
+    };
+
+    try {
+      // Requires a UNIQUE constraint on unit_id for onConflict to work as intended
+      const { data, error } = await sb.client
+        .from(UNIT_STATE_TABLE)
+        .upsert(next, { onConflict: "unit_id" })
+        .select("*")
+        .single();
+
+      if (error) return { row: null, error };
+      return { row: data || null, error: null };
+    } catch (e) {
+      return { row: null, error: e };
+    }
+  };
+
+  // -----------------------
+  // REALTIME SUBSCRIPTION
+  // -----------------------
+  // Supports:
+  //   sb.subscribeUnitState(unitId, (payload) => {})
+  // Returns object with unsubscribe()
+  sb.subscribeUnitState = function (unitId, onChange) {
+    const uid = safeUnitId(unitId);
+    if (!uid) {
+      console.warn("[cloud] subscribeUnitState: missing unitId");
+      return { unsubscribe() {} };
+    }
+
+    if (!hasClient() || typeof sb.client.channel !== "function") {
+      console.warn("[cloud] subscribeUnitState: realtime not ready");
+      return { unsubscribe() {} };
+    }
+
+    // kill old channel if exists
+    try {
+      if (sb.__unitStateChannel && typeof sb.__unitStateChannel.unsubscribe === "function") {
+        sb.__unitStateChannel.unsubscribe();
+      }
+    } catch {}
+
+    const channel = sb.client
+      .channel(`unit_state:${uid}`)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: UNIT_STATE_TABLE, filter: `unit_id=eq.${uid}` },
+        (payload) => {
+          try {
+            if (typeof onChange === "function") onChange(payload);
+          } catch (e) {
+            console.warn("[cloud] onChange handler error", e);
+          }
+        }
+      )
+      .subscribe();
+
+    sb.__unitStateChannel = channel;
+
+    return {
+      unsubscribe() {
+        try { channel.unsubscribe(); } catch {}
+      }
+    };
+  };
+})();

@@ -7,6 +7,56 @@
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
+
+  <!-- =====================================================
+       FULL-PAGE AUTH GATE (Login first / Demo option)
+  ===================================================== -->
+  <div id="authGate" class="auth-gate">
+    <div class="auth-card">
+      <div class="auth-brand">
+        <div class="auth-brand-dot"></div>
+        <div>
+          <div class="auth-title">Welcome Back!</div>
+          <div class="auth-subtitle">Sign in to your account</div>
+        </div>
+      </div>
+
+      <div class="auth-form">
+        <label class="auth-field">
+          <div class="auth-label">Your Email</div>
+          <input id="authEmail" class="auth-input" type="email" placeholder="name@email.com" autocomplete="email" />
+        </label>
+
+        <label class="auth-field">
+          <div class="auth-label">Password</div>
+          <div class="auth-password-wrap">
+            <input id="authPassword" class="auth-input" type="password" placeholder="••••••••" autocomplete="current-password" />
+            <button id="authTogglePw" class="auth-eye" type="button" aria-label="Toggle password">👁</button>
+          </div>
+        </label>
+
+        <div class="auth-row">
+          <label class="auth-remember">
+            <input id="authRemember" type="checkbox" checked />
+            <span>Remember Me</span>
+          </label>
+
+          <button id="authForgot" class="auth-link" type="button">Forgot Password?</button>
+        </div>
+
+        <button id="authLoginBtn" class="auth-primary" type="button">Login</button>
+
+        <div class="auth-divider">
+          <span>or</span>
+        </div>
+
+        <button id="authDemoBtn" class="auth-secondary" type="button">Demo Environment</button>
+
+        <div id="authGateMsg" class="auth-msg"></div>
+      </div>
+    </div>
+  </div>
+  
   <!-- Top Header / Nav -->
   <header class="app-header">
     <!-- Left: Brand -->
@@ -631,6 +681,8 @@
   <script src="app/app.supabaseConfig.js"></script>
   <script src="app/app.supabase.js"></script>
   <script src="app/app.authUI.js"></script>
+
+  <script src="app/app.authGate.js"></script>
 
   <!-- ✅ shift change (logic), then init -->
   <script src="app/app.shiftChange.js"></script>
