@@ -393,6 +393,281 @@
       }
     }
 
+    // =========================================================
+    // Phase 2: In-place repair rebalance (NO full redistribution)
+    // Priority: Hard rules (avoidable) -> Acuity balance -> Report churn -> Walking spread
+    // =========================================================
+
+    function uniqCount(arr) {
+      return new Set(safeArray(arr).filter(Boolean)).size;
+    }
+
+    function getPrevOwnerNameForPatient(patientId, role) {
+      const pid = Number(patientId);
+      if (!pid) return "";
+
+      if (role === "pca") {
+        const list = Array.isArray(window.currentPcas) ? window.currentPcas : [];
+        const owner = list.find(o => Array.isArray(o.patients) && o.patients.includes(pid));
+        return owner ? (owner.name || `PCA ${owner.id}`) : "";
+      }
+
+      const list = Array.isArray(window.currentNurses) ? window.currentNurses : [];
+      const owner = list.find(o => Array.isArray(o.patients) && o.patients.includes(pid));
+      return owner ? (owner.name || `RN ${owner.id}`) : "";
+    }
+
+    function reportSourcesForOwner(owner, role) {
+      const names = [];
+      for (const pid of safeArray(owner?.patients)) {
+        const nm = getPrevOwnerNameForPatient(pid, role);
+        if (nm) names.push(nm);
+      }
+      return uniqCount(names);
+    }
+
+    function roomNumberForPatientId(pid) {
+      const p = resolvePatient(pid);
+      if (!p) return null;
+
+      // Prefer your existing helper if present
+      if (typeof window.getRoomNumber === "function") {
+        const n = window.getRoomNumber(p);
+        if (typeof n === "number" && isFinite(n) && n !== 9999) return n;
+      }
+
+      // Fallback: extract digits from label/room
+      const label =
+        (typeof window.getRoomLabelForPatient === "function" ? window.getRoomLabelForPatient(p) : "") ||
+        String(p.room || "");
+
+      const m = String(label).match(/(\d+)/);
+      return m ? Number(m[1]) : null;
+    }
+
+    function walkingSpreadForOwner(owner) {
+      const nums = safeArray(owner?.patients)
+        .map(roomNumberForPatientId)
+        .filter(n => typeof n === "number" && isFinite(n));
+      if (nums.length < 2) return 0;
+      nums.sort((a, b) => a - b);
+      return nums[nums.length - 1] - nums[0]; // range
+    }
+
+    function ownerLoad(owner, role) {
+      // Uses your existing per-patient score logic
+      return ownerProjectedLoad(owner, role === "pca" ? "pca" : "nurse", null);
+    }
+
+    function loadImbalance(owners, role) {
+      const loads = safeArray(owners).map(o => ownerLoad(o, role));
+      if (!loads.length) return 0;
+      const min = Math.min(...loads);
+      const max = Math.max(...loads);
+      return max - min; // simple + stable
+    }
+
+    function countAvoidableViolationsAll(owners, role, limitsOverride) {
+      let total = 0;
+      const list = safeArray(owners).filter(Boolean);
+      for (const o of list) {
+        const ev = evaluateOwnerHardRules(o, list, role, limitsOverride);
+        total += safeArray(ev?.violations).length; // avoidable only
+      }
+      return total;
+    }
+
+    function countWarningsAll(owners, role, limitsOverride) {
+      let total = 0;
+      const list = safeArray(owners).filter(Boolean);
+      for (const o of list) {
+        const ev = evaluateOwnerHardRules(o, list, role, limitsOverride);
+        total += safeArray(ev?.warnings).length;
+      }
+      return total;
+    }
+
+    function getWorstOffenders(owners, role, limitsOverride) {
+      const list = safeArray(owners).filter(Boolean);
+      const scored = list.map((o, idx) => {
+        const ev = evaluateOwnerHardRules(o, list, role, limitsOverride);
+        const v = safeArray(ev?.violations).length;
+        // tie-break: higher load means more urgent when violations tie
+        const load = ownerLoad(o, role);
+        return { o, idx, v, load };
+      });
+
+      scored.sort((a, b) => {
+        if (b.v !== a.v) return b.v - a.v;
+        return b.load - a.load;
+      });
+
+      return scored.filter(x => x.v > 0);
+    }
+
+    function swapInPlace(ownerA, i, ownerB, j) {
+      const A = safeArray(ownerA.patients);
+      const B = safeArray(ownerB.patients);
+      const tmp = A[i];
+      A[i] = B[j];
+      B[j] = tmp;
+      ownerA.patients = A;
+      ownerB.patients = B;
+    }
+
+    // Main: tries to remove ALL avoidable violations while keeping acuity balanced,
+    // then (only then) reduces churn, then walking.
+    window.repairAssignmentsInPlace = function (owners, role, limitsOverride, opts = {}) {
+      const list = safeArray(owners).filter(Boolean);
+      if (list.length < 2) return { ok: false, reason: "Need at least 2 owners" };
+
+      const r = (role === "pca") ? "pca" : "nurse";
+      const maxIters = typeof opts.maxIters === "number" ? opts.maxIters : 20;
+
+      let iter = 0;
+
+      while (iter < maxIters) {
+        iter++;
+
+        const baseViol = countAvoidableViolationsAll(list, r, limitsOverride);
+        if (baseViol <= 0) {
+          return {
+            ok: true,
+            done: true,
+            iter,
+            avoidableViolations: 0,
+            warnings: countWarningsAll(list, r, limitsOverride)
+          };
+        }
+
+        const baseLoadImb = loadImbalance(list, r);
+        const baseChurn = list.reduce((s, o) => s + reportSourcesForOwner(o, r), 0);
+        const baseWalk = list.reduce((s, o) => s + walkingSpreadForOwner(o), 0);
+
+        // Focus search on the worst offenders first
+        const offenders = getWorstOffenders(list, r, limitsOverride);
+        const candidateAs = offenders.length ? offenders.slice(0, 3).map(x => x.o) : list.slice(0, 3);
+
+        let best = null;
+
+        for (const A of candidateAs) {
+          const Apts = safeArray(A.patients);
+          if (!Apts.length) continue;
+
+          for (const B of list) {
+            if (B === A) continue;
+            const Bpts = safeArray(B.patients);
+            if (!Bpts.length) continue;
+
+            for (let i = 0; i < Apts.length; i++) {
+              for (let j = 0; j < Bpts.length; j++) {
+                // simulate swap
+                const origA = A.patients;
+                const origB = B.patients;
+
+                swapInPlace(A, i, B, j);
+
+                const viol = countAvoidableViolationsAll(list, r, limitsOverride);
+
+                // If swap makes violations worse, skip fast
+                if (viol > baseViol) {
+                  A.patients = origA;
+                  B.patients = origB;
+                  continue;
+                }
+
+                const loadImb = loadImbalance(list, r);
+                const churn = list.reduce((s, o) => s + reportSourcesForOwner(o, r), 0);
+                const walk = list.reduce((s, o) => s + walkingSpreadForOwner(o), 0);
+
+                // revert
+                A.patients = origA;
+                B.patients = origB;
+
+                // Lexicographic objective (matches your stated priorities):
+                // 1) minimize avoidable violations
+                // 2) minimize load imbalance
+                // 3) minimize report churn
+                // 4) minimize walking spread
+                const candidate = {
+                  Aname: A.name,
+                  Bname: B.name,
+                  i, j,
+                  fromA: Apts[i],
+                  fromB: Bpts[j],
+                  viol,
+                  loadImb,
+                  churn,
+                  walk,
+                  base: { baseViol, baseLoadImb, baseChurn, baseWalk }
+                };
+
+                function betterThan(x, y) {
+                  if (!y) return true;
+                  if (x.viol !== y.viol) return x.viol < y.viol;
+                  if (x.loadImb !== y.loadImb) return x.loadImb < y.loadImb;
+                  if (x.churn !== y.churn) return x.churn < y.churn;
+                  return x.walk < y.walk;
+                }
+
+                // Only accept swaps that improve at least one top-tier dimension
+                const improves =
+                  (candidate.viol < baseViol) ||
+                  (candidate.viol === baseViol && candidate.loadImb < baseLoadImb) ||
+                  (candidate.viol === baseViol && candidate.loadImb === baseLoadImb && candidate.churn < baseChurn) ||
+                  (candidate.viol === baseViol && candidate.loadImb === baseLoadImb && candidate.churn === baseChurn && candidate.walk < baseWalk);
+
+                if (!improves) continue;
+                if (betterThan(candidate, best)) best = candidate;
+              }
+            }
+          }
+        }
+
+        // No improving swap found -> stop (might be statistically impossible to eliminate all)
+        if (!best) {
+          return {
+            ok: true,
+            done: false,
+            iter,
+            avoidableViolations: baseViol,
+            warnings: countWarningsAll(list, r, limitsOverride),
+            reason: "No improving swap found (may be unavoidable with current totals)"
+          };
+        }
+
+        // Apply best swap
+        const ownerA = list.find(o => o.name === best.Aname) || list.find(o => o === best.Aname) || list.find(o => (o?.name || "") === best.Aname);
+        const ownerB = list.find(o => o.name === best.Bname) || list.find(o => o === best.Bname) || list.find(o => (o?.name || "") === best.Bname);
+
+        // Safer: locate by object reference via pass-through search
+        const Aobj = list.find(o => o?.name === best.Aname) || list.find(o => o === candidateAs.find(x => x?.name === best.Aname));
+        const Bobj = list.find(o => o?.name === best.Bname) || list.find(o => o === list.find(x => x?.name === best.Bname));
+
+        const Ause = Aobj || list.find(o => o?.name === best.Aname);
+        const Buse = Bobj || list.find(o => o?.name === best.Bname);
+
+        if (Ause && Buse) {
+          swapInPlace(Ause, best.i, Buse, best.j);
+        } else {
+          // Fallback: apply by index search
+          const Ai = list.findIndex(o => o?.name === best.Aname);
+          const Bi = list.findIndex(o => o?.name === best.Bname);
+          if (Ai >= 0 && Bi >= 0) swapInPlace(list[Ai], best.i, list[Bi], best.j);
+        }
+      }
+
+      // Hit iteration cap
+      return {
+        ok: true,
+        done: false,
+        iter: maxIters,
+        avoidableViolations: countAvoidableViolationsAll(list, r, limitsOverride),
+        warnings: countWarningsAll(list, r, limitsOverride),
+        reason: "Hit max repair iterations"
+      };
+    };
+    
     // Reset owners
     owners.forEach(o => { o.patients = []; });
 

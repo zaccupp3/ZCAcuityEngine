@@ -1,9 +1,32 @@
 // app/app.liveAssignments.js
 // ---------------------------------------------------------
 // LIVE Assignment engine + rendering (Current shift only)
+//
+// Adds:
+// - ! rule flag icon (yellow warning vs red violation) based on hard-rule checks
+//   Hover shows EXACT rule(s) that are stacked + counts.
+// Depends on:
+// - window.evaluateAssignmentHardRules (app.assignmentRules.js)
+// - CSS: .icon-row, .icon-btn, .flag-warn, .flag-bad (style.css bottom)
 // ---------------------------------------------------------
 
 (function () {
+  // -----------------------------
+  // Small utils (safe + no deps)
+  // -----------------------------
+  function escapeHtml(str) {
+    return String(str || "")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#039;");
+  }
+
+  function safeArray(v) {
+    return Array.isArray(v) ? v : [];
+  }
+
   function syncWindowRefs() {
     // Keep window.* synchronized with legacy bare globals
     // (prevents refresh/other modules from reading stale refs)
@@ -18,6 +41,85 @@
     return (window.patients || patients || []).filter((p) => p && !p.isEmpty);
   }
 
+  // -----------------------------
+  // Rule flag helpers (NEW)
+  // -----------------------------
+  function getRuleEvalMap(ownersAll, role) {
+    try {
+      if (typeof window.evaluateAssignmentHardRules === "function") {
+        return window.evaluateAssignmentHardRules(ownersAll, role);
+      }
+    } catch (e) {
+      console.warn("[live rules] evaluateAssignmentHardRules failed", e);
+    }
+    return null;
+  }
+
+  function getOwnerEval(owner, evalMap) {
+    if (!owner || !evalMap) return null;
+
+    const key = owner?.name || owner?.label || null;
+    if (key && evalMap[key]) return evalMap[key];
+
+    // fallback: case-insensitive name match
+    if (key) {
+      const keys = Object.keys(evalMap);
+      const found = keys.find(k => String(k).toLowerCase() === String(key).toLowerCase());
+      if (found) return evalMap[found];
+    }
+
+    return null;
+  }
+
+  function buildRuleTitle(ownerEval, roleLabel) {
+    if (!ownerEval) return "";
+
+    const v = safeArray(ownerEval.violations);
+    const w = safeArray(ownerEval.warnings);
+
+    if (!v.length && !w.length) return "";
+
+    const parts = [];
+    if (v.length) parts.push(`Avoidable rule breaks (${v.length})`);
+    if (w.length) parts.push(`Unavoidable stacks (${w.length})`);
+
+    // Detail lines
+    const detail = [];
+    v.forEach(x => {
+      // Use message if present; otherwise a crisp fallback
+      const line = x?.message || `${roleLabel} rule: ${x?.tag} stacked (${x?.mine} > ${x?.limit})`;
+      detail.push(line);
+    });
+    w.forEach(x => {
+      const line = x?.message || `${roleLabel} stack (likely unavoidable): ${x?.tag} (${x?.mine} > ${x?.limit})`;
+      detail.push(line);
+    });
+
+    // Tooltip content: header + bullets
+    const header = parts.join(" • ");
+    const body = detail.length ? ` • ${detail.join(" • ")}` : "";
+    return `${header}${body}`;
+  }
+
+  function buildRuleIconHtml(ownerEval, roleLabel) {
+    if (!ownerEval) return "";
+
+    const v = safeArray(ownerEval.violations);
+    const w = safeArray(ownerEval.warnings);
+
+    if (!v.length && !w.length) return "";
+
+    const cls = v.length ? "flag-bad" : "flag-warn";
+    const title = buildRuleTitle(ownerEval, roleLabel);
+
+    return `
+      <button class="icon-btn ${cls}" type="button" title="${escapeHtml(title)}">!</button>
+    `;
+  }
+
+  // -----------------------------
+  // Live populate
+  // -----------------------------
   function populateLiveAssignment(randomize = false) {
     if (typeof ensureDefaultPatients === "function") ensureDefaultPatients();
 
@@ -42,12 +144,8 @@
     else list.sort((a, b) => getRoomNumber(a) - getRoomNumber(b));
 
     // Clear existing assignments (MUTATION)
-    currentNurses.forEach((n) => {
-      n.patients = [];
-    });
-    currentPcas.forEach((p) => {
-      p.patients = [];
-    });
+    currentNurses.forEach((n) => { n.patients = []; });
+    currentPcas.forEach((p) => { p.patients = []; });
 
     // Prefer shared helper (now load-aware)
     if (typeof window.distributePatientsEvenly === "function") {
@@ -86,6 +184,9 @@
     } catch {}
   }
 
+  // -----------------------------
+  // Live render (adds rule flags)
+  // -----------------------------
   function renderLiveAssignments() {
     const nurseContainer = document.getElementById("liveNurseAssignments");
     const pcaContainer = document.getElementById("livePcaAssignments");
@@ -94,6 +195,10 @@
     // Clear containers
     nurseContainer.innerHTML = "";
     pcaContainer.innerHTML = "";
+
+    // Build rule maps ONCE per render
+    const rnEvalMap = getRuleEvalMap(currentNurses, "nurse");
+    const pcaEvalMap = getRuleEvalMap(currentPcas, "pca");
 
     // ---- RNs ----
     currentNurses.forEach((nurse) => {
@@ -104,6 +209,9 @@
 
       const loadScore = typeof getNurseLoadScore === "function" ? getNurseLoadScore(nurse) : 0;
       const loadClass = typeof getLoadClass === "function" ? getLoadClass(loadScore, "nurse") : "";
+
+      const ownerEval = getOwnerEval(nurse, rnEvalMap);
+      const ruleIcon = buildRuleIconHtml(ownerEval, "RN");
 
       let rows = "";
       pts.forEach((p) => {
@@ -124,7 +232,14 @@
       nurseContainer.innerHTML += `
         <div class="assignment-card ${loadClass}">
           <div class="assignment-header">
-            <div><strong>${nurse.name}</strong> (${(nurse.type || "").toUpperCase()})</div>
+            <div style="display:flex;align-items:flex-start;gap:10px;">
+              <div>
+                <strong>${nurse.name}</strong> (${(nurse.type || "").toUpperCase()})
+              </div>
+              <div class="icon-row">
+                ${ruleIcon}
+              </div>
+            </div>
             <div>Patients: ${pts.length} | Load Score: ${loadScore}</div>
           </div>
           <table class="assignment-table">
@@ -153,7 +268,6 @@
     if (typeof window.ensureDischargeBinInRnGrid === "function") {
       window.ensureDischargeBinInRnGrid();
     } else {
-      // fallback inline injection if helper isn't defined elsewhere
       const slot = document.getElementById("rnGridSlot9");
       if (slot && !document.getElementById("dischargeBinCard")) {
         slot.innerHTML = `
@@ -192,6 +306,9 @@
       const loadScore = typeof getPcaLoadScore === "function" ? getPcaLoadScore(pca) : 0;
       const loadClass = typeof getLoadClass === "function" ? getLoadClass(loadScore, "pca") : "";
 
+      const ownerEval = getOwnerEval(pca, pcaEvalMap);
+      const ruleIcon = buildRuleIconHtml(ownerEval, "PCA");
+
       let rows = "";
       pts.forEach((p) => {
         rows += `
@@ -211,7 +328,14 @@
       pcaContainer.innerHTML += `
         <div class="assignment-card ${loadClass}">
           <div class="assignment-header">
-            <div><strong>${pca.name}</strong> (PCA)</div>
+            <div style="display:flex;align-items:flex-start;gap:10px;">
+              <div>
+                <strong>${pca.name}</strong> (PCA)
+              </div>
+              <div class="icon-row">
+                ${ruleIcon}
+              </div>
+            </div>
             <div>Patients: ${pts.length} | Load Score: ${loadScore}</div>
           </div>
           <table class="assignment-table">

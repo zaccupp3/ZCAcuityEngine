@@ -2154,3 +2154,139 @@ body{
 }
 .auth-msg.error{ color: #b91c1c; }
 .auth-msg.ok{ color: #065f46; }
+
+/* =====================================================
+   AQI Modal (draggable) — paste at VERY BOTTOM
+===================================================== */
+
+.aqi-panel{
+  width: min(980px, 92vw);
+  max-height: 86vh;
+  overflow: hidden;
+  border-radius: 14px;
+  padding: 0;
+}
+
+.aqi-header{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  background: #f3f6fb;
+  border-bottom: 1px solid #e5e7eb;
+  cursor: grab;
+  user-select: none;
+}
+
+.aqi-header:active{ cursor: grabbing; }
+
+.aqi-title{
+  font-weight: 900;
+  font-size: 14px;
+  color: #0f172a;
+}
+
+.aqi-subtitle{
+  font-size: 12px;
+  color: #475569;
+  font-weight: 700;
+}
+
+.aqi-x{
+  border: 0;
+  background: #f1f5f9;
+  border-radius: 10px;
+  padding: 8px 10px;
+  cursor: pointer;
+  font-weight: 900;
+}
+.aqi-x:hover{ background: #e2e8f0; }
+
+.aqi-body{
+  padding: 12px 14px;
+  overflow: auto;
+  max-height: calc(86vh - 56px);
+}
+
+.aqi-grid{
+  display:grid;
+  grid-template-columns: 1.2fr 1fr 1fr;
+  gap: 12px;
+}
+@media (max-width: 900px){
+  .aqi-grid{ grid-template-columns: 1fr; }
+}
+
+.aqi-card{
+  background:#fff;
+  border: 1px solid #dfe7f2;
+  border-radius: 12px;
+  box-shadow: 0 1px 2px rgba(16,24,40,0.06);
+  padding: 12px;
+}
+
+.aqi-section-title{
+  font-weight: 900;
+  color: #0f172a;
+  margin-bottom: 8px;
+  font-size: 13px;
+}
+
+.aqi-line{
+  font-size: 13px;
+  color:#111827;
+  margin: 6px 0;
+}
+
+.aqi-kpi-label{
+  font-size: 12px;
+  color:#475569;
+  font-weight: 800;
+}
+.aqi-kpi-value{
+  font-size: 44px;
+  font-weight: 900;
+  color:#0f172a;
+  line-height: 1;
+  margin: 6px 0 6px;
+}
+.aqi-kpi-sub{
+  font-size: 12px;
+  color:#475569;
+  font-weight: 700;
+  line-height: 1.25;
+}
+
+.aqi-table-wrap{
+  overflow:auto;
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+}
+
+.aqi-table{
+  width: 100%;
+  border-collapse: collapse;
+  min-width: 760px;
+}
+
+.aqi-table thead th{
+  position: sticky;
+  top: 0;
+  background: #edf3ff;
+  z-index: 2;
+  padding: 10px 8px;
+  font-size: 12px;
+  text-align: left;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.aqi-table tbody td{
+  padding: 10px 8px;
+  font-size: 12px;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.aqi-table tbody tr:hover td{
+  background: rgba(17,24,39,0.03);
+}

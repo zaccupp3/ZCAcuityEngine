@@ -406,6 +406,20 @@ function populateOncomingAssignment(randomize = false) {
 }
 
 function rebalanceOncomingAssignment() {
+  // NEW: in-place repair (safety + acuity first, then churn, then walking)
+  if (typeof window.repairAssignmentsInPlace === "function") {
+    window.repairAssignmentsInPlace(window.incomingNurses, "nurse");
+    window.repairAssignmentsInPlace(window.incomingPcas, "pca");
+
+    renderAssignmentOutput();
+    renderPcaAssignmentOutput();
+
+    if (typeof saveState === "function") saveState();
+    if (typeof window.updateDischargeCount === "function") window.updateDischargeCount();
+    return;
+  }
+
+  // Fallback (old behavior)
   populateOncomingAssignment(false);
 }
 

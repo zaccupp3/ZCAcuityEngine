@@ -70,6 +70,10 @@
       </div>
     </div>
 
+    <button class="tabButton" type="button" onclick="window.assignmentQuality && window.assignmentQuality.open()">
+      Assignment Quality Index
+    </button>
+    
     <!-- Middle: Tabs (UPDATED ORDER) -->
     <nav class="header-nav top-tabs" aria-label="Primary">
       <button class="tabButton header-tab" data-target="environmentTab">Environment</button>
@@ -373,7 +377,6 @@
 
       <div class="actions-row">
         <button onclick="window.populateLiveAssignment(false)">Populate Live Assignment</button>
-        <button onclick="window.populateLiveAssignment(true)">Randomize Live Assignment</button>
       </div>
 
       <div class="live-layout live-layout--rn-with-queue">
@@ -661,6 +664,21 @@
     </div>
   </div>
 
+  <!-- Assignment Quality Index Modal -->
+  <div id="aqiModal" class="modal" style="display:none;">
+    <div id="aqiPanel" class="modal-content aqi-panel">
+      <div id="aqiDragHandle" class="aqi-header">
+        <div>
+          <div class="aqi-title">Assignment Quality Index</div>
+          <div class="aqi-subtitle">Hard rules + report sources + hallway comfort</div>
+        </div>
+        <button id="aqiClose" class="aqi-x" type="button">✕</button>
+      </div>
+
+      <div id="aqiBody" class="aqi-body"></div>
+    </div>
+  </div>
+  
   <script src="app/app.state.js"></script>
   <script src="app/app.queue.js"></script>
   <script src="app/app.staffing.js"></script>
@@ -683,6 +701,7 @@
   <script src="app/app.authUI.js"></script>
 
   <script src="app/app.authGate.js"></script>
+  <script src="app/app.assignmentQuality.js"></script>
 
   <!-- ✅ shift change (logic), then init -->
   <script src="app/app.shiftChange.js"></script>
