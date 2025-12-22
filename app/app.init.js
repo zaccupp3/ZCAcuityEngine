@@ -7,6 +7,10 @@
 // - On boot: load memberships -> set active unit -> load unit_state -> render
 // - Realtime: subscribe to unit_state row changes and apply updates
 // - Writing: charge/admin/owner publish changes (debounced) via wrapped saveState()
+//
+// ✅ Adds continuous Sync Status UI:
+// - Pending / Syncing / Synced / Error
+// - Updates on edit (saveState), on publish start/end, and on realtime apply
 
 window.addEventListener("DOMContentLoaded", async () => {
   console.log("APP INIT: Starting initialization…");
@@ -33,7 +37,112 @@ window.addEventListener("DOMContentLoaded", async () => {
     try { if (typeof window.updateDischargeCount === "function") window.updateDischargeCount(); } catch {}
   }
 
+  // -----------------------------
+  // ✅ Sync status pill UI
+  // -----------------------------
+  window.__cloud = window.__cloud || {};
+  window.__cloud.unitStateVersion =
+    typeof window.__cloud.unitStateVersion === "number" ? window.__cloud.unitStateVersion : 0;
+  window.__cloud.unitStateChannel = window.__cloud.unitStateChannel || null;
+
+  window.__cloud.sync = window.__cloud.sync || {
+    status: "idle",        // idle | pending | syncing | synced | error
+    lastSyncedAt: null,    // Date
+    lastError: null        // string
+  };
+
+  function fmtTime(d) {
+    try {
+      const dt = (d instanceof Date) ? d : new Date(d);
+      return dt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+    } catch {
+      return "";
+    }
+  }
+
+  function ensureSyncPill() {
+    if (document.getElementById("syncStatusPill")) return;
+
+    const pill = document.createElement("div");
+    pill.id = "syncStatusPill";
+    pill.setAttribute("role", "status");
+    pill.style.position = "fixed";
+    pill.style.right = "14px";
+    pill.style.bottom = "14px";
+    pill.style.zIndex = "9999";
+    pill.style.display = "flex";
+    pill.style.alignItems = "center";
+    pill.style.gap = "10px";
+    pill.style.padding = "10px 12px";
+    pill.style.borderRadius = "999px";
+    pill.style.border = "1px solid rgba(15, 23, 42, 0.15)";
+    pill.style.background = "rgba(255,255,255,0.85)";
+    pill.style.backdropFilter = "blur(8px)";
+    pill.style.boxShadow = "0 6px 22px rgba(16,24,40,0.12)";
+    pill.style.fontFamily = "system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif";
+    pill.style.fontSize = "12px";
+    pill.style.color = "#0f172a";
+    pill.style.userSelect = "none";
+
+    pill.innerHTML = `
+      <span id="syncDot" style="
+        width:10px;height:10px;border-radius:999px;
+        background:#94a3b8; display:inline-block;"></span>
+      <span id="syncText" style="font-weight:700;">Sync: —</span>
+      <span id="syncMeta" style="opacity:0.75;"></span>
+    `;
+
+    document.body.appendChild(pill);
+  }
+
+  function setSyncUI(status, metaText, errorText) {
+    ensureSyncPill();
+
+    const dot = document.getElementById("syncDot");
+    const text = document.getElementById("syncText");
+    const meta = document.getElementById("syncMeta");
+    const pill = document.getElementById("syncStatusPill");
+
+    if (!dot || !text || !meta || !pill) return;
+
+    // Default colors
+    let dotColor = "#94a3b8"; // slate
+    let label = "Sync: —";
+
+    if (status === "pending") { dotColor = "#fbbf24"; label = "Sync: Pending…"; }       // amber
+    if (status === "syncing") { dotColor = "#3b82f6"; label = "Sync: Syncing…"; }       // blue
+    if (status === "synced")  { dotColor = "#22c55e"; label = "Sync: Synced"; }         // green
+    if (status === "error")   { dotColor = "#ef4444"; label = "Sync: Error"; }          // red
+
+    dot.style.background = dotColor;
+    text.textContent = label;
+    meta.textContent = metaText || "";
+
+    // Tooltip shows error detail if any
+    pill.title = errorText || "";
+  }
+
+  function setSyncStatus(nextStatus, opts = {}) {
+    window.__cloud.sync.status = nextStatus;
+    if (typeof opts.error === "string") window.__cloud.sync.lastError = opts.error;
+    if (opts.lastSyncedAt) window.__cloud.sync.lastSyncedAt = opts.lastSyncedAt;
+
+    const last = window.__cloud.sync.lastSyncedAt;
+    const lastTxt = last ? `@ ${fmtTime(last)}` : "";
+
+    if (nextStatus === "pending") setSyncUI("pending", "queued");
+    else if (nextStatus === "syncing") setSyncUI("syncing", "publishing…");
+    else if (nextStatus === "synced") setSyncUI("synced", lastTxt);
+    else if (nextStatus === "error") setSyncUI("error", "hover for details", window.__cloud.sync.lastError || "");
+    else setSyncUI("idle", lastTxt);
+  }
+
+  // Create pill early (so user sees feedback even before auth finishes)
+  setSyncStatus(window.__cloud.sync.status || "idle");
+
+  // -----------------------------
   // Build a full board snapshot from current window globals
+  // -----------------------------
   function snapshotFromWindow() {
     return {
       pcaShift: window.pcaShift || "day",
@@ -82,10 +191,6 @@ window.addEventListener("DOMContentLoaded", async () => {
   // -----------------------------
   // Cloud sync plumbing
   // -----------------------------
-  window.__cloud = window.__cloud || {};
-  window.__cloud.unitStateVersion = typeof window.__cloud.unitStateVersion === "number" ? window.__cloud.unitStateVersion : 0;
-  window.__cloud.unitStateChannel = window.__cloud.unitStateChannel || null;
-
   let publishTimer = null;
   let publishQueued = false;
 
@@ -101,6 +206,9 @@ window.addEventListener("DOMContentLoaded", async () => {
       return;
     }
 
+    // UI: publishing
+    setSyncStatus("syncing");
+
     let userId = null;
     try {
       const { data } = await window.sb.client.auth.getSession();
@@ -115,20 +223,32 @@ window.addEventListener("DOMContentLoaded", async () => {
       updated_by: userId
     };
 
-    const { row, error } = await window.sb.upsertUnitState(payload);
-    if (error) {
-      console.warn("[cloud] upsertUnitState error", error);
-      return;
+    try {
+      const { row, error } = await window.sb.upsertUnitState(payload);
+      if (error) {
+        console.warn("[cloud] upsertUnitState error", error);
+        setSyncStatus("error", { error: error.message || String(error) });
+        return;
+      }
+
+      // If DB returns version, keep it; otherwise keep our increment
+      window.__cloud.unitStateVersion = (row && typeof row.version === "number") ? row.version : nextVersion;
+
+      // ✅ success -> synced
+      setSyncStatus("synced", { lastSyncedAt: new Date() });
+
+      if (reason) console.log(`[cloud] published unit_state (${reason}) v=${window.__cloud.unitStateVersion}`);
+    } catch (e) {
+      console.warn("[cloud] upsertUnitState exception", e);
+      setSyncStatus("error", { error: String(e) });
     }
-
-    // If DB returns version, keep it; otherwise keep our increment
-    window.__cloud.unitStateVersion = (row && typeof row.version === "number") ? row.version : nextVersion;
-
-    if (reason) console.log(`[cloud] published unit_state (${reason}) v=${window.__cloud.unitStateVersion}`);
   }
 
   function publishUnitStateDebounced(reason = "") {
     publishQueued = true;
+
+    // UI: pending immediately (this is the “continuous” feel)
+    setSyncStatus("pending");
 
     if (publishTimer) return;
     publishTimer = setTimeout(async () => {
@@ -151,17 +271,19 @@ window.addEventListener("DOMContentLoaded", async () => {
     const { row, error } = await window.sb.getUnitState(String(unitId));
     if (error) return { ok: false, error };
 
-    // If row doesn't exist yet, do not wipe local state. We can publish initial state later.
+    // If row doesn't exist yet for this unit, do not wipe local state. We can publish initial state later.
     if (!row) return { ok: true, empty: true };
 
     // Apply cloud state
-    const cloudState = row.state || {};
-    applySnapshotToWindow(cloudState);
+    const cloudState = row.state || row.state_json || row || {};
+    // Prefer .state if present, else allow older shapes
+    applySnapshotToWindow(cloudState.state || cloudState);
 
-    // Track version
-    if (typeof row.version === "number") {
-      window.__cloud.unitStateVersion = row.version;
-    }
+    // Track version if present
+    if (typeof row.version === "number") window.__cloud.unitStateVersion = row.version;
+
+    // UI: mark synced on load
+    setSyncStatus("synced", { lastSyncedAt: new Date() });
 
     return { ok: true, row };
   }
@@ -186,9 +308,9 @@ window.addEventListener("DOMContentLoaded", async () => {
     unsubscribeUnitState();
 
     // Subscribe and apply changes
-    window.__cloud.unitStateChannel = window.sb.subscribeUnitState(String(unitId), async (payload) => {
+    window.__cloud.unitStateChannel = window.sb.subscribeUnitState(String(unitId), async () => {
       try {
-        // Some payloads include new row; safest is to re-fetch row for this unit
+        // safest is to re-fetch row for this unit
         const { row, error } = await window.sb.getUnitState(String(unitId));
         if (error || !row) return;
 
@@ -198,8 +320,15 @@ window.addEventListener("DOMContentLoaded", async () => {
         // Only apply if it's newer than what we have
         if (incomingV > localV) {
           window.__cloud.unitStateVersion = incomingV;
-          applySnapshotToWindow(row.state || {});
+
+          const st = row.state || row.state_json || row || {};
+          applySnapshotToWindow(st.state || st);
+
           refreshAllUI();
+
+          // ✅ realtime apply counts as “synced”
+          setSyncStatus("synced", { lastSyncedAt: new Date() });
+
           console.log(`[cloud] applied incoming unit_state v=${incomingV}`);
         }
       } catch (e) {
@@ -224,13 +353,11 @@ window.addEventListener("DOMContentLoaded", async () => {
   // Ensure base patient structure exists (safe defaults)
   try { if (typeof window.ensureDefaultPatients === "function") window.ensureDefaultPatients(); } catch {}
 
-  // IMPORTANT:
-  // We still load localStorage as a fallback/boot strap for now,
+  // Load localStorage as fallback/bootstrap for now,
   // but cloud will overwrite once we fetch unit_state.
   try { if (typeof window.loadStateFromStorage === "function") window.loadStateFromStorage(); } catch {}
 
   // Wrap saveState() so existing UI actions trigger cloud publish too
-  // (This is the fastest way to get “continuous” without refactoring every handler.)
   if (!window.__cloud.__saveWrapped && typeof window.saveState === "function") {
     const originalSaveState = window.saveState;
     window.saveState = function wrappedSaveState() {

@@ -652,10 +652,112 @@
   }
 
   // =========================
-  // Patient Profile Modal (local)
+  // Patient Profile Modal (upgraded: centered + draggable + vertical tags)
   // =========================
 
   let currentProfilePatientId = null;
+
+  function ensureLegacyProfileModalUpgraded() {
+    const modal = document.getElementById("patientProfileModal");
+    if (!modal) return null;
+
+    // Ensure modal has a predictable inner container; if your HTML already has one, reuse it.
+    // We’ll build a modern layout INSIDE the existing modal element.
+    modal.classList.add("pp-overlay"); // CSS will handle overlay behavior
+    modal.style.display = "none";
+
+    // If there isn’t a card wrapper, create one
+    let card = modal.querySelector(".pp-card");
+    if (!card) {
+      modal.innerHTML = `
+        <div class="pp-card" role="dialog" aria-modal="true">
+          <div class="pp-header" id="ppHeader">
+            <div class="pp-title" id="profileModalTitle">Patient Profile</div>
+            <button class="pp-close" type="button" id="ppCloseBtn">×</button>
+          </div>
+          <div class="pp-body" id="ppBody"></div>
+        </div>
+      `;
+      card = modal.querySelector(".pp-card");
+    }
+
+    // Close behaviors
+    const closeBtn = modal.querySelector("#ppCloseBtn");
+    if (closeBtn && !closeBtn.__wired) {
+      closeBtn.__wired = true;
+      closeBtn.addEventListener("click", closePatientProfileModal);
+    }
+
+    // Click outside closes
+    if (!modal.__wiredOutsideClose) {
+      modal.__wiredOutsideClose = true;
+      modal.addEventListener("click", (e) => {
+        if (e.target === modal) closePatientProfileModal();
+      });
+    }
+
+    // ESC closes
+    if (!window.__ppEscWired) {
+      window.__ppEscWired = true;
+      document.addEventListener("keydown", (e) => {
+        if (e.key === "Escape") closePatientProfileModal();
+      });
+    }
+
+    // Draggable
+    makeDraggable(modal.querySelector(".pp-card"), modal.querySelector(".pp-header"));
+
+    return modal;
+  }
+
+  function centerLegacyModal(modal) {
+    const card = modal?.querySelector(".pp-card");
+    if (!card) return;
+
+    // Reset to centered each open (unless user drags it)
+    card.style.left = "50%";
+    card.style.top = "50%";
+    card.style.transform = "translate(-50%, -50%)";
+  }
+
+  function makeDraggable(cardEl, handleEl) {
+    if (!cardEl || !handleEl || handleEl.__dragWired) return;
+    handleEl.__dragWired = true;
+
+    let dragging = false;
+    let startX = 0, startY = 0;
+    let startLeft = 0, startTop = 0;
+
+    handleEl.addEventListener("mousedown", (e) => {
+      if (e.button !== 0) return;
+      dragging = true;
+
+      const rect = cardEl.getBoundingClientRect();
+      startX = e.clientX;
+      startY = e.clientY;
+      startLeft = rect.left;
+      startTop = rect.top;
+
+      // Switch to positioned mode
+      cardEl.style.transform = "none";
+      cardEl.style.left = startLeft + "px";
+      cardEl.style.top = startTop + "px";
+
+      e.preventDefault();
+    });
+
+    window.addEventListener("mousemove", (e) => {
+      if (!dragging) return;
+      const dx = e.clientX - startX;
+      const dy = e.clientY - startY;
+      cardEl.style.left = (startLeft + dx) + "px";
+      cardEl.style.top = (startTop + dy) + "px";
+    });
+
+    window.addEventListener("mouseup", () => {
+      dragging = false;
+    });
+  }
 
   function openPatientProfileFromRoom(patientId) {
     const p = getPatientById(patientId);
@@ -668,40 +770,98 @@
 
     currentProfilePatientId = Number(patientId);
 
-    const titleEl = document.getElementById("profileModalTitle");
-    if (titleEl) titleEl.textContent = `Patient Profile – Bed ${getRoomLabelForPatient(p) || "?"}`;
+    const modal = ensureLegacyProfileModalUpgraded();
+    if (!modal) {
+      alert("Missing patient profile modal container (#patientProfileModal).");
+      return;
+    }
 
-    const gSel = document.getElementById("profGender");
-    if (gSel) gSel.value = p.gender || "";
+    const titleEl = modal.querySelector("#profileModalTitle");
+    const bodyEl = modal.querySelector("#ppBody");
+
+    if (titleEl) titleEl.textContent = `Patient Profile — Bed ${getRoomLabelForPatient(p) || "?"}`;
+
+    function item(id, label, checked) {
+      return `
+        <label class="pp-tag">
+          <input type="checkbox" id="${id}" ${checked ? "checked" : ""}/>
+          <span>${label}</span>
+        </label>
+      `;
+    }
 
     // RN tags
-    const setCheck = (id, val) => { const el = document.getElementById(id); if (el) el.checked = !!val; };
-
-    setCheck("profTele", p.tele);
-    setCheck("profDrip", p.drip);
-    setCheck("profNih", p.nih);
-    setCheck("profBg", p.bg);
-    setCheck("profCiwa", p.ciwa);
-    setCheck("profRestraint", p.restraint);
-    setCheck("profSitter", p.sitter);
-    setCheck("profVpo", p.vpo);
-    setCheck("profIso", p.isolation);
-    setCheck("profAdmit", p.admit);
-    setCheck("profLateDc", p.lateDc);
+    const rnItems = [
+      ["profTele", "Tele", !!p.tele],
+      ["profDrip", "Drip", !!p.drip],
+      ["profNih", "NIH", !!p.nih],
+      ["profBg", "BG", !!(p.bg || p.bgChecks)],
+      ["profCiwa", "CIWA/COWS", !!(p.ciwa || p.cows || p.ciwaCows)],
+      ["profRestraint", "Restraint", !!(p.restraint || p.restraints)],
+      ["profSitter", "Sitter", !!p.sitter],
+      ["profVpo", "VPO", !!p.vpo],
+      ["profIso", "Isolation", !!(p.isolation || p.iso)],
+      ["profAdmit", "Admit", !!p.admit],
+      ["profLateDc", "Late DC", !!(p.lateDc || p.lateDC || p.latedc)],
+    ];
 
     // PCA tags
-    setCheck("profTelePca", p.tele);
-    setCheck("profIsoPca", p.isolation);
-    setCheck("profAdmitPca", p.admit);
-    setCheck("profLateDcPca", p.lateDc);
-    setCheck("profChg", p.chg);
-    setCheck("profFoley", p.foley);
-    setCheck("profQ2", p.q2turns);
-    setCheck("profHeavy", p.heavy);
-    setCheck("profFeeder", p.feeder);
+    const pcaItems = [
+      ["profTelePca", "Tele", !!p.tele],
+      ["profIsoPca", "Isolation", !!(p.isolation || p.iso)],
+      ["profAdmitPca", "Admit", !!p.admit],
+      ["profLateDcPca", "Late DC", !!(p.lateDc || p.lateDC || p.latedc)],
+      ["profChg", "CHG", !!p.chg],
+      ["profFoley", "Foley", !!p.foley],
+      ["profQ2", "Q2 Turns", !!(p.q2turns || p.q2Turns)],
+      ["profHeavy", "Heavy", !!p.heavy],
+      ["profFeeder", "Feeder", !!(p.feeder || p.feeders)],
+    ];
 
-    const modal = document.getElementById("patientProfileModal");
-    if (modal) modal.style.display = "block";
+    if (bodyEl) {
+      bodyEl.innerHTML = `
+        <div class="pp-row">
+          <div class="pp-label">Gender:</div>
+          <select id="profGender">
+            <option value="" ${!p.gender ? "selected" : ""}>-</option>
+            <option value="M" ${p.gender === "M" ? "selected" : ""}>M</option>
+            <option value="F" ${p.gender === "F" ? "selected" : ""}>F</option>
+            <option value="X" ${p.gender === "X" ? "selected" : ""}>X</option>
+          </select>
+        </div>
+
+        <div class="pp-grid">
+          <div class="pp-col">
+            <h4>RN Acuity Tags</h4>
+            <div class="pp-taglist">
+              ${rnItems.map(x => item(x[0], x[1], x[2])).join("")}
+            </div>
+          </div>
+
+          <div class="pp-col">
+            <h4>PCA Acuity Tags</h4>
+            <div class="pp-taglist">
+              ${pcaItems.map(x => item(x[0], x[1], x[2])).join("")}
+            </div>
+          </div>
+        </div>
+
+        <div class="pp-actions">
+          <button class="btn" type="button" id="ppCancelBtn">Cancel</button>
+          <button class="btn btn-primary" type="button" id="ppSaveBtn">Save</button>
+        </div>
+      `;
+    }
+
+    const cancelBtn = modal.querySelector("#ppCancelBtn");
+    if (cancelBtn) cancelBtn.onclick = closePatientProfileModal;
+
+    const saveBtn = modal.querySelector("#ppSaveBtn");
+    if (saveBtn) saveBtn.onclick = savePatientProfile;
+
+    // Show + center
+    modal.style.display = "flex";
+    centerLegacyModal(modal);
   }
 
   function closePatientProfileModal() {
@@ -727,23 +887,37 @@
     }
     p.gender = newGender || "";
 
-    const getCheck = (id) => !!(document.getElementById(id) && document.getElementById(id).checked);
+    const getCheck = (id) => {
+      const el = document.getElementById(id);
+      return !!(el && el.checked);
+    };
 
-    p.tele = getCheck("profTele");
+    // RN/shared
+    p.tele = getCheck("profTele") || getCheck("profTelePca");
     p.drip = getCheck("profDrip");
     p.nih = getCheck("profNih");
     p.bg = getCheck("profBg");
+    p.bgChecks = p.bg;
+
     p.ciwa = getCheck("profCiwa");
+    p.cows = p.ciwa;
+    p.ciwaCows = p.ciwa;
+
     p.restraint = getCheck("profRestraint");
     p.sitter = getCheck("profSitter");
     p.vpo = getCheck("profVpo");
-    p.isolation = getCheck("profIso");
-    p.admit = getCheck("profAdmit");
-    p.lateDc = getCheck("profLateDc");
 
+    p.isolation = getCheck("profIso") || getCheck("profIsoPca");
+    p.iso = p.isolation;
+
+    p.admit = getCheck("profAdmit") || getCheck("profAdmitPca");
+    p.lateDc = getCheck("profLateDc") || getCheck("profLateDcPca");
+
+    // PCA
     p.chg = getCheck("profChg");
     p.foley = getCheck("profFoley");
     p.q2turns = getCheck("profQ2");
+    p.q2Turns = p.q2turns;
     p.heavy = getCheck("profHeavy");
     p.feeder = getCheck("profFeeder");
 

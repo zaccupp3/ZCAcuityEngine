@@ -2290,3 +2290,276 @@ body{
 .aqi-table tbody tr:hover td{
   background: rgba(17,24,39,0.03);
 }
+
+/* =====================================================
+   Patient Profile Modal (centered + draggable + aligned tags)
+   Paste at VERY BOTTOM of style.css
+===================================================== */
+
+.modal-overlay{
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.35);
+  display: none;              /* set to flex when open */
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+  padding: 18px;
+}
+
+.modal-card{
+  width: min(820px, 95vw);
+  max-height: min(80vh, 680px);
+  overflow: auto;
+  border-radius: 16px;
+  border: 1px solid rgba(15, 23, 42, 0.12);
+  background: rgba(255,255,255,0.92);
+  backdrop-filter: blur(10px);
+  box-shadow: 0 24px 60px rgba(16,24,40,0.22);
+  position: absolute;         /* so we can drag it */
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+}
+
+.modal-header{
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 16px;
+  border-bottom: 1px solid rgba(15, 23, 42, 0.10);
+  cursor: grab;               /* draggable affordance */
+}
+
+.modal-header:active{
+  cursor: grabbing;
+}
+
+.modal-title{
+  font-size: 16px;
+  font-weight: 800;
+  color: #0f172a;
+}
+
+.modal-close{
+  width: 34px;
+  height: 34px;
+  border-radius: 999px;
+  border: 1px solid rgba(15, 23, 42, 0.12);
+  background: #fff;
+  cursor: pointer;
+  font-weight: 900;
+}
+
+.modal-body{
+  padding: 14px 16px 16px 16px;
+}
+
+.profile-grid{
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin-top: 10px;
+}
+
+.profile-col h4{
+  margin: 0 0 10px 0;
+  font-size: 14px;
+  font-weight: 900;
+  color: #0f172a;
+}
+
+.tag-list{
+  display: flex;
+  flex-direction: column;      /* ✅ vertical alignment */
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(15, 23, 42, 0.10);
+  background: rgba(255,255,255,0.75);
+}
+
+.tag-item{
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+  color: #0f172a;
+}
+
+.tag-item input[type="checkbox"]{
+  width: 16px;
+  height: 16px;
+}
+
+.profile-actions{
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.btn{
+  height: 36px;
+  padding: 0 14px;
+  border-radius: 10px;
+  border: 1px solid rgba(15, 23, 42, 0.15);
+  background: #ffffff;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.btn-primary{
+  border: none;
+  background: #0f172a;
+  color: #fff;
+}
+
+@media (max-width: 720px){
+  .profile-grid{ grid-template-columns: 1fr; }
+}
+
+/* =====================================================
+   Patient Profile Modal polish (vertical tags + drag affordance)
+   Paste at VERY BOTTOM of style.css
+===================================================== */
+
+#patientProfileModal{
+  border-radius: 14px;
+  border: 1px solid rgba(15, 23, 42, 0.12);
+  background: rgba(255,255,255,0.92);
+  backdrop-filter: blur(10px);
+  box-shadow: 0 24px 60px rgba(16,24,40,0.22);
+}
+
+#patientProfileModal #profileModalTitle{
+  cursor: grab; /* user can grab title area to drag */
+}
+
+#patientProfileModal #profileModalTitle:active{
+  cursor: grabbing;
+}
+
+/* make checkbox rows vertical + aligned */
+#patientProfileModal .profile-tag-item{
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 8px 0;
+  font-size: 13px;
+}
+
+#patientProfileModal .profile-tag-item input[type="checkbox"]{
+  width: 16px;
+  height: 16px;
+}
+
+/* Patient Profile upgraded modal */
+.pp-overlay{
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.35);
+  display: none;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+}
+
+.pp-card{
+  position: fixed;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: min(720px, calc(100vw - 24px));
+  background: white;
+  border-radius: 16px;
+  box-shadow: 0 24px 60px rgba(0,0,0,0.20);
+  overflow: hidden;
+}
+
+.pp-header{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  padding: 12px 14px;
+  cursor: move;
+  user-select: none;
+  background: rgba(142, 200, 246, 0.22);
+  border-bottom: 1px solid rgba(15, 23, 42, 0.08);
+}
+
+.pp-title{
+  font-weight: 800;
+}
+
+.pp-close{
+  border: 0;
+  background: transparent;
+  font-size: 20px;
+  cursor: pointer;
+  line-height: 1;
+  padding: 4px 8px;
+  border-radius: 10px;
+}
+
+.pp-close:hover{
+  background: rgba(15, 23, 42, 0.06);
+}
+
+.pp-body{
+  padding: 14px;
+}
+
+.pp-row{
+  display:flex;
+  align-items:center;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.pp-label{
+  font-weight: 800;
+}
+
+.pp-grid{
+  display:grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+
+@media (max-width: 640px){
+  .pp-grid{ grid-template-columns: 1fr; }
+}
+
+.pp-col h4{
+  margin: 0 0 8px 0;
+}
+
+.pp-taglist{
+  display:flex;
+  flex-direction: column; /* ✅ vertical alignment */
+  gap: 8px;
+}
+
+.pp-tag{
+  display:flex;
+  align-items:center;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 1px solid rgba(15, 23, 42, 0.10);
+  border-radius: 12px;
+  background: rgba(248, 250, 252, 0.75);
+}
+
+.pp-actions{
+  display:flex;
+  justify-content:flex-end;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.pp-overlay{
+  background: rgba(255,255,255,0.08) !important;
+  backdrop-filter: blur(1px);
+}
