@@ -5,9 +5,17 @@
 // Adds:
 // - ! rule flag icon (yellow warning vs red violation) based on hard-rule checks
 //   Hover shows EXACT rule(s) that are stacked + counts.
+// - ✅ Empty-owner drop zones (RN + PCA):
+//   If an owner has 0 patients, show a visible "Drop here" zone
+//   so the owner can receive patients again.
+// - ✅ Discharge Bin restored (slot 9 fallback injection)
+//
 // Depends on:
 // - window.evaluateAssignmentHardRules (app.assignmentRules.js)
-// - CSS: .icon-row, .icon-btn, .flag-warn, .flag-bad (style.css bottom)
+// - Drag handlers in app/app.assignmentsDrag.js:
+//   onRowDragStart / onRowDragEnd / onRowDragOver / onRowDrop
+// - Discharge handlers (wherever you defined them):
+//   onDischargeDragOver / onDischargeDrop / clearRecentlyDischargedFlags / openDischargeHistoryModal
 // ---------------------------------------------------------
 
 (function () {
@@ -27,22 +35,28 @@
     return Array.isArray(v) ? v : [];
   }
 
-  function syncWindowRefs() {
-    // Keep window.* synchronized with legacy bare globals
-    // (prevents refresh/other modules from reading stale refs)
-    window.currentNurses = currentNurses;
-    window.currentPcas = currentPcas;
-    window.patients = patients;
+  function getRoomNumberSafe(p) {
+    try {
+      if (typeof window.getRoomNumber === "function") return window.getRoomNumber(p);
+    } catch {}
+    const m = String(p?.room || "").match(/(\d+)/);
+    return m ? Number(m[1]) : 9999;
+  }
+
+  function getPatientByIdSafe(id) {
+    try {
+      if (typeof window.getPatientById === "function") return window.getPatientById(id);
+    } catch {}
+    return null;
   }
 
   function getActivePatientsForLive() {
-    if (typeof ensureDefaultPatients === "function") ensureDefaultPatients();
-    // LIVE includes everyone not empty. (recentlyDischarged should be handled by isEmpty)
-    return (window.patients || patients || []).filter((p) => p && !p.isEmpty);
+    try { if (typeof window.ensureDefaultPatients === "function") window.ensureDefaultPatients(); } catch {}
+    return safeArray(window.patients).filter(p => p && !p.isEmpty);
   }
 
   // -----------------------------
-  // Rule flag helpers (NEW)
+  // Rule flag helpers
   // -----------------------------
   function getRuleEvalMap(ownersAll, role) {
     try {
@@ -61,7 +75,6 @@
     const key = owner?.name || owner?.label || null;
     if (key && evalMap[key]) return evalMap[key];
 
-    // fallback: case-insensitive name match
     if (key) {
       const keys = Object.keys(evalMap);
       const found = keys.find(k => String(k).toLowerCase() === String(key).toLowerCase());
@@ -76,17 +89,14 @@
 
     const v = safeArray(ownerEval.violations);
     const w = safeArray(ownerEval.warnings);
-
     if (!v.length && !w.length) return "";
 
     const parts = [];
     if (v.length) parts.push(`Avoidable rule breaks (${v.length})`);
     if (w.length) parts.push(`Unavoidable stacks (${w.length})`);
 
-    // Detail lines
     const detail = [];
     v.forEach(x => {
-      // Use message if present; otherwise a crisp fallback
       const line = x?.message || `${roleLabel} rule: ${x?.tag} stacked (${x?.mine} > ${x?.limit})`;
       detail.push(line);
     });
@@ -95,7 +105,6 @@
       detail.push(line);
     });
 
-    // Tooltip content: header + bullets
     const header = parts.join(" • ");
     const body = detail.length ? ` • ${detail.join(" • ")}` : "";
     return `${header}${body}`;
@@ -106,14 +115,70 @@
 
     const v = safeArray(ownerEval.violations);
     const w = safeArray(ownerEval.warnings);
-
     if (!v.length && !w.length) return "";
 
     const cls = v.length ? "flag-bad" : "flag-warn";
     const title = buildRuleTitle(ownerEval, roleLabel);
+    return `<button class="icon-btn ${cls}" type="button" title="${escapeHtml(title)}">!</button>`;
+  }
 
+  // -----------------------------
+  // ✅ Empty-owner drop zone (LIVE)
+  // -----------------------------
+  function buildEmptyDropZoneHtml(boardKey, role, ownerId, label) {
     return `
-      <button class="icon-btn ${cls}" type="button" title="${escapeHtml(title)}">!</button>
+      <div
+        class="empty-live-drop"
+        ondragover="onRowDragOver(event)"
+        ondrop="onRowDrop(event, '${boardKey}', '${role}', ${Number(ownerId)})"
+        style="
+          margin:10px 12px 12px 12px;
+          padding:14px 12px;
+          border:1px dashed rgba(15,23,42,0.25);
+          border-radius:12px;
+          text-align:center;
+          font-size:12px;
+          opacity:0.75;
+          user-select:none;
+        "
+        title="Drop a patient here"
+      >
+        Drop a patient here to assign to this ${escapeHtml(label)}
+      </div>
+    `;
+  }
+
+  // -----------------------------
+  // ✅ Discharge Bin injection fallback
+  // -----------------------------
+  function injectDischargeBinFallback() {
+    const slot = document.getElementById("rnGridSlot9");
+    if (!slot) return;
+
+    if (document.getElementById("dischargeBinCard")) return;
+
+    slot.innerHTML = `
+      <div id="dischargeBinCard" class="assignment-card discharge-card">
+        <div class="assignment-header discharge-card-header">
+          <div><strong>Discharge Bin</strong></div>
+          <button onclick="clearRecentlyDischargedFlags()">Clear “Recently Discharged” Flags</button>
+        </div>
+
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 12px;">
+          <div><strong>Recent:</strong> <span id="dischargeCount">0</span> this session</div>
+          <button onclick="openDischargeHistoryModal()">View History</button>
+        </div>
+
+        <div
+          id="dischargeDropZone"
+          class="discharge-drop-zone"
+          ondragover="onDischargeDragOver(event)"
+          ondrop="onDischargeDrop(event)"
+          style="margin:0 12px 12px 12px;"
+        >
+          Drag here to discharge patient
+        </div>
+      </div>
     `;
   }
 
@@ -121,14 +186,12 @@
   // Live populate
   // -----------------------------
   function populateLiveAssignment(randomize = false) {
-    if (typeof ensureDefaultPatients === "function") ensureDefaultPatients();
+    try { if (typeof window.ensureDefaultPatients === "function") window.ensureDefaultPatients(); } catch {}
 
-    if (
-      !Array.isArray(currentNurses) ||
-      !currentNurses.length ||
-      !Array.isArray(currentPcas) ||
-      !currentPcas.length
-    ) {
+    const currentNurses = safeArray(window.currentNurses);
+    const currentPcas = safeArray(window.currentPcas);
+
+    if (!currentNurses.length || !currentPcas.length) {
       alert("Please set up Current RNs and PCAs on the Staffing Details tab first.");
       return;
     }
@@ -141,74 +204,63 @@
 
     let list = activePatients.slice();
     if (randomize) list.sort(() => Math.random() - 0.5);
-    else list.sort((a, b) => getRoomNumber(a) - getRoomNumber(b));
+    else list.sort((a, b) => getRoomNumberSafe(a) - getRoomNumberSafe(b));
 
-    // Clear existing assignments (MUTATION)
-    currentNurses.forEach((n) => { n.patients = []; });
-    currentPcas.forEach((p) => { p.patients = []; });
+    currentNurses.forEach(n => { n.patients = []; });
+    currentPcas.forEach(p => { p.patients = []; });
 
-    // Prefer shared helper (now load-aware)
     if (typeof window.distributePatientsEvenly === "function") {
       window.distributePatientsEvenly(currentNurses, list, { randomize, role: "nurse" });
       window.distributePatientsEvenly(currentPcas, list, { randomize, role: "pca" });
     } else {
-      // Fallback round-robin
       list.forEach((p, i) => {
         const rn = currentNurses[i % currentNurses.length];
-        if (!Array.isArray(rn.patients)) rn.patients = [];
+        rn.patients = safeArray(rn.patients);
         rn.patients.push(p.id);
       });
       list.forEach((p, i) => {
         const pc = currentPcas[i % currentPcas.length];
-        if (!Array.isArray(pc.patients)) pc.patients = [];
+        pc.patients = safeArray(pc.patients);
         pc.patients.push(p.id);
       });
     }
 
-    // ✅ critical: keep window refs aligned before saving/rerendering
-    syncWindowRefs();
+    window.currentNurses = currentNurses;
+    window.currentPcas = currentPcas;
 
     if (typeof window.renderLiveAssignments === "function") window.renderLiveAssignments();
-    if (typeof window.updateAcuityTiles === "function") window.updateAcuityTiles();
-    if (typeof window.renderPatientList === "function") window.renderPatientList();
-    if (typeof window.saveState === "function") window.saveState();
-    if (typeof window.updateDischargeCount === "function") window.updateDischargeCount();
-
-    // Optional debug
-    try {
-      console.log("LIVE populate complete", {
-        activePatients: list.length,
-        rnAssigned: new Set(currentNurses.flatMap((n) => n.patients || [])).size,
-        pcaAssigned: new Set(currentPcas.flatMap((p) => p.patients || [])).size,
-      });
-    } catch {}
+    try { if (typeof window.updateAcuityTiles === "function") window.updateAcuityTiles(); } catch {}
+    try { if (typeof window.renderPatientList === "function") window.renderPatientList(); } catch {}
+    try { if (typeof window.saveState === "function") window.saveState(); } catch {}
+    try { if (typeof window.updateDischargeCount === "function") window.updateDischargeCount(); } catch {}
   }
 
   // -----------------------------
-  // Live render (adds rule flags)
+  // Live render
   // -----------------------------
   function renderLiveAssignments() {
     const nurseContainer = document.getElementById("liveNurseAssignments");
     const pcaContainer = document.getElementById("livePcaAssignments");
     if (!nurseContainer || !pcaContainer) return;
 
-    // Clear containers
+    const currentNurses = safeArray(window.currentNurses);
+    const currentPcas = safeArray(window.currentPcas);
+
     nurseContainer.innerHTML = "";
     pcaContainer.innerHTML = "";
 
-    // Build rule maps ONCE per render
     const rnEvalMap = getRuleEvalMap(currentNurses, "nurse");
     const pcaEvalMap = getRuleEvalMap(currentPcas, "pca");
 
     // ---- RNs ----
     currentNurses.forEach((nurse) => {
-      const pts = (nurse.patients || [])
-        .map((id) => getPatientById(id))
-        .filter((p) => p && !p.isEmpty)
-        .sort((a, b) => getRoomNumber(a) - getRoomNumber(b));
+      const pts = safeArray(nurse.patients)
+        .map(id => getPatientByIdSafe(id))
+        .filter(p => p && !p.isEmpty)
+        .sort((a, b) => getRoomNumberSafe(a) - getRoomNumberSafe(b));
 
-      const loadScore = typeof getNurseLoadScore === "function" ? getNurseLoadScore(nurse) : 0;
-      const loadClass = typeof getLoadClass === "function" ? getLoadClass(loadScore, "nurse") : "";
+      const loadScore = (typeof window.getNurseLoadScore === "function") ? window.getNurseLoadScore(nurse) : 0;
+      const loadClass = (typeof window.getLoadClass === "function") ? window.getLoadClass(loadScore, "nurse") : "";
 
       const ownerEval = getOwnerEval(nurse, rnEvalMap);
       const ruleIcon = buildRuleIconHtml(ownerEval, "RN");
@@ -224,17 +276,21 @@
           >
             <td>${p.room || ""}</td>
             <td>${p.tele ? "Tele" : "MS"}</td>
-            <td>${rnTagString(p)}</td>
+            <td>${typeof window.rnTagString === "function" ? window.rnTagString(p) : ""}</td>
           </tr>
         `;
       });
+
+      const emptyDrop = (!pts.length)
+        ? buildEmptyDropZoneHtml("live", "nurse", nurse.id, "RN")
+        : "";
 
       nurseContainer.innerHTML += `
         <div class="assignment-card ${loadClass}">
           <div class="assignment-header">
             <div style="display:flex;align-items:flex-start;gap:10px;">
               <div>
-                <strong>${nurse.name}</strong> (${(nurse.type || "").toUpperCase()})
+                <strong>${nurse.name}</strong> (${String(nurse.type || "").toUpperCase()})
               </div>
               <div class="icon-row">
                 ${ruleIcon}
@@ -242,6 +298,7 @@
             </div>
             <div>Patients: ${pts.length} | Load Score: ${loadScore}</div>
           </div>
+
           <table class="assignment-table">
             <thead>
               <tr>
@@ -257,6 +314,8 @@
               ${rows}
             </tbody>
           </table>
+
+          ${emptyDrop}
         </div>
       `;
     });
@@ -264,47 +323,28 @@
     // ✅ Always append the 9th slot placeholder AFTER RN cards render
     nurseContainer.innerHTML += `<div id="rnGridSlot9" class="rn-grid-slot-9"></div>`;
 
-    // ✅ Inject discharge card into slot 9
+    // ✅ Try the official helper first (if present)
     if (typeof window.ensureDischargeBinInRnGrid === "function") {
-      window.ensureDischargeBinInRnGrid();
-    } else {
-      const slot = document.getElementById("rnGridSlot9");
-      if (slot && !document.getElementById("dischargeBinCard")) {
-        slot.innerHTML = `
-          <div id="dischargeBinCard" class="assignment-card discharge-card">
-            <div class="assignment-header discharge-card-header">
-              <div><strong>Discharge Bin</strong></div>
-              <button onclick="clearRecentlyDischargedFlags()">Clear “Recently Discharged” Flags</button>
-            </div>
-
-            <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 12px;">
-              <div><strong>Recent:</strong> <span id="dischargeCount">0</span> this session</div>
-              <button onclick="openDischargeHistoryModal()">View History</button>
-            </div>
-
-            <div
-              id="dischargeDropZone"
-              class="discharge-drop-zone"
-              ondragover="onDischargeDragOver(event)"
-              ondrop="onDischargeDrop(event)"
-              style="margin:0 12px 12px 12px;"
-            >
-              Drag here to discharge patient
-            </div>
-          </div>
-        `;
+      try {
+        window.ensureDischargeBinInRnGrid();
+      } catch (e) {
+        console.warn("[discharge] ensureDischargeBinInRnGrid failed, using fallback", e);
+        injectDischargeBinFallback();
       }
+    } else {
+      // ✅ Fallback injection (restores your old behavior)
+      injectDischargeBinFallback();
     }
 
     // ---- PCAs ----
     currentPcas.forEach((pca) => {
-      const pts = (pca.patients || [])
-        .map((id) => getPatientById(id))
-        .filter((p) => p && !p.isEmpty)
-        .sort((a, b) => getRoomNumber(a) - getRoomNumber(b));
+      const pts = safeArray(pca.patients)
+        .map(id => getPatientByIdSafe(id))
+        .filter(p => p && !p.isEmpty)
+        .sort((a, b) => getRoomNumberSafe(a) - getRoomNumberSafe(b));
 
-      const loadScore = typeof getPcaLoadScore === "function" ? getPcaLoadScore(pca) : 0;
-      const loadClass = typeof getLoadClass === "function" ? getLoadClass(loadScore, "pca") : "";
+      const loadScore = (typeof window.getPcaLoadScore === "function") ? window.getPcaLoadScore(pca) : 0;
+      const loadClass = (typeof window.getLoadClass === "function") ? window.getLoadClass(loadScore, "pca") : "";
 
       const ownerEval = getOwnerEval(pca, pcaEvalMap);
       const ruleIcon = buildRuleIconHtml(ownerEval, "PCA");
@@ -320,10 +360,14 @@
           >
             <td>${p.room || ""}</td>
             <td>${p.tele ? "Tele" : "MS"}</td>
-            <td>${pcaTagString(p)}</td>
+            <td>${typeof window.pcaTagString === "function" ? window.pcaTagString(p) : ""}</td>
           </tr>
         `;
       });
+
+      const emptyDrop = (!pts.length)
+        ? buildEmptyDropZoneHtml("live", "pca", pca.id, "PCA")
+        : "";
 
       pcaContainer.innerHTML += `
         <div class="assignment-card ${loadClass}">
@@ -338,6 +382,7 @@
             </div>
             <div>Patients: ${pts.length} | Load Score: ${loadScore}</div>
           </div>
+
           <table class="assignment-table">
             <thead>
               <tr>
@@ -353,23 +398,28 @@
               ${rows}
             </tbody>
           </table>
+
+          ${emptyDrop}
         </div>
       `;
     });
 
-    if (typeof window.updateDischargeCount === "function") window.updateDischargeCount();
+    try { if (typeof window.updateDischargeCount === "function") window.updateDischargeCount(); } catch {}
   }
 
   function autoPopulateLiveAssignments() {
-    if (typeof ensureDefaultPatients === "function") ensureDefaultPatients();
+    try { if (typeof window.ensureDefaultPatients === "function") window.ensureDefaultPatients(); } catch {}
+
+    const currentNurses = safeArray(window.currentNurses);
+    const currentPcas = safeArray(window.currentPcas);
 
     const anyAssigned =
-      currentNurses.some((n) => (n.patients || []).length > 0) ||
-      currentPcas.some((p) => (p.patients || []).length > 0);
+      currentNurses.some(n => safeArray(n.patients).length > 0) ||
+      currentPcas.some(p => safeArray(p.patients).length > 0);
 
     if (anyAssigned) return;
 
-    const activePatients = (window.patients || patients || []).filter((p) => p && !p.isEmpty);
+    const activePatients = safeArray(window.patients).filter(p => p && !p.isEmpty);
     if (!activePatients.length) return;
 
     populateLiveAssignment(false);
@@ -379,4 +429,7 @@
   window.populateLiveAssignment = populateLiveAssignment;
   window.autoPopulateLiveAssignments = autoPopulateLiveAssignments;
   window.renderLiveAssignments = renderLiveAssignments;
+
+  // Signature to verify the correct file is loaded
+  window.__liveAssignmentsBuild = "emptyDropZone+dischargeBinFallback-v2";
 })();

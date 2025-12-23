@@ -6,7 +6,24 @@
 // Adds:
 // - 💡 Lightbulb icon (plain-language explanation per RN/PCA)
 // - ! icon (yellow warning vs red violation) based on hard-rule checks
-//   Hover shows WHICH rule(s) and counts (e.g., bg: 3 > 2)
+//
+// NEW (Dec 2025):
+// - RN Continuity Pin (📌) per patient row on ONCOMING RN table
+// - Pinned patients stay with that RN across Populate/Rebalance.
+// - UI: pin indicator appears ONLY when pinned;
+//       unpinned rows show no icon (pin control appears on row hover).
+//
+// NEW (Dec 2025 - Fix):
+// - Post-pass count balancer for Incoming RN assignments:
+//   * aims for even counts (diff ≤ 1 when possible)
+//   * NEVER breaks pins
+//   * rejects moves that increase avoidable rule violations
+// - Optional polish repair pass after balancing
+//
+// NEW (Dec 2025 - Fix #2):
+// - Empty-owner drop zone:
+//   If an RN/PCA has 0 patients, we render a single placeholder <tr>
+//   so the tbody has real height and can accept drops.
 // ---------------------------------------------------------
 
 // -----------------------------
@@ -71,12 +88,243 @@ function safeSortPatientsForDisplay(a, b) {
 }
 
 // -----------------------------
+// RN Continuity Pin helpers
+// Stored on patient record for persistence via unit_state:
+// - p.lockRnEnabled (bool)
+// - p.lockRnTo (incoming nurse id)
+// -----------------------------
+function getPatientLockMeta(p) {
+  if (!p || typeof p !== "object") return { enabled: false, rnId: null };
+  const enabled = !!p.lockRnEnabled;
+  const rnId = (p.lockRnTo !== undefined && p.lockRnTo !== null) ? Number(p.lockRnTo) : null;
+  return { enabled, rnId: Number.isFinite(rnId) ? rnId : null };
+}
+
+function isPatientPinnedToIncomingRn(patientId, incomingRnId) {
+  const p = (typeof window.getPatientById === "function") ? window.getPatientById(patientId) : null;
+  if (!p) return false;
+  const meta = getPatientLockMeta(p);
+  return !!meta.enabled && meta.rnId === Number(incomingRnId);
+}
+
+function toggleIncomingRnPin(patientId, incomingRnId) {
+  const p = (typeof window.getPatientById === "function") ? window.getPatientById(patientId) : null;
+  if (!p) return;
+
+  const rnId = Number(incomingRnId);
+  const meta = getPatientLockMeta(p);
+
+  // toggle:
+  // - if pinned to this RN -> unpin
+  // - else pin to this RN
+  if (meta.enabled && meta.rnId === rnId) {
+    p.lockRnEnabled = false;
+    p.lockRnTo = null;
+  } else {
+    p.lockRnEnabled = true;
+    p.lockRnTo = rnId;
+  }
+
+  try { if (typeof window.saveState === "function") window.saveState(); } catch {}
+  try { if (typeof window.renderAssignmentOutput === "function") window.renderAssignmentOutput(); } catch {}
+}
+window.toggleIncomingRnPin = toggleIncomingRnPin;
+
+// Remove invalid pins (RN not on incoming roster)
+function cleanupRnPinsAgainstRoster() {
+  const roster = Array.isArray(window.incomingNurses) ? window.incomingNurses : [];
+  const rosterIds = new Set(roster.map(n => Number(n.id)));
+
+  const pts = Array.isArray(window.patients) ? window.patients : [];
+  pts.forEach(p => {
+    const meta = getPatientLockMeta(p);
+    if (!meta.enabled) return;
+    if (!rosterIds.has(meta.rnId)) {
+      p.lockRnEnabled = false;
+      p.lockRnTo = null;
+    }
+  });
+}
+
+// Pre-assign pinned patients before distributePatientsEvenly
+function applyRnPinsBeforeDistribute(activePatients) {
+  const roster = Array.isArray(window.incomingNurses) ? window.incomingNurses : [];
+  if (!roster.length) return { pinnedAssigned: [], unlockedPool: activePatients || [] };
+
+  const byId = new Map(roster.map(n => [Number(n.id), n]));
+  const pinnedAssigned = [];
+  const unlockedPool = [];
+
+  (activePatients || []).forEach(p => {
+    const meta = getPatientLockMeta(p);
+    if (meta.enabled && meta.rnId && byId.has(meta.rnId)) {
+      const rn = byId.get(meta.rnId);
+      rn.patients = Array.isArray(rn.patients) ? rn.patients : [];
+      if (!rn.patients.includes(Number(p.id))) rn.patients.push(Number(p.id));
+      pinnedAssigned.push(Number(p.id));
+    } else {
+      unlockedPool.push(p);
+    }
+  });
+
+  return { pinnedAssigned, unlockedPool };
+}
+
+// -----------------------------
+// Guard helpers: avoidable violations + even counts
+// -----------------------------
+function getAvoidableViolationCount(owners, role) {
+  try {
+    if (typeof window.evaluateAssignmentHardRules !== "function") return 0;
+    const map = window.evaluateAssignmentHardRules(owners, role);
+    if (!map || typeof map !== "object") return 0;
+
+    let total = 0;
+    Object.values(map).forEach(ev => {
+      total += (Array.isArray(ev?.violations) ? ev.violations.length : 0);
+    });
+    return total;
+  } catch {
+    return 0;
+  }
+}
+
+function computeCountTargets(totalPatients, nOwners) {
+  const base = Math.floor(totalPatients / Math.max(1, nOwners));
+  const remainder = totalPatients % Math.max(1, nOwners);
+  // We want counts to be either base or base+1
+  return { minTarget: base, maxTarget: base + (remainder > 0 ? 1 : 0) };
+}
+
+function getMovablePatientIdsFromOwner(owner, role) {
+  const ids = Array.isArray(owner?.patients) ? owner.patients.slice() : [];
+  if (role !== "nurse") return ids; // PCA pins later if desired
+
+  // For nurses: pinned patients are NOT movable
+  return ids.filter(pid => !isPatientPinnedToIncomingRn(pid, owner.id));
+}
+
+function tryMovePatient(owners, role, fromOwner, toOwner, patientId) {
+  if (!fromOwner || !toOwner) return false;
+  if (!Array.isArray(fromOwner.patients)) fromOwner.patients = [];
+  if (!Array.isArray(toOwner.patients)) toOwner.patients = [];
+
+  const idx = fromOwner.patients.indexOf(patientId);
+  if (idx === -1) return false;
+
+  // Never move pinned nurse patients
+  if (role === "nurse" && isPatientPinnedToIncomingRn(patientId, fromOwner.id)) return false;
+
+  fromOwner.patients.splice(idx, 1);
+  if (!toOwner.patients.includes(patientId)) toOwner.patients.push(patientId);
+  return true;
+}
+
+function balanceCountsWithoutCreatingNewAvoidableViolations(owners, role, opts = {}) {
+  const maxPasses = typeof opts.maxPasses === "number" ? opts.maxPasses : 40;
+  const list = Array.isArray(owners) ? owners : [];
+  const n = list.length;
+  if (n < 2) return { ok: true, changed: false };
+
+  const activeCount =
+    (Array.isArray(window.patients) ? window.patients : []).filter(p => p && !p.isEmpty).length;
+
+  const { minTarget, maxTarget } = computeCountTargets(activeCount, n);
+
+  let changed = false;
+  let passes = 0;
+
+  while (passes < maxPasses) {
+    passes++;
+
+    // find over + under
+    const over = list
+      .map(o => ({ o, c: (Array.isArray(o?.patients) ? o.patients.length : 0) }))
+      .filter(x => x.c > maxTarget)
+      .sort((a, b) => b.c - a.c);
+
+    const under = list
+      .map(o => ({ o, c: (Array.isArray(o?.patients) ? o.patients.length : 0) }))
+      .filter(x => x.c < minTarget)
+      .sort((a, b) => a.c - b.c);
+
+    // If no strict under/over, we may still have diff > 1 due to pins.
+    // Next: allow under to be < maxTarget and over > minTarget to shrink spread.
+    let over2 = over;
+    let under2 = under;
+
+    if (!over2.length || !under2.length) {
+      const counts = list.map(o => (Array.isArray(o?.patients) ? o.patients.length : 0));
+      const spread = Math.max(...counts) - Math.min(...counts);
+      if (spread <= 1) break;
+
+      over2 = list
+        .map(o => ({ o, c: (Array.isArray(o?.patients) ? o.patients.length : 0) }))
+        .sort((a, b) => b.c - a.c);
+      under2 = list
+        .map(o => ({ o, c: (Array.isArray(o?.patients) ? o.patients.length : 0) }))
+        .sort((a, b) => a.c - b.c);
+
+      if (!over2.length || !under2.length) break;
+    }
+
+    const from = over2[0]?.o;
+    const to = under2[0]?.o;
+    if (!from || !to || from === to) break;
+
+    const movable = getMovablePatientIdsFromOwner(from, role);
+    if (!movable.length) {
+      over2.shift();
+      if (!over2.length) break;
+      continue;
+    }
+
+    const baseViol = getAvoidableViolationCount(list, role);
+    let best = null;
+
+    for (const pid of movable) {
+      const fromOrig = from.patients.slice();
+      const toOrig = to.patients.slice();
+
+      const did = tryMovePatient(list, role, from, to, pid);
+      if (!did) {
+        from.patients = fromOrig;
+        to.patients = toOrig;
+        continue;
+      }
+
+      const nextViol = getAvoidableViolationCount(list, role);
+
+      // revert
+      from.patients = fromOrig;
+      to.patients = toOrig;
+
+      if (nextViol > baseViol) continue;
+
+      const score = baseViol - nextViol;
+      if (!best || score > best.score) {
+        best = { pid, score, nextViol };
+        if (score > 0) break;
+      }
+    }
+
+    if (!best) break;
+
+    const didApply = tryMovePatient(list, role, from, to, best.pid);
+    if (!didApply) break;
+
+    changed = true;
+  }
+
+  return { ok: true, changed, passes };
+}
+
+// -----------------------------
 // Explanation + rule flag helpers
 // -----------------------------
 function safeGetPerOwnerExplain(owner, ownersAll, role) {
   try {
     if (window.explain && typeof window.explain.perOwner === "function") {
-      // IMPORTANT: explain.perOwner returns a STRING in your app.explanations.js
       return window.explain.perOwner(owner, ownersAll, role);
     }
   } catch (e) {
@@ -103,15 +351,12 @@ function getOwnerRuleEval(owner, ownersAll, role) {
   const key = owner?.name || owner?.label || null;
   if (key && map[key]) return map[key];
 
-  // fallback: try case-insensitive
   if (key) {
     const keys = Object.keys(map);
     const foundKey = keys.find(k => String(k).toLowerCase() === String(key).toLowerCase());
     if (foundKey) return map[foundKey];
   }
 
-  // final fallback: try to find by index-ish key if engine used owner_#
-  // (this is best-effort; usually name keys work)
   return null;
 }
 
@@ -136,7 +381,6 @@ function escapeHtml(str) {
     .replace(/'/g, "&#039;");
 }
 
-// Simple popup for bulb (kept lightweight)
 window.__openOwnerExplain = function (btnEl) {
   try {
     const text = btnEl?.getAttribute("data-explain") || btnEl?.title || "";
@@ -146,6 +390,25 @@ window.__openOwnerExplain = function (btnEl) {
     console.warn("__openOwnerExplain failed", e);
   }
 };
+
+// -----------------------------
+// ✅ Empty drop-row helper
+// -----------------------------
+function buildEmptyDropRow(colspan, label) {
+  return `
+    <tr class="empty-drop-row" draggable="false" style="height:48px;">
+      <td colspan="${colspan}" style="
+        padding:14px 10px;
+        text-align:center;
+        font-size:12px;
+        opacity:0.65;
+        border-top:1px dashed rgba(15,23,42,0.12);
+      ">
+        ${escapeHtml(label || "Drop patients here")}
+      </td>
+    </tr>
+  `;
+}
 
 // -----------------------------
 // RN Oncoming Render
@@ -174,11 +437,8 @@ function renderAssignmentOutput() {
       : "";
 
     const reportSources = getUniquePrevRnCount(nurse.patients || []);
-
-    // ✅ Explanation is a STRING
     const explainText = safeGetPerOwnerExplain(nurse, allOwners, "nurse") || "";
 
-    // ✅ Always use robust lookup for rule eval
     const ruleEval = getOwnerRuleEval(nurse, allOwners, "nurse");
     const vCount = ruleEval?.violations?.length || 0;
     const wCount = ruleEval?.warnings?.length || 0;
@@ -227,18 +487,50 @@ function renderAssignmentOutput() {
           >
     `;
 
+    if (!pts.length) {
+      // ✅ Keeps the drop target visible even when empty
+      html += buildEmptyDropRow(4, "Drop a patient here to assign to this RN");
+    }
+
     pts.forEach(p => {
       const prevName = getPrevRnNameForPatient(p.id);
       const bedLabel = getBedLabel(p);
 
+      const pinned = isPatientPinnedToIncomingRn(p.id, nurse.id);
+      const draggable = pinned ? "false" : "true";
+
+      const pinControl = `
+        <button
+          type="button"
+          aria-label="Pin patient to this RN"
+          title="${pinned ? "Pinned to this RN (click to unpin)" : "Pin to this RN (preserve on regenerate)"}"
+          onclick="window.toggleIncomingRnPin(${p.id}, ${nurse.id})"
+          style="
+            margin-left:8px;
+            border:none;
+            background:transparent;
+            cursor:pointer;
+            font-size:14px;
+            line-height:1;
+            padding:0;
+            opacity:${pinned ? "1" : "0"};
+            pointer-events:${pinned ? "auto" : "none"};
+          "
+          data-pinbtn="1"
+        >📌</button>
+      `;
+
       html += `
         <tr
-          draggable="true"
+          draggable="${draggable}"
           ondragstart="onRowDragStart(event, 'incoming', 'nurse', ${nurse.id}, ${p.id})"
           ondragend="onRowDragEnd(event)"
           ondblclick="openPatientProfileFromRoom(${p.id})"
+          onmouseenter="(function(tr){var b=tr.querySelector('button[data-pinbtn]'); if(b && b.style.opacity==='0'){b.style.opacity='0.55'; b.style.pointerEvents='auto';}})(this)"
+          onmouseleave="(function(tr){var b=tr.querySelector('button[data-pinbtn]'); if(b && !(${pinned})){b.style.opacity='0'; b.style.pointerEvents='none';}})(this)"
+          style="${pinned ? "opacity:0.98;" : ""}"
         >
-          <td>${bedLabel}</td>
+          <td>${bedLabel} ${pinControl}</td>
           <td>${p.tele ? "Tele" : "MS"}</td>
           <td>${rnTagString(p)}</td>
           <td>${prevName || "-"}</td>
@@ -283,11 +575,8 @@ function renderPcaAssignmentOutput() {
       : "";
 
     const reportSources = getUniquePrevPcaCount(pca.patients || []);
-
-    // ✅ Explanation is a STRING
     const explainText = safeGetPerOwnerExplain(pca, allOwners, "pca") || "";
 
-    // ✅ Always use robust lookup for rule eval
     const ruleEval = getOwnerRuleEval(pca, allOwners, "pca");
     const vCount = ruleEval?.violations?.length || 0;
     const wCount = ruleEval?.warnings?.length || 0;
@@ -336,6 +625,11 @@ function renderPcaAssignmentOutput() {
           >
     `;
 
+    if (!pts.length) {
+      // ✅ Keeps the drop target visible even when empty
+      html += buildEmptyDropRow(4, "Drop a patient here to assign to this PCA");
+    }
+
     pts.forEach(p => {
       const prevName = getPrevPcaNameForPatient(p.id);
       const bedLabel = getBedLabel(p);
@@ -382,20 +676,35 @@ function populateOncomingAssignment(randomize = false) {
     return;
   }
 
+  // Clear existing incoming lists
   incomingNurses.forEach(n => { n.patients = []; });
   incomingPcas.forEach(p => { p.patients = []; });
+
+  cleanupRnPinsAgainstRoster();
 
   let list = activePatients.slice();
   if (randomize) list.sort(() => Math.random() - 0.5);
   else list.sort(safeSortPatientsForDisplay);
 
+  // Pre-place pinned RN continuity, distribute remaining
+  const { unlockedPool } = applyRnPinsBeforeDistribute(list);
+
   if (typeof window.distributePatientsEvenly === "function") {
-    window.distributePatientsEvenly(incomingNurses, list, { randomize, role: "nurse" });
-    window.distributePatientsEvenly(incomingPcas, list, { randomize, role: "pca" });
+    window.distributePatientsEvenly(incomingNurses, unlockedPool, { randomize, role: "nurse", preserveExisting: true });
+    window.distributePatientsEvenly(incomingPcas, list, { randomize, role: "pca", preserveExisting: true });
   } else {
-    alert("ERROR: distributePatientsEvenly is not loaded. Oncoming assignment would have used round-robin fallback, so generation is blocked. Check script order + app.assignmentRules.js loading.");
+    alert("ERROR: distributePatientsEvenly is not loaded. Check script order + app.assignmentRules.js loading.");
     console.error("distributePatientsEvenly missing — check index.html script order and app.assignmentRules.js.");
     return;
+  }
+
+  // ✅ Post-pass: enforce even counts (without creating new avoidable violations)
+  balanceCountsWithoutCreatingNewAvoidableViolations(window.incomingNurses, "nurse", { maxPasses: 60 });
+
+  // ✅ Polish pass: try to eliminate avoidable violations after balancing
+  if (typeof window.repairAssignmentsInPlace === "function") {
+    window.repairAssignmentsInPlace(window.incomingNurses, "nurse");
+    window.repairAssignmentsInPlace(window.incomingPcas, "pca");
   }
 
   renderAssignmentOutput();
@@ -406,8 +715,28 @@ function populateOncomingAssignment(randomize = false) {
 }
 
 function rebalanceOncomingAssignment() {
-  // NEW: in-place repair (safety + acuity first, then churn, then walking)
   if (typeof window.repairAssignmentsInPlace === "function") {
+    try {
+      cleanupRnPinsAgainstRoster();
+
+      // Re-place pins onto correct RN (do not allow them to drift)
+      const roster = Array.isArray(window.incomingNurses) ? window.incomingNurses : [];
+      roster.forEach(rn => {
+        rn.patients = Array.isArray(rn.patients) ? rn.patients : [];
+        rn.patients = rn.patients.filter(pid => !isPatientPinnedToIncomingRn(pid, rn.id));
+      });
+
+      const active = (Array.isArray(window.patients) ? window.patients : []).filter(p => p && !p.isEmpty);
+      applyRnPinsBeforeDistribute(active);
+    } catch (e) {
+      console.warn("[pins] pre-repair pin placement failed", e);
+    }
+
+    window.repairAssignmentsInPlace(window.incomingNurses, "nurse");
+    window.repairAssignmentsInPlace(window.incomingPcas, "pca");
+
+    balanceCountsWithoutCreatingNewAvoidableViolations(window.incomingNurses, "nurse", { maxPasses: 80 });
+
     window.repairAssignmentsInPlace(window.incomingNurses, "nurse");
     window.repairAssignmentsInPlace(window.incomingPcas, "pca");
 
@@ -419,11 +748,10 @@ function rebalanceOncomingAssignment() {
     return;
   }
 
-  // Fallback (old behavior)
   populateOncomingAssignment(false);
 }
 
-// Expose globally
+// Expose globally (CRITICAL for index.html onclick)
 window.renderAssignmentOutput = renderAssignmentOutput;
 window.renderPcaAssignmentOutput = renderPcaAssignmentOutput;
 window.populateOncomingAssignment = populateOncomingAssignment;

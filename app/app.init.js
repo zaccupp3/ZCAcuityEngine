@@ -14,6 +14,10 @@
 //
 // ✅ Adds boot-time loading overlay with step-based % (milestones)
 // - Avoids “it’s stuck” feeling during session/membership/unit_state/realtime/render
+//
+// ✅ NEW (Dec 2025):
+// - Cloud loop protection (mute publish during remote apply + snapshot dedupe + cooldown)
+//   Fixes “publishing every second” feedback loops.
 
 window.addEventListener("DOMContentLoaded", async () => {
   console.log("APP INIT: Starting initialization…");
@@ -50,26 +54,22 @@ window.addEventListener("DOMContentLoaded", async () => {
   // Don’t flash loader on fast loads: show only if still booting after 200ms
   setTimeout(() => {
     if (__bootDone) return;
-    // If demo mode, we still can show briefly, but we’ll finish fast.
     bootLoaderShow();
     bootLoaderSet(5, "Starting…");
   }, 200);
 
   function bootStep(pct, msg) {
-    // If we haven’t shown yet but the load is taking longer, show immediately on first meaningful step.
     if (!__bootShown && !__bootDone) bootLoaderShow();
     bootLoaderSet(pct, msg);
   }
 
   function bootFinish() {
     __bootDone = true;
-    // If never shown (fast), nothing to hide.
     if (!__bootShown) return;
     bootLoaderSet(100, "Ready");
     setTimeout(() => bootLoaderHide(), 250);
   }
 
-  // (Optional) expose for other files later (authGate/authUI) if you choose
   window.bootProgress = {
     step: bootStep,
     done: bootFinish
@@ -244,6 +244,27 @@ window.addEventListener("DOMContentLoaded", async () => {
   }
 
   // -----------------------------
+  // ✅ Cloud loop protection (mute + dedupe + cooldown)
+  // -----------------------------
+  window.__cloud.mutePublishDepth =
+    typeof window.__cloud.mutePublishDepth === "number" ? window.__cloud.mutePublishDepth : 0;
+
+  function withPublishMuted(fn) {
+    window.__cloud.mutePublishDepth++;
+    try { return fn(); }
+    finally { window.__cloud.mutePublishDepth = Math.max(0, window.__cloud.mutePublishDepth - 1); }
+  }
+
+  window.__cloud.lastPublishedSnapshotStr = window.__cloud.lastPublishedSnapshotStr || "";
+  window.__cloud.lastQueuedSnapshotStr = window.__cloud.lastQueuedSnapshotStr || "";
+  window.__cloud.lastPublishAt =
+    typeof window.__cloud.lastPublishAt === "number" ? window.__cloud.lastPublishAt : 0;
+
+  function snapshotString() {
+    try { return JSON.stringify(snapshotFromWindow()); } catch { return ""; }
+  }
+
+  // -----------------------------
   // Cloud sync plumbing
   // -----------------------------
   let publishTimer = null;
@@ -258,6 +279,16 @@ window.addEventListener("DOMContentLoaded", async () => {
 
     if (typeof window.sb?.upsertUnitState !== "function") {
       console.warn("[cloud] sb.upsertUnitState missing (add to app.supabase.js).");
+      return;
+    }
+
+    // If we are applying remote state / booting, do not publish
+    if (window.__cloud.mutePublishDepth > 0) return;
+
+    // Dedupe: if unchanged since last publish, skip writing
+    const snapStr = snapshotString();
+    if (snapStr && snapStr === window.__cloud.lastPublishedSnapshotStr) {
+      setSyncStatus("synced", { lastSyncedAt: window.__cloud.sync.lastSyncedAt || new Date() });
       return;
     }
 
@@ -286,6 +317,11 @@ window.addEventListener("DOMContentLoaded", async () => {
       }
 
       window.__cloud.unitStateVersion = (row && typeof row.version === "number") ? row.version : nextVersion;
+
+      // Mark publish success for dedupe/cooldown
+      if (snapStr) window.__cloud.lastPublishedSnapshotStr = snapStr;
+      window.__cloud.lastPublishAt = Date.now();
+
       setSyncStatus("synced", { lastSyncedAt: new Date() });
 
       if (reason) console.log(`[cloud] published unit_state (${reason}) v=${window.__cloud.unitStateVersion}`);
@@ -296,14 +332,34 @@ window.addEventListener("DOMContentLoaded", async () => {
   }
 
   function publishUnitStateDebounced(reason = "") {
+    // If we are applying remote state / booting, don't echo back to cloud
+    if (window.__cloud.mutePublishDepth > 0) return;
+
+    // Dedupe: if snapshot hasn't changed since last queue, ignore
+    const snapStr = snapshotString();
+    if (!snapStr) return;
+
+    if (snapStr === window.__cloud.lastQueuedSnapshotStr && publishTimer) return;
+    window.__cloud.lastQueuedSnapshotStr = snapStr;
+
     publishQueued = true;
     setSyncStatus("pending");
 
     if (publishTimer) return;
+
     publishTimer = setTimeout(async () => {
       publishTimer = null;
       if (!publishQueued) return;
       publishQueued = false;
+
+      // Cooldown (prevents rapid-fire spam if something is noisy)
+      const now = Date.now();
+      const minGapMs = 900; // tune: 600–1500ms typical
+      if (now - window.__cloud.lastPublishAt < minGapMs) {
+        publishUnitStateDebounced(reason || "cooldown");
+        return;
+      }
+
       await publishUnitStateNow(reason || "debounced");
     }, 600);
   }
@@ -323,7 +379,11 @@ window.addEventListener("DOMContentLoaded", async () => {
     if (!row) return { ok: true, empty: true };
 
     const cloudState = row.state || row.state_json || row || {};
-    applySnapshotToWindow(cloudState.state || cloudState);
+
+    // ✅ apply without triggering publish loops
+    withPublishMuted(() => {
+      applySnapshotToWindow(cloudState.state || cloudState);
+    });
 
     if (typeof row.version === "number") window.__cloud.unitStateVersion = row.version;
     setSyncStatus("synced", { lastSyncedAt: new Date() });
@@ -362,9 +422,13 @@ window.addEventListener("DOMContentLoaded", async () => {
           window.__cloud.unitStateVersion = incomingV;
 
           const st = row.state || row.state_json || row || {};
-          applySnapshotToWindow(st.state || st);
 
-          refreshAllUI();
+          // ✅ apply + render without triggering publish loops
+          withPublishMuted(() => {
+            applySnapshotToWindow(st.state || st);
+            refreshAllUI();
+          });
+
           setSyncStatus("synced", { lastSyncedAt: new Date() });
 
           console.log(`[cloud] applied incoming unit_state v=${incomingV}`);
@@ -396,6 +460,10 @@ window.addEventListener("DOMContentLoaded", async () => {
     const originalSaveState = window.saveState;
     window.saveState = function wrappedSaveState() {
       try { originalSaveState(); } catch {}
+
+      // ✅ never publish while applying remote/boot normalization
+      if (window.__cloud.mutePublishDepth > 0) return;
+
       try { publishUnitStateDebounced("saveState"); } catch {}
     };
     window.__cloud.__saveWrapped = true;
@@ -417,7 +485,7 @@ window.addEventListener("DOMContentLoaded", async () => {
     console.warn("[init] Supabase not configured or refreshMyUnits missing (offline/demo mode).");
   }
 
-  // Ensure active unit settings are loaded (your existing behavior)
+  // Ensure active unit settings are loaded
   bootStep(45, "Selecting active unit…");
   if (window.activeUnitId && window.setActiveUnit && typeof window.setActiveUnit === "function") {
     try {
@@ -446,7 +514,6 @@ window.addEventListener("DOMContentLoaded", async () => {
       console.warn("[init] cloud load/subscribe failed", e);
     }
   } else {
-    // If no cloud, we’re effectively ready after local + renders
     bootStep(70, "Offline/demo mode…");
   }
 

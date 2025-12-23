@@ -7,6 +7,18 @@
 // - Hard rule checks (RN + PCA): counts per owner, and unavoidable vs avoidable.
 // - Swap suggestions: find a simple patient swap between two owners that reduces
 //   rule breaks / stacking (especially BG).
+//
+// NEW (Dec 2025):
+// - "Locked to RN" aware in-place repair:
+//   If patient.lockRnEnabled && patient.lockRnTo is set,
+//   repairAssignmentsInPlace() will NOT swap/move that patient away from its locked RN.
+//
+// FIX (Dec 2025):
+// - distributePatientsEvenly() now supports options.preserveExisting:
+//   it will NOT wipe owner.patients, and it will NOT re-assign already-assigned patients.
+//   (This is required so pinned patients pre-placed by assignmentsrender.js survive regenerate.)
+// - repairAssignmentsInPlace() now also prioritizes COUNT BALANCE (spread) so it won't
+//   “fix” rules by creating 7 vs 3 patient distributions when avoidable.
 // ---------------------------------------------------------
 
 (function () {
@@ -20,7 +32,6 @@
   function toPatientObj(p) {
     if (!p) return null;
     if (typeof p === "object") return p;
-    // if it's an id, resolve via global helper
     if (typeof window.getPatientById === "function") return window.getPatientById(p) || null;
     return null;
   }
@@ -40,8 +51,6 @@
   }
 
   function isOn(p, keys) {
-    // flexible: supports multiple possible property names
-    // e.g. ["bg","bgChecks","bloodSugar"] etc
     for (const k of keys) {
       if (p && p[k]) return true;
     }
@@ -60,7 +69,6 @@
   function pcaPatientScore(p) {
     if (!p || p.isEmpty) return 0;
 
-    // Mirrors your getPcaLoadScore per-patient contributions in app.patientsAcuity.js
     let score = 0;
     if (p.isolation) score += 3;
     if (p.admit) score += 3;
@@ -77,14 +85,12 @@
     const ids = safeArray(owner && owner.patients);
     let sumLoad = 0;
 
-    // sum existing
     for (const id of ids) {
       const p = (typeof window.getPatientById === "function") ? window.getPatientById(id) : null;
       if (!p || p.isEmpty) continue;
       sumLoad += (role === "pca") ? pcaPatientScore(p) : rnPatientScore(p);
     }
 
-    // add hypothetical patient
     if (extraPatientObj && !extraPatientObj.isEmpty) {
       sumLoad += (role === "pca") ? pcaPatientScore(extraPatientObj) : rnPatientScore(extraPatientObj);
     }
@@ -96,7 +102,6 @@
   // Phase 1: Hard rule checking + swap suggestions
   // =========================================================
 
-  // Hard rules you described (defaults; can be overridden by unit settings later)
   const RN_LIMITS = {
     drip: 1,
     nih: 1,
@@ -105,25 +110,22 @@
     restraint: 1,
     sitter: 1,
     vpo: 1,
-    isolation: 2, // allow 1–2
-    admit: 1,
-    lateDc: 1
-  };
-
-  const PCA_LIMITS = {
-    // tele: balanced evenly (handled by score/swap suggestions more than "red rule"),
-    // but we can still flag extreme stacking later if you want.
-    chg: 1,     // keep even
-    foley: 1,   // keep even
-    q2turns: 1, // keep even
-    feeder: 1,  // keep even
-    heavy: 1,   // keep even
     isolation: 2,
     admit: 1,
     lateDc: 1
   };
 
-  // These key maps let us read your patient objects even if property names vary slightly.
+  const PCA_LIMITS = {
+    chg: 1,
+    foley: 1,
+    q2turns: 1,
+    feeder: 1,
+    heavy: 1,
+    isolation: 2,
+    admit: 1,
+    lateDc: 1
+  };
+
   const RN_TAG_KEYS = {
     drip: ["drip", "drips"],
     nih: ["nih"],
@@ -138,7 +140,7 @@
   };
 
   const PCA_TAG_KEYS = {
-    tele: ["telePca", "tele"], // some builds use tele for both
+    tele: ["telePca", "tele"],
     chg: ["chg"],
     foley: ["foley"],
     q2turns: ["q2turns", "q2Turns"],
@@ -181,7 +183,6 @@
   }
 
   function unavoidableThreshold(totalTagCount, ownerCount, limitPerOwner) {
-    // If a unit has more of a tag than "limit * owners", then SOMEONE must exceed.
     return totalTagCount > (ownerCount * limitPerOwner);
   }
 
@@ -203,7 +204,6 @@
       const unitTotal = unitCounts[tag] || 0;
       const unavoidable = unavoidableThreshold(unitTotal, ownerCount, limit);
 
-      // "red" vs "amber" (unavoidable but still worth highlighting)
       const severity = unavoidable ? "warning" : "violation";
 
       const msg =
@@ -230,7 +230,6 @@
       counts: ownerCounts,
       violations,
       warnings,
-      // helpful for UI
       hasRuleBreak: violations.length > 0,
       hasAnyFlag: (violations.length + warnings.length) > 0
     };
@@ -255,12 +254,10 @@
     return safeArray(owner && owner.patients).slice();
   }
 
-  function computePenaltyForOwnerEval(evalObj, role) {
-    // "violation" should matter more than "warning"
+  function computePenaltyForOwnerEval(evalObj) {
     const v = safeArray(evalObj?.violations).length;
     const w = safeArray(evalObj?.warnings).length;
 
-    // Extra weight for BG stacking specifically (you called it out a lot)
     const bgPenalty =
       (evalObj?.violations || []).some(x => x.tag === "bg") ? 3 : 0;
 
@@ -268,22 +265,21 @@
   }
 
   function computeTotalPenalty(owners, role, limitsOverride) {
-    let sum = 0;
+    let sumPen = 0;
     const list = safeArray(owners).filter(Boolean);
     for (let i = 0; i < list.length; i++) {
       const ev = evaluateOwnerHardRules(list[i], list, role, limitsOverride);
-      sum += computePenaltyForOwnerEval(ev, role);
+      sumPen += computePenaltyForOwnerEval(ev);
     }
-    return sum;
+    return sumPen;
   }
 
-  // Finds the best 1-for-1 swap between two owners that reduces penalty.
-  // Works well for 8 RNs x 4 pts each.
   window.suggestBestSwap = function (owners, role, limitsOverride) {
     const list = safeArray(owners).filter(Boolean);
     if (list.length < 2) return { ok: false, reason: "Need at least 2 owners" };
 
-    const basePenalty = computeTotalPenalty(list, role === "pca" ? "pca" : "nurse", limitsOverride);
+    const r = (role === "pca") ? "pca" : "nurse";
+    const basePenalty = computeTotalPenalty(list, r, limitsOverride);
 
     let best = null;
 
@@ -298,7 +294,6 @@
 
         for (let i = 0; i < Apts.length; i++) {
           for (let j = 0; j < Bpts.length; j++) {
-            // simulate swap
             const Aclone = cloneOwnerPatients(A);
             const Bclone = cloneOwnerPatients(B);
 
@@ -312,9 +307,8 @@
             A.patients = Aclone;
             B.patients = Bclone;
 
-            const newPenalty = computeTotalPenalty(list, role === "pca" ? "pca" : "nurse", limitsOverride);
+            const newPenalty = computeTotalPenalty(list, r, limitsOverride);
 
-            // revert
             A.patients = originalA;
             B.patients = originalB;
 
@@ -338,24 +332,12 @@
     }
 
     if (!best) return { ok: true, found: false, basePenalty };
-
     return { ok: true, found: true, ...best };
   };
 
   // =========================================================
-  // MAIN: distributePatientsEvenly (your existing logic)
+  // MAIN: distributePatientsEvenly
   // =========================================================
-  // owners: array of nurse/PCA objects (must have .patients array)
-  // patients: array of patient objects or ids
-  // options:
-  //  - randomize?: boolean (optional shuffle)
-  //  - role?: "nurse"|"pca" (recommended)
-  //  - useLoadBalancing?: boolean (default true)
-  //
-  // Behavior:
-  // 1) keeps patient counts balanced (diff <= 1)
-  // 2) within that, greedily places highest-acuity patients onto lowest projected load owner
-  //
   window.distributePatientsEvenly = function (owners, patients, options = {}) {
     owners = safeArray(owners).filter(Boolean);
     if (!owners.length) return;
@@ -366,21 +348,42 @@
     const randomize = !!options.randomize;
     const role = (options.role === "pca" || options.role === "nurse") ? options.role : "nurse";
     const useLoadBalancing = (options.useLoadBalancing !== false);
+    const preserveExisting = !!options.preserveExisting;
+
+    function ensurePatientsArrays() {
+      owners.forEach(o => { if (!Array.isArray(o.patients)) o.patients = []; });
+    }
+
+    function assignedSet() {
+      const set = new Set();
+      owners.forEach(o => safeArray(o.patients).forEach(pid => set.add(Number(pid))));
+      return set;
+    }
 
     // Normalize to patient objects (ignore null)
     let list = listRaw.map(toPatientObj).filter(p => p && !p.isEmpty);
 
     // Fallback if caller passed ids but getPatientById not available
     if (!list.length) {
-      // still do count-even distribution on raw ids
-      owners.forEach(o => { o.patients = []; });
+      if (!preserveExisting) owners.forEach(o => { o.patients = []; });
+      else ensurePatientsArrays();
+
+      const already = preserveExisting ? assignedSet() : new Set();
+
       listRaw.forEach((p, index) => {
-        const patientId = getId(p);
+        const patientId = Number(getId(p));
+        if (preserveExisting && already.has(patientId)) return;
         const owner = owners[index % owners.length];
         if (!Array.isArray(owner.patients)) owner.patients = [];
         owner.patients.push(patientId);
       });
       return;
+    }
+
+    // If preserveExisting, remove any patients already pre-assigned (e.g., pins)
+    if (preserveExisting) {
+      const already = assignedSet();
+      list = list.filter(p => !already.has(Number(p.id)));
     }
 
     // Optional shuffle before sorting
@@ -395,32 +398,37 @@
 
     // =========================================================
     // Phase 2: In-place repair rebalance (NO full redistribution)
-    // Priority: Hard rules (avoidable) -> Acuity balance -> Report churn -> Walking spread
+    // Priority:
+    //   1) Avoidable hard rule violations
+    //   2) COUNT balance spread (maxCount-minCount)
+    //   3) Load imbalance
+    //   4) Report churn
+    //   5) Walking spread
     // =========================================================
 
     function uniqCount(arr) {
       return new Set(safeArray(arr).filter(Boolean)).size;
     }
 
-    function getPrevOwnerNameForPatient(patientId, role) {
+    function getPrevOwnerNameForPatient(patientId, role2) {
       const pid = Number(patientId);
       if (!pid) return "";
 
-      if (role === "pca") {
-        const list = Array.isArray(window.currentPcas) ? window.currentPcas : [];
-        const owner = list.find(o => Array.isArray(o.patients) && o.patients.includes(pid));
+      if (role2 === "pca") {
+        const arr = Array.isArray(window.currentPcas) ? window.currentPcas : [];
+        const owner = arr.find(o => Array.isArray(o.patients) && o.patients.includes(pid));
         return owner ? (owner.name || `PCA ${owner.id}`) : "";
       }
 
-      const list = Array.isArray(window.currentNurses) ? window.currentNurses : [];
-      const owner = list.find(o => Array.isArray(o.patients) && o.patients.includes(pid));
+      const arr = Array.isArray(window.currentNurses) ? window.currentNurses : [];
+      const owner = arr.find(o => Array.isArray(o.patients) && o.patients.includes(pid));
       return owner ? (owner.name || `RN ${owner.id}`) : "";
     }
 
-    function reportSourcesForOwner(owner, role) {
+    function reportSourcesForOwner(owner, role2) {
       const names = [];
       for (const pid of safeArray(owner?.patients)) {
-        const nm = getPrevOwnerNameForPatient(pid, role);
+        const nm = getPrevOwnerNameForPatient(pid, role2);
         if (nm) names.push(nm);
       }
       return uniqCount(names);
@@ -430,13 +438,11 @@
       const p = resolvePatient(pid);
       if (!p) return null;
 
-      // Prefer your existing helper if present
       if (typeof window.getRoomNumber === "function") {
         const n = window.getRoomNumber(p);
         if (typeof n === "number" && isFinite(n) && n !== 9999) return n;
       }
 
-      // Fallback: extract digits from label/room
       const label =
         (typeof window.getRoomLabelForPatient === "function" ? window.getRoomLabelForPatient(p) : "") ||
         String(p.room || "");
@@ -451,49 +457,53 @@
         .filter(n => typeof n === "number" && isFinite(n));
       if (nums.length < 2) return 0;
       nums.sort((a, b) => a - b);
-      return nums[nums.length - 1] - nums[0]; // range
+      return nums[nums.length - 1] - nums[0];
     }
 
-    function ownerLoad(owner, role) {
-      // Uses your existing per-patient score logic
-      return ownerProjectedLoad(owner, role === "pca" ? "pca" : "nurse", null);
+    function ownerLoad(owner, role2) {
+      return ownerProjectedLoad(owner, role2 === "pca" ? "pca" : "nurse", null);
     }
 
-    function loadImbalance(owners, role) {
-      const loads = safeArray(owners).map(o => ownerLoad(o, role));
+    function loadImbalance(owners2, role2) {
+      const loads = safeArray(owners2).map(o => ownerLoad(o, role2));
       if (!loads.length) return 0;
       const min = Math.min(...loads);
       const max = Math.max(...loads);
-      return max - min; // simple + stable
+      return max - min;
     }
 
-    function countAvoidableViolationsAll(owners, role, limitsOverride) {
+    function countSpread(owners2) {
+      const counts = safeArray(owners2).map(o => safeArray(o?.patients).length);
+      if (!counts.length) return 0;
+      return Math.max(...counts) - Math.min(...counts);
+    }
+
+    function countAvoidableViolationsAll(owners2, role2, limitsOverride) {
       let total = 0;
-      const list = safeArray(owners).filter(Boolean);
-      for (const o of list) {
-        const ev = evaluateOwnerHardRules(o, list, role, limitsOverride);
-        total += safeArray(ev?.violations).length; // avoidable only
+      const arr = safeArray(owners2).filter(Boolean);
+      for (const o of arr) {
+        const ev = evaluateOwnerHardRules(o, arr, role2, limitsOverride);
+        total += safeArray(ev?.violations).length;
       }
       return total;
     }
 
-    function countWarningsAll(owners, role, limitsOverride) {
+    function countWarningsAll(owners2, role2, limitsOverride) {
       let total = 0;
-      const list = safeArray(owners).filter(Boolean);
-      for (const o of list) {
-        const ev = evaluateOwnerHardRules(o, list, role, limitsOverride);
+      const arr = safeArray(owners2).filter(Boolean);
+      for (const o of arr) {
+        const ev = evaluateOwnerHardRules(o, arr, role2, limitsOverride);
         total += safeArray(ev?.warnings).length;
       }
       return total;
     }
 
-    function getWorstOffenders(owners, role, limitsOverride) {
-      const list = safeArray(owners).filter(Boolean);
-      const scored = list.map((o, idx) => {
-        const ev = evaluateOwnerHardRules(o, list, role, limitsOverride);
+    function getWorstOffenders(owners2, role2, limitsOverride) {
+      const arr = safeArray(owners2).filter(Boolean);
+      const scored = arr.map((o, idx) => {
+        const ev = evaluateOwnerHardRules(o, arr, role2, limitsOverride);
         const v = safeArray(ev?.violations).length;
-        // tie-break: higher load means more urgent when violations tie
-        const load = ownerLoad(o, role);
+        const load = ownerLoad(o, role2);
         return { o, idx, v, load };
       });
 
@@ -515,13 +525,44 @@
       ownerB.patients = B;
     }
 
-    // Main: tries to remove ALL avoidable violations while keeping acuity balanced,
-    // then (only then) reduces churn, then walking.
-    window.repairAssignmentsInPlace = function (owners, role, limitsOverride, opts = {}) {
-      const list = safeArray(owners).filter(Boolean);
-      if (list.length < 2) return { ok: false, reason: "Need at least 2 owners" };
+    // -----------------------------
+    // ✅ RN lock helpers (lock-aware repair)
+    // Patient fields:
+    //   patient.lockRnEnabled (bool)
+    //   patient.lockRnTo (incoming RN id)
+    // -----------------------------
+    function rnLockMeta(patientId) {
+      const p = resolvePatient(patientId);
+      if (!p) return { enabled: false, rnId: null };
+      const enabled = !!p.lockRnEnabled;
+      const rnId = (p.lockRnTo !== undefined && p.lockRnTo !== null) ? Number(p.lockRnTo) : null;
+      return { enabled, rnId: Number.isFinite(rnId) ? rnId : null };
+    }
 
-      const r = (role === "pca") ? "pca" : "nurse";
+    function isSwapAllowedWithRnLocks(ownerA, pidA, ownerB, pidB, role2) {
+      if (role2 !== "nurse") return true;
+
+      const A = Number(ownerA?.id);
+      const B = Number(ownerB?.id);
+
+      const lockA = rnLockMeta(pidA);
+      const lockB = rnLockMeta(pidB);
+
+      // After swap:
+      // - pidA would belong to ownerB
+      // - pidB would belong to ownerA
+      if (lockA.enabled && lockA.rnId && Number(lockA.rnId) !== B) return false;
+      if (lockB.enabled && lockB.rnId && Number(lockB.rnId) !== A) return false;
+
+      return true;
+    }
+
+    // Main in-place repair
+    window.repairAssignmentsInPlace = function (owners2, role2, limitsOverride, opts = {}) {
+      const list2 = safeArray(owners2).filter(Boolean);
+      if (list2.length < 2) return { ok: false, reason: "Need at least 2 owners" };
+
+      const r2 = (role2 === "pca") ? "pca" : "nurse";
       const maxIters = typeof opts.maxIters === "number" ? opts.maxIters : 20;
 
       let iter = 0;
@@ -529,93 +570,96 @@
       while (iter < maxIters) {
         iter++;
 
-        const baseViol = countAvoidableViolationsAll(list, r, limitsOverride);
+        const baseViol = countAvoidableViolationsAll(list2, r2, limitsOverride);
         if (baseViol <= 0) {
           return {
             ok: true,
             done: true,
             iter,
             avoidableViolations: 0,
-            warnings: countWarningsAll(list, r, limitsOverride)
+            warnings: countWarningsAll(list2, r2, limitsOverride)
           };
         }
 
-        const baseLoadImb = loadImbalance(list, r);
-        const baseChurn = list.reduce((s, o) => s + reportSourcesForOwner(o, r), 0);
-        const baseWalk = list.reduce((s, o) => s + walkingSpreadForOwner(o), 0);
+        const baseCountSpread = countSpread(list2);
+        const baseLoadImb = loadImbalance(list2, r2);
+        const baseChurn = list2.reduce((s, o) => s + reportSourcesForOwner(o, r2), 0);
+        const baseWalk = list2.reduce((s, o) => s + walkingSpreadForOwner(o), 0);
 
-        // Focus search on the worst offenders first
-        const offenders = getWorstOffenders(list, r, limitsOverride);
-        const candidateAs = offenders.length ? offenders.slice(0, 3).map(x => x.o) : list.slice(0, 3);
+        const offenders = getWorstOffenders(list2, r2, limitsOverride);
+        const candidateAIdxs = offenders.length
+          ? offenders.slice(0, 3).map(x => x.idx)
+          : list2.slice(0, 3).map((_, idx) => idx);
 
         let best = null;
 
-        for (const A of candidateAs) {
+        for (const aIdx of candidateAIdxs) {
+          const A = list2[aIdx];
           const Apts = safeArray(A.patients);
           if (!Apts.length) continue;
 
-          for (const B of list) {
-            if (B === A) continue;
+          for (let bIdx = 0; bIdx < list2.length; bIdx++) {
+            if (bIdx === aIdx) continue;
+            const B = list2[bIdx];
             const Bpts = safeArray(B.patients);
             if (!Bpts.length) continue;
 
             for (let i = 0; i < Apts.length; i++) {
               for (let j = 0; j < Bpts.length; j++) {
-                // simulate swap
+                const pidA = Apts[i];
+                const pidB = Bpts[j];
+
+                // ✅ lock gate
+                if (!isSwapAllowedWithRnLocks(A, pidA, B, pidB, r2)) continue;
+
                 const origA = A.patients;
                 const origB = B.patients;
 
                 swapInPlace(A, i, B, j);
 
-                const viol = countAvoidableViolationsAll(list, r, limitsOverride);
+                const viol = countAvoidableViolationsAll(list2, r2, limitsOverride);
 
-                // If swap makes violations worse, skip fast
                 if (viol > baseViol) {
                   A.patients = origA;
                   B.patients = origB;
                   continue;
                 }
 
-                const loadImb = loadImbalance(list, r);
-                const churn = list.reduce((s, o) => s + reportSourcesForOwner(o, r), 0);
-                const walk = list.reduce((s, o) => s + walkingSpreadForOwner(o), 0);
+                const cSpread = countSpread(list2);
+                const loadImb = loadImbalance(list2, r2);
+                const churn = list2.reduce((s, o) => s + reportSourcesForOwner(o, r2), 0);
+                const walk = list2.reduce((s, o) => s + walkingSpreadForOwner(o), 0);
 
                 // revert
                 A.patients = origA;
                 B.patients = origB;
 
-                // Lexicographic objective (matches your stated priorities):
-                // 1) minimize avoidable violations
-                // 2) minimize load imbalance
-                // 3) minimize report churn
-                // 4) minimize walking spread
                 const candidate = {
-                  Aname: A.name,
-                  Bname: B.name,
-                  i, j,
-                  fromA: Apts[i],
-                  fromB: Bpts[j],
+                  aIdx, bIdx, i, j,
+                  pidA, pidB,
                   viol,
+                  cSpread,
                   loadImb,
                   churn,
                   walk,
-                  base: { baseViol, baseLoadImb, baseChurn, baseWalk }
+                  base: { baseViol, baseCountSpread, baseLoadImb, baseChurn, baseWalk }
                 };
 
                 function betterThan(x, y) {
                   if (!y) return true;
                   if (x.viol !== y.viol) return x.viol < y.viol;
+                  if (x.cSpread !== y.cSpread) return x.cSpread < y.cSpread;
                   if (x.loadImb !== y.loadImb) return x.loadImb < y.loadImb;
                   if (x.churn !== y.churn) return x.churn < y.churn;
                   return x.walk < y.walk;
                 }
 
-                // Only accept swaps that improve at least one top-tier dimension
                 const improves =
                   (candidate.viol < baseViol) ||
-                  (candidate.viol === baseViol && candidate.loadImb < baseLoadImb) ||
-                  (candidate.viol === baseViol && candidate.loadImb === baseLoadImb && candidate.churn < baseChurn) ||
-                  (candidate.viol === baseViol && candidate.loadImb === baseLoadImb && candidate.churn === baseChurn && candidate.walk < baseWalk);
+                  (candidate.viol === baseViol && candidate.cSpread < baseCountSpread) ||
+                  (candidate.viol === baseViol && candidate.cSpread === baseCountSpread && candidate.loadImb < baseLoadImb) ||
+                  (candidate.viol === baseViol && candidate.cSpread === baseCountSpread && candidate.loadImb === baseLoadImb && candidate.churn < baseChurn) ||
+                  (candidate.viol === baseViol && candidate.cSpread === baseCountSpread && candidate.loadImb === baseLoadImb && candidate.churn === baseChurn && candidate.walk < baseWalk);
 
                 if (!improves) continue;
                 if (betterThan(candidate, best)) best = candidate;
@@ -624,59 +668,64 @@
           }
         }
 
-        // No improving swap found -> stop (might be statistically impossible to eliminate all)
         if (!best) {
           return {
             ok: true,
             done: false,
             iter,
             avoidableViolations: baseViol,
-            warnings: countWarningsAll(list, r, limitsOverride),
-            reason: "No improving swap found (may be unavoidable with current totals)"
+            warnings: countWarningsAll(list2, r2, limitsOverride),
+            reason: "No improving swap found (or locks prevent improvement). Some stacking may be unavoidable."
           };
         }
 
-        // Apply best swap
-        const ownerA = list.find(o => o.name === best.Aname) || list.find(o => o === best.Aname) || list.find(o => (o?.name || "") === best.Aname);
-        const ownerB = list.find(o => o.name === best.Bname) || list.find(o => o === best.Bname) || list.find(o => (o?.name || "") === best.Bname);
-
-        // Safer: locate by object reference via pass-through search
-        const Aobj = list.find(o => o?.name === best.Aname) || list.find(o => o === candidateAs.find(x => x?.name === best.Aname));
-        const Bobj = list.find(o => o?.name === best.Bname) || list.find(o => o === list.find(x => x?.name === best.Bname));
-
-        const Ause = Aobj || list.find(o => o?.name === best.Aname);
-        const Buse = Bobj || list.find(o => o?.name === best.Bname);
-
-        if (Ause && Buse) {
-          swapInPlace(Ause, best.i, Buse, best.j);
-        } else {
-          // Fallback: apply by index search
-          const Ai = list.findIndex(o => o?.name === best.Aname);
-          const Bi = list.findIndex(o => o?.name === best.Bname);
-          if (Ai >= 0 && Bi >= 0) swapInPlace(list[Ai], best.i, list[Bi], best.j);
-        }
+        // ✅ Apply best swap
+        const Ause = list2[best.aIdx];
+        const Buse = list2[best.bIdx];
+        if (Ause && Buse) swapInPlace(Ause, best.i, Buse, best.j);
+        else break;
       }
 
-      // Hit iteration cap
       return {
         ok: true,
         done: false,
         iter: maxIters,
-        avoidableViolations: countAvoidableViolationsAll(list, r, limitsOverride),
-        warnings: countWarningsAll(list, r, limitsOverride),
+        avoidableViolations: countAvoidableViolationsAll(
+          safeArray(owners2).filter(Boolean),
+          (role2 === "pca") ? "pca" : "nurse",
+          limitsOverride
+        ),
+        warnings: countWarningsAll(
+          safeArray(owners2).filter(Boolean),
+          (role2 === "pca") ? "pca" : "nurse",
+          limitsOverride
+        ),
         reason: "Hit max repair iterations"
       };
     };
-    
-    // Reset owners
-    owners.forEach(o => { o.patients = []; });
 
-    // If load balancing turned off, do pure round robin
+    // -----------------------------
+    // Distribution
+    // -----------------------------
+
+    // If NOT preserving, wipe first. If preserving, keep existing assignments (e.g., pinned).
+    if (!preserveExisting) {
+      owners.forEach(o => { o.patients = []; });
+    } else {
+      ensurePatientsArrays();
+    }
+
+    // If load balancing turned off, do round-robin across remaining list
     if (!useLoadBalancing) {
+      const already = preserveExisting ? assignedSet() : new Set();
+
       list.forEach((p, index) => {
+        const pid = Number(p.id);
+        if (preserveExisting && already.has(pid)) return;
+
         const owner = owners[index % owners.length];
         if (!Array.isArray(owner.patients)) owner.patients = [];
-        owner.patients.push(p.id);
+        owner.patients.push(pid);
       });
       return;
     }
@@ -688,16 +737,26 @@
       return sb - sa;
     });
 
-    // Target counts: keep counts as even as possible
-    const total = list.length;
+    // Target caps must account for already-assigned patients if preserveExisting
+    const totalRemaining = list.length;
+
+    // Current counts per owner (could include pinned)
+    const baseCounts = owners.map(o => safeArray(o.patients).length);
+
+    // Total patients on the board = already assigned + remaining
+    const totalAll = baseCounts.reduce((s, x) => s + x, 0) + totalRemaining;
+
     const nOwners = owners.length;
-    const base = Math.floor(total / nOwners);
-    const remainder = total % nOwners;
+    const base = Math.floor(totalAll / nOwners);
+    const remainder = totalAll % nOwners;
 
-    // Some owners can take base+1, others base
-    const capByIndex = owners.map((_, i) => base + (i < remainder ? 1 : 0));
+    // We want final counts to be either base or base+1
+    // Compute each owner's cap as (base or base+1), but never below its current count.
+    const desiredCaps = owners.map((_, i) => base + (i < remainder ? 1 : 0));
+    const capByIndex = desiredCaps.map((cap, i) => Math.max(cap, baseCounts[i]));
 
-    // Greedy: each patient goes to eligible owner with lowest projected load
+    // Greedy: each patient goes to eligible owner with lowest projected load,
+    // while respecting caps (count balancing).
     list.forEach(p => {
       let bestIdx = -1;
       let bestScore = Infinity;
@@ -705,7 +764,7 @@
       for (let i = 0; i < owners.length; i++) {
         const o = owners[i];
         const curCount = safeArray(o.patients).length;
-        if (curCount >= capByIndex[i]) continue; // respect count balancing
+        if (curCount >= capByIndex[i]) continue;
 
         const projected = ownerProjectedLoad(o, role === "pca" ? "pca" : "nurse", p);
 
@@ -715,7 +774,8 @@
         }
       }
 
-      // If everyone is capped (shouldn’t happen), fallback to smallest count
+      // Fallback: if everyone is capped (rare; can happen with heavy pinning),
+      // put it on the current smallest-count owner.
       if (bestIdx === -1) {
         bestIdx = 0;
         let bestCount = Infinity;
@@ -730,7 +790,7 @@
 
       const chosen = owners[bestIdx];
       if (!Array.isArray(chosen.patients)) chosen.patients = [];
-      chosen.patients.push(p.id);
+      chosen.patients.push(Number(p.id));
     });
   };
 })();

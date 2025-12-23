@@ -2,6 +2,11 @@
 // ---------------------------------------------------------
 // Drag & drop + Discharge Bin + Discharge History modal
 // Works for LIVE and Oncoming (incoming)
+//
+// NEW (Dec 2025):
+// - Enforce "Locked to RN" continuity on ONCOMING RN drag/drop.
+//   If a patient is locked to an incoming RN, dropping onto a different RN
+//   will prompt to unlock + move, or cancel.
 // ---------------------------------------------------------
 
 let dragCtx = null; // { context: 'live'|'incoming', role: 'nurse'|'pca', ownerId, patientId }
@@ -76,10 +81,67 @@ function persistAndRefresh() {
 }
 
 // -----------------------------
+// RN Lock helpers (local, no dependency on assignmentsrender.js load order)
+// Stored on patient record for persistence:
+// - patient.lockRnEnabled (bool)
+// - patient.lockRnTo (incoming RN id)
+// -----------------------------
+function getPatientSafe(patientId) {
+  try {
+    if (typeof window.getPatientById === "function") return window.getPatientById(patientId);
+  } catch {}
+  // fallback: scan patients array if needed
+  try {
+    const pts = Array.isArray(window.patients) ? window.patients : [];
+    return pts.find(p => Number(p?.id) === Number(patientId)) || null;
+  } catch {
+    return null;
+  }
+}
+
+function getRnLockMeta(patientId) {
+  const p = getPatientSafe(patientId);
+  if (!p) return { enabled: false, rnId: null };
+  const enabled = !!p.lockRnEnabled;
+  const rnId = (p.lockRnTo !== undefined && p.lockRnTo !== null) ? Number(p.lockRnTo) : null;
+  return { enabled, rnId: Number.isFinite(rnId) ? rnId : null };
+}
+
+function unlockRn(patientId) {
+  const p = getPatientSafe(patientId);
+  if (!p) return;
+  p.lockRnEnabled = false;
+  p.lockRnTo = null;
+}
+
+function ownerNameForIncomingRn(rnId) {
+  try {
+    const arr = Array.isArray(window.incomingNurses) ? window.incomingNurses : [];
+    const rn = arr.find(n => Number(n.id) === Number(rnId));
+    return rn?.name || `RN ${rnId}`;
+  } catch {
+    return `RN ${rnId}`;
+  }
+}
+
+// -----------------------------
 // ROW DRAG / DROP
 // -----------------------------
 
 function onRowDragStart(event, context, role, ownerId, patientId) {
+  // RN lock enforcement: allow drag start, but we will enforce at drop time.
+  // (If you want to hard-block dragging locked rows entirely, uncomment below.)
+  //
+  // if (context === "incoming" && role === "nurse") {
+  //   const meta = getRnLockMeta(patientId);
+  //   if (meta.enabled && meta.rnId === Number(ownerId)) {
+  //     // locked to this RN -> block drag
+  //     if (event) event.preventDefault();
+  //     alert("This patient is locked to the current RN. Unlock to move.");
+  //     return;
+  //   }
+  // }
+
   dragCtx = { context, role, ownerId, patientId };
   if (event && event.dataTransfer) {
     event.dataTransfer.effectAllowed = "move";
@@ -114,14 +176,36 @@ function onRowDrop(event, context, role, newOwnerId) {
 
   const pid = dragCtx.patientId;
 
+  // ✅ RN lock enforcement ONLY for ONCOMING RN board
+  if (context === "incoming" && role === "nurse") {
+    const meta = getRnLockMeta(pid);
+
+    // If locked to a specific RN and destination RN differs -> prompt
+    if (meta.enabled && meta.rnId && Number(meta.rnId) !== Number(newOwnerId)) {
+      const lockedName = ownerNameForIncomingRn(meta.rnId);
+      const destName = ownerNameForIncomingRn(newOwnerId);
+
+      const ok = confirm(
+        `This patient is locked to ${lockedName} for continuity.\n\nMove to ${destName} anyway?\n\nOK = Unlock + Move\nCancel = Keep Locked`
+      );
+
+      if (!ok) {
+        dragCtx = null;
+        return;
+      }
+
+      // User chose to override -> unlock then continue
+      unlockRn(pid);
+    }
+  }
+
   const idx = fromOwner.patients.indexOf(pid);
   if (idx !== -1) fromOwner.patients.splice(idx, 1);
   if (!toOwner.patients.includes(pid)) toOwner.patients.push(pid);
 
   dragCtx = null;
 
-  // ✅ this is the critical change:
-  // Always persist after every drag/drop so refresh doesn't lose layout.
+  // ✅ Always persist after every drag/drop so refresh doesn't lose layout.
   persistAndRefresh();
 }
 
@@ -179,6 +263,11 @@ function onDischargeDrop(event) {
   if (patient) {
     patient.recentlyDischarged = true;
     patient.isEmpty = true;
+
+    // optional: clear any continuity lock on discharge
+    // (keeps things sane if bed turns over)
+    patient.lockRnEnabled = false;
+    patient.lockRnTo = null;
   }
 
   // Canonical history record
