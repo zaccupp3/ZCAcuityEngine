@@ -1,25 +1,61 @@
 // app/app.supabase.js
 // Supabase client + helpers for auth + unit access + settings + shift publishing
 // + UNIT STATE (shared board) + REALTIME subscription
+//
+// GOAL:
+// - Create exactly ONE Supabase client
+// - Expose it consistently as:
+//     window.sb.client (canonical)
+//     window.supabaseClient (alias, same object)
+// - NEVER replace window.sb object (only extend it)
+//   so other modules never end up with stale references.
 
 (function () {
   const SUPABASE_URL = window.SUPABASE_URL || "";
   const SUPABASE_ANON_KEY = window.SUPABASE_ANON_KEY || "";
 
+  // supabase-js UMD exposes `window.supabase` as the library (with createClient)
+  const supabaseLib = window.supabase;
+
+  // Always keep a stable sb object reference
+  window.sb = window.sb || {};
+
+  function markNotReady(reason) {
+    console.warn(reason);
+    window.sb.client = null;
+    window.supabaseClient = null;
+    // optional marker for debugging
+    window.sb.__ready = false;
+  }
+
   if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
-    console.warn("[supabase] Missing SUPABASE_URL / SUPABASE_ANON_KEY.");
-    window.sb = { client: null };
+    markNotReady("[supabase] Missing SUPABASE_URL / SUPABASE_ANON_KEY.");
     return;
   }
 
-  const client = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
-    auth: { persistSession: true, autoRefreshToken: true }
-  });
+  if (!supabaseLib || typeof supabaseLib.createClient !== "function") {
+    markNotReady("[supabase] Supabase library not loaded yet (window.supabase.createClient missing).");
+    return;
+  }
+
+  // If client already exists, reuse it (prevents accidental double-init)
+  let client = window.sb.client;
+  if (!client) {
+    client = supabaseLib.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+      auth: { persistSession: true, autoRefreshToken: true }
+    });
+  }
+
+  // Canonical + alias (same object)
+  window.sb.client = client;
+  window.supabaseClient = client;
+
+  // optional marker for debugging / readiness checks
+  window.sb.__ready = true;
 
   // ------------------------
   // Auth helpers
   // ------------------------
-
   async function sbGetSession() {
     return client.auth.getSession();
   }
@@ -29,7 +65,6 @@
     return { user: data?.user || null, error };
   }
 
-  // Magic link (existing)
   async function sbSignInWithEmail(email) {
     return client.auth.signInWithOtp({
       email,
@@ -37,12 +72,10 @@
     });
   }
 
-  // ✅ NEW: Email + Password sign in
   async function sbSignInWithPassword(email, password) {
     return client.auth.signInWithPassword({ email, password });
   }
 
-  // ✅ NEW: Email + Password sign up
   async function sbSignUpWithPassword(email, password) {
     return client.auth.signUp({ email, password });
   }
@@ -54,7 +87,6 @@
   // ------------------------
   // Units + membership
   // ------------------------
-
   async function sbMyUnitMemberships() {
     return client
       .from("unit_members")
@@ -75,7 +107,6 @@
   // ------------------------
   // Unit settings
   // ------------------------
-
   async function sbGetUnitSettings(unitId) {
     const { data, error } = await client
       .from("unit_settings")
@@ -99,7 +130,6 @@
   // ------------------------
   // Shift publishing + analytics
   // ------------------------
-
   async function sbInsertShiftSnapshot(payload) {
     const { data, error } = await client
       .from("shift_snapshots")
@@ -121,80 +151,25 @@
   }
 
   // ------------------------
-  // Expose API
+  // Unit State (cloud) helpers
   // ------------------------
-
-  window.sb = {
-    client,
-
-    // auth
-    getSession: sbGetSession,
-    getUser: sbGetUser,
-    signInWithEmail: sbSignInWithEmail,
-    signInWithPassword: sbSignInWithPassword,   // ✅ new
-    signUpWithPassword: sbSignUpWithPassword,   // ✅ new
-    signOut: sbSignOut,
-
-    // membership
-    myUnitMemberships: sbMyUnitMemberships,
-    myUnitProfile: sbMyUnitProfile,
-
-    // settings
-    getUnitSettings: sbGetUnitSettings,
-    upsertUnitSettings: sbUpsertUnitSettings,
-
-    // publishing + analytics
-    insertShiftSnapshot: sbInsertShiftSnapshot,
-    insertAnalyticsShiftMetrics: sbInsertAnalyticsShiftMetrics
-  };
-})();
-
-window.afterAuthRoute = async function (session) {
-  // 1) fetch memberships (your RLS should enforce what they can see)
-  // 2) choose activeUnitId
-  // 3) re-render / init normally
-
-  // Placeholder:
-  if (typeof window.setActiveUnitFromMembership === "function") {
-    await window.setActiveUnitFromMembership();
-  }
-
-  if (typeof window.renderAll === "function") window.renderAll();
-};
-
-// ---------------------------------------------------------
-// Unit State (cloud) helpers (matches app.init.js expectations)
-// Required by app.init.js:
-// - sb.getUnitState(unitId) -> { row, error }
-// - sb.upsertUnitState(payload) -> { row, error }
-// - sb.subscribeUnitState(unitId, onChange) -> channel-like with unsubscribe()
-// ---------------------------------------------------------
-
-(function () {
-  if (!window.sb) window.sb = {};
-  const sb = window.sb;
-
-  const UNIT_STATE_TABLE = "unit_state"; // expects columns: unit_id, state (jsonb), version (int), updated_by, updated_at
+  const UNIT_STATE_TABLE = "unit_state"; // expects: unit_id, state(jsonb), version(int), updated_by, updated_at
 
   function hasClient() {
-    return !!(sb.client && typeof sb.client.from === "function");
+    return !!(client && typeof client.from === "function");
   }
 
   function safeUnitId(unitId) {
     return unitId ? String(unitId) : null;
   }
 
-  // --------
-  // GET ROW
-  // --------
-  sb.getUnitState = async function (unitId) {
+  async function sbGetUnitState(unitId) {
     const uid = safeUnitId(unitId);
     if (!uid) return { row: null, error: new Error("Missing unitId") };
-
     if (!hasClient()) return { row: null, error: new Error("Supabase client not ready") };
 
     try {
-      const { data, error } = await sb.client
+      const { data, error } = await client
         .from(UNIT_STATE_TABLE)
         .select("*")
         .eq("unit_id", uid)
@@ -206,18 +181,14 @@ window.afterAuthRoute = async function (session) {
     } catch (e) {
       return { row: null, error: e };
     }
-  };
+  }
 
-  // ------------
-  // UPSERT ROW
-  // ------------
-  sb.upsertUnitState = async function (payload) {
+  async function sbUpsertUnitState(payload) {
     if (!hasClient()) return { row: null, error: new Error("Supabase client not ready") };
     if (!payload || !payload.unit_id) return { row: null, error: new Error("Missing payload.unit_id") };
 
     const uid = String(payload.unit_id);
 
-    // Ensure updated_at always exists for ordering/debugging
     const next = {
       ...payload,
       unit_id: uid,
@@ -225,8 +196,7 @@ window.afterAuthRoute = async function (session) {
     };
 
     try {
-      // Requires a UNIQUE constraint on unit_id for onConflict to work as intended
-      const { data, error } = await sb.client
+      const { data, error } = await client
         .from(UNIT_STATE_TABLE)
         .upsert(next, { onConflict: "unit_id" })
         .select("*")
@@ -237,34 +207,28 @@ window.afterAuthRoute = async function (session) {
     } catch (e) {
       return { row: null, error: e };
     }
-  };
+  }
 
-  // -----------------------
-  // REALTIME SUBSCRIPTION
-  // -----------------------
-  // Supports:
-  //   sb.subscribeUnitState(unitId, (payload) => {})
-  // Returns object with unsubscribe()
-  sb.subscribeUnitState = function (unitId, onChange) {
+  function sbSubscribeUnitState(unitId, onChange) {
     const uid = safeUnitId(unitId);
     if (!uid) {
       console.warn("[cloud] subscribeUnitState: missing unitId");
       return { unsubscribe() {} };
     }
 
-    if (!hasClient() || typeof sb.client.channel !== "function") {
+    if (!hasClient() || typeof client.channel !== "function") {
       console.warn("[cloud] subscribeUnitState: realtime not ready");
       return { unsubscribe() {} };
     }
 
-    // kill old channel if exists
+    // kill old channel if exists (store it on sb, which is now stable)
     try {
-      if (sb.__unitStateChannel && typeof sb.__unitStateChannel.unsubscribe === "function") {
-        sb.__unitStateChannel.unsubscribe();
+      if (window.sb.__unitStateChannel && typeof window.sb.__unitStateChannel.unsubscribe === "function") {
+        window.sb.__unitStateChannel.unsubscribe();
       }
     } catch {}
 
-    const channel = sb.client
+    const channel = client
       .channel(`unit_state:${uid}`)
       .on(
         "postgres_changes",
@@ -279,12 +243,62 @@ window.afterAuthRoute = async function (session) {
       )
       .subscribe();
 
-    sb.__unitStateChannel = channel;
+    window.sb.__unitStateChannel = channel;
 
     return {
       unsubscribe() {
         try { channel.unsubscribe(); } catch {}
       }
     };
+  }
+
+  // ------------------------
+  // Expose API (extend sb; do NOT replace it)
+  // ------------------------
+  Object.assign(window.sb, {
+    // client
+    client,
+
+    // auth
+    getSession: sbGetSession,
+    getUser: sbGetUser,
+    signInWithEmail: sbSignInWithEmail,
+    signInWithPassword: sbSignInWithPassword,
+    signUpWithPassword: sbSignUpWithPassword,
+    signOut: sbSignOut,
+
+    // membership
+    myUnitMemberships: sbMyUnitMemberships,
+    myUnitProfile: sbMyUnitProfile,
+
+    // settings
+    getUnitSettings: sbGetUnitSettings,
+    upsertUnitSettings: sbUpsertUnitSettings,
+
+    // publishing + analytics
+    insertShiftSnapshot: sbInsertShiftSnapshot,
+    insertAnalyticsShiftMetrics: sbInsertAnalyticsShiftMetrics,
+
+    // unit state
+    getUnitState: sbGetUnitState,
+    upsertUnitState: sbUpsertUnitState,
+    subscribeUnitState: sbSubscribeUnitState
+  });
+
+  // Ensure alias always matches canonical (paranoia / future-proofing)
+  window.supabaseClient = window.sb.client;
+
+  // ------------------------
+  // Optional post-auth hook
+  // ------------------------
+  window.afterAuthRoute = async function (_session) {
+    try {
+      if (typeof window.setActiveUnitFromMembership === "function") {
+        await window.setActiveUnitFromMembership();
+      }
+      if (typeof window.renderAll === "function") window.renderAll();
+    } catch (e) {
+      console.warn("[afterAuthRoute] error", e);
+    }
   };
 })();

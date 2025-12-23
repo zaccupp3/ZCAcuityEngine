@@ -1,10 +1,9 @@
 // app/app.authGate.js
 // ---------------------------------------------------------
-// Full-page login gate (Email+Password) + Demo Environment.
-// Shows before app usage, then hides once user is authed.
-// Requires:
-// - window.supabase (from app.supabase.js)
-// - your normal init/render still runs; this just gates visibility
+// Full-page login gate (static HTML in index.html).
+// The ONLY gate. Controls visibility until authed.
+// Uses window.sb (Supabase wrapper) as canonical,
+// but also tolerates window.supabaseClient alias.
 // ---------------------------------------------------------
 
 (function () {
@@ -31,24 +30,38 @@
   function showGate() {
     if (!gate) return;
     gate.classList.add("show");
+    document.body.style.overflow = "hidden";
   }
 
   function hideGate() {
     if (!gate) return;
     gate.classList.remove("show");
+    document.body.style.overflow = "";
   }
 
-  function setAppVisible(isVisible) {
-    // If you want to hide EVERYTHING behind it, you can optionally dim the body.
-    // Keeping simple: gate is an overlay.
-    document.body.style.overflow = isVisible ? "" : "hidden";
+  function getClient() {
+    return window.sb?.client || window.supabaseClient || null;
+  }
+
+  function sbReady() {
+    const c = getClient();
+    return !!(c && c.auth);
+  }
+
+  async function waitForSupabase(maxMs = 8000) {
+    const start = Date.now();
+    while (!sbReady()) {
+      if (Date.now() - start > maxMs) return false;
+      await new Promise(r => setTimeout(r, 50));
+    }
+    return true;
   }
 
   async function getSession() {
     try {
-      const sb = window.supabase;
-      if (!sb?.auth?.getSession) return null;
-      const { data } = await sb.auth.getSession();
+      const c = getClient();
+      if (!c?.auth) return null;
+      const { data } = await c.auth.getSession();
       return data?.session || null;
     } catch {
       return null;
@@ -64,44 +77,48 @@
       return;
     }
 
-    // “Remember me”:
-    // Supabase JS will persist by default; we can force session-only by clearing on unload,
-    // but simplest approach: if unchecked, we sign out on tab close.
-    // We'll implement a session-only marker.
     try {
       localStorage.removeItem("__sessionOnly");
       if (!rememberEl?.checked) localStorage.setItem("__sessionOnly", "1");
+      localStorage.removeItem("__demoMode");
     } catch {}
 
     setMsg("Signing in…");
 
+    const ok = await waitForSupabase(8000);
+    if (!ok) {
+      setMsg("Supabase not ready yet. Refresh and try again.", "error");
+      return;
+    }
+
     try {
-      const sb = window.supabase;
-      if (!sb?.auth?.signInWithPassword) {
-        setMsg("Supabase auth not ready.", "error");
+      if (typeof window.sb?.signInWithPassword !== "function") {
+        setMsg("Auth helper missing (sb.signInWithPassword).", "error");
         return;
       }
 
-      const { data, error } = await sb.auth.signInWithPassword({ email, password });
+      const { error } = await window.sb.signInWithPassword(email, password);
       if (error) {
         setMsg(error.message || "Login failed.", "error");
         return;
       }
 
-      // Success
-      setMsg("Logged in. Loading your unit…", "ok");
-
+      setMsg("Logged in. Loading…", "ok");
       hideGate();
-      setAppVisible(true);
 
-      // If you have a unit bootstrap function, call it here.
-      // (You mentioned unit membership + RLS are already working.)
+      // Let dropdown refresh itself cleanly
+      if (window.authUI && typeof window.authUI.refreshAuthUI === "function") {
+        try { await window.authUI.refreshAuthUI(); } catch {}
+      }
+
+      // Optional post-auth hook
       if (typeof window.afterAuthRoute === "function") {
-        await window.afterAuthRoute(data?.session);
+        const session = await getSession();
+        await window.afterAuthRoute(session);
       }
     } catch (e) {
-      setMsg("Login error. Check console.", "error");
       console.error(e);
+      setMsg("Login error. Check console.", "error");
     }
   }
 
@@ -111,22 +128,26 @@
       setMsg("Enter your email first.", "error");
       return;
     }
+
+    const ok = await waitForSupabase(8000);
+    if (!ok) {
+      setMsg("Supabase not ready yet. Refresh and try again.", "error");
+      return;
+    }
+
     try {
-      const sb = window.supabase;
-      if (!sb?.auth?.resetPasswordForEmail) {
-        setMsg("Reset not available yet.", "error");
-        return;
-      }
+      setMsg("Sending password reset email…");
 
-      // IMPORTANT: set this to your deployed URL (Vercel) + hash route if you use it.
-      // This should point to a page that handles the recovery flow.
-      const redirectTo = window.location.origin + window.location.pathname + "#reset";
+      const c = getClient();
+      const { error } = await c.auth.resetPasswordForEmail(email, {
+        redirectTo: window.location.origin
+      });
 
-      const { error } = await sb.auth.resetPasswordForEmail(email, { redirectTo });
       if (error) {
         setMsg(error.message || "Could not send reset email.", "error");
         return;
       }
+
       setMsg("Reset email sent. Check inbox.", "ok");
     } catch (e) {
       console.error(e);
@@ -135,27 +156,29 @@
   }
 
   function onDemo() {
-    // Mark demo mode and route into app without auth.
     try {
       localStorage.setItem("__demoMode", "1");
+      localStorage.removeItem("__sessionOnly");
+      window.demoMode = true;
     } catch {}
 
     hideGate();
-    setAppVisible(true);
 
-    // Optional: load demo unit / demo dataset
+    if (window.authUI && typeof window.authUI.refreshAuthUI === "function") {
+      try { window.authUI.refreshAuthUI(); } catch {}
+    }
+
     if (typeof window.loadDemoEnvironment === "function") {
       window.loadDemoEnvironment();
     }
   }
 
   function setupSessionOnlyBehavior() {
-    // If Remember Me unchecked, sign out when tab/window closes.
     window.addEventListener("beforeunload", async () => {
       try {
         if (localStorage.getItem("__sessionOnly") !== "1") return;
-        const sb = window.supabase;
-        if (sb?.auth?.signOut) await sb.auth.signOut();
+        if (!sbReady()) return;
+        if (window.sb?.signOut) await window.sb.signOut();
       } catch {}
     });
   }
@@ -171,7 +194,6 @@
       });
     }
 
-    // Enter submits
     [emailEl, pwEl].forEach(el => {
       if (!el) return;
       el.addEventListener("keydown", (e) => {
@@ -184,33 +206,34 @@
     wireUI();
     setupSessionOnlyBehavior();
 
-    // Demo mode shortcut
+    // Demo shortcut
     try {
       if (localStorage.getItem("__demoMode") === "1") {
+        window.demoMode = true;
         hideGate();
-        setAppVisible(true);
         if (typeof window.loadDemoEnvironment === "function") window.loadDemoEnvironment();
         return;
       }
     } catch {}
 
-    // If already authed, skip gate
+    // Wait briefly so we don't flash errors
+    await waitForSupabase(8000);
+
     const session = await getSession();
     if (session) {
       hideGate();
-      setAppVisible(true);
+      if (window.authUI && typeof window.authUI.refreshAuthUI === "function") {
+        try { await window.authUI.refreshAuthUI(); } catch {}
+      }
       if (typeof window.afterAuthRoute === "function") {
         await window.afterAuthRoute(session);
       }
       return;
     }
 
-    // Otherwise show login gate
-    setAppVisible(false);
     showGate();
   }
 
-  // Boot after DOM is ready
   if (document.readyState === "loading") {
     document.addEventListener("DOMContentLoaded", bootGate);
   } else {
