@@ -11,9 +11,69 @@
 // ✅ Adds continuous Sync Status UI:
 // - Pending / Syncing / Synced / Error
 // - Updates on edit (saveState), on publish start/end, and on realtime apply
+//
+// ✅ Adds boot-time loading overlay with step-based % (milestones)
+// - Avoids “it’s stuck” feeling during session/membership/unit_state/realtime/render
 
 window.addEventListener("DOMContentLoaded", async () => {
   console.log("APP INIT: Starting initialization…");
+
+  // -----------------------------
+  // Boot loader overlay (step-based %)
+  // -----------------------------
+  let __bootDone = false;
+  let __bootShown = false;
+
+  function bootLoaderShow() {
+    const el = document.getElementById("bootLoader");
+    if (!el) return;
+    el.style.display = "flex";
+    __bootShown = true;
+  }
+
+  function bootLoaderHide() {
+    const el = document.getElementById("bootLoader");
+    if (!el) return;
+    el.style.display = "none";
+  }
+
+  function bootLoaderSet(pct, msg) {
+    const bar = document.getElementById("bootLoaderBar");
+    const txt = document.getElementById("bootLoaderMsg");
+    const p = document.getElementById("bootLoaderPct");
+    const clamped = Math.max(0, Math.min(100, Number(pct) || 0));
+    if (bar) bar.style.width = `${clamped}%`;
+    if (p) p.textContent = `${Math.round(clamped)}%`;
+    if (txt && msg) txt.textContent = msg;
+  }
+
+  // Don’t flash loader on fast loads: show only if still booting after 200ms
+  setTimeout(() => {
+    if (__bootDone) return;
+    // If demo mode, we still can show briefly, but we’ll finish fast.
+    bootLoaderShow();
+    bootLoaderSet(5, "Starting…");
+  }, 200);
+
+  function bootStep(pct, msg) {
+    // If we haven’t shown yet but the load is taking longer, show immediately on first meaningful step.
+    if (!__bootShown && !__bootDone) bootLoaderShow();
+    bootLoaderSet(pct, msg);
+  }
+
+  function bootFinish() {
+    __bootDone = true;
+    // If never shown (fast), nothing to hide.
+    if (!__bootShown) return;
+    bootLoaderSet(100, "Ready");
+    setTimeout(() => bootLoaderHide(), 250);
+  }
+
+  // (Optional) expose for other files later (authGate/authUI) if you choose
+  window.bootProgress = {
+    step: bootStep,
+    done: bootFinish
+  };
 
   // -----------------------------
   // Safe helpers
@@ -105,20 +165,17 @@ window.addEventListener("DOMContentLoaded", async () => {
 
     if (!dot || !text || !meta || !pill) return;
 
-    // Default colors
     let dotColor = "#94a3b8"; // slate
     let label = "Sync: —";
 
-    if (status === "pending") { dotColor = "#fbbf24"; label = "Sync: Pending…"; }       // amber
-    if (status === "syncing") { dotColor = "#3b82f6"; label = "Sync: Syncing…"; }       // blue
-    if (status === "synced")  { dotColor = "#22c55e"; label = "Sync: Synced"; }         // green
-    if (status === "error")   { dotColor = "#ef4444"; label = "Sync: Error"; }          // red
+    if (status === "pending") { dotColor = "#fbbf24"; label = "Sync: Pending…"; }
+    if (status === "syncing") { dotColor = "#3b82f6"; label = "Sync: Syncing…"; }
+    if (status === "synced")  { dotColor = "#22c55e"; label = "Sync: Synced"; }
+    if (status === "error")   { dotColor = "#ef4444"; label = "Sync: Error"; }
 
     dot.style.background = dotColor;
     text.textContent = label;
     meta.textContent = metaText || "";
-
-    // Tooltip shows error detail if any
     pill.title = errorText || "";
   }
 
@@ -137,7 +194,7 @@ window.addEventListener("DOMContentLoaded", async () => {
     else setSyncUI("idle", lastTxt);
   }
 
-  // Create pill early (so user sees feedback even before auth finishes)
+  // Create pill early
   setSyncStatus(window.__cloud.sync.status || "idle");
 
   // -----------------------------
@@ -163,7 +220,6 @@ window.addEventListener("DOMContentLoaded", async () => {
     };
   }
 
-  // Apply a board snapshot into window globals
   function applySnapshotToWindow(state) {
     const s = state && typeof state === "object" ? state : {};
 
@@ -183,7 +239,6 @@ window.addEventListener("DOMContentLoaded", async () => {
     window.dischargeHistory = Array.isArray(s.dischargeHistory) ? s.dischargeHistory : [];
     window.nextDischargeId = typeof s.nextDischargeId === "number" ? s.nextDischargeId : 1;
 
-    // Ensure patient grid is valid and labels stay consistent
     try { if (typeof window.ensureDefaultPatients === "function") window.ensureDefaultPatients(); } catch {}
     try { if (typeof window.applyBedsToPatientRooms === "function") window.applyBedsToPatientRooms(); } catch {}
   }
@@ -206,7 +261,6 @@ window.addEventListener("DOMContentLoaded", async () => {
       return;
     }
 
-    // UI: publishing
     setSyncStatus("syncing");
 
     let userId = null;
@@ -231,10 +285,7 @@ window.addEventListener("DOMContentLoaded", async () => {
         return;
       }
 
-      // If DB returns version, keep it; otherwise keep our increment
       window.__cloud.unitStateVersion = (row && typeof row.version === "number") ? row.version : nextVersion;
-
-      // ✅ success -> synced
       setSyncStatus("synced", { lastSyncedAt: new Date() });
 
       if (reason) console.log(`[cloud] published unit_state (${reason}) v=${window.__cloud.unitStateVersion}`);
@@ -246,8 +297,6 @@ window.addEventListener("DOMContentLoaded", async () => {
 
   function publishUnitStateDebounced(reason = "") {
     publishQueued = true;
-
-    // UI: pending immediately (this is the “continuous” feel)
     setSyncStatus("pending");
 
     if (publishTimer) return;
@@ -256,7 +305,7 @@ window.addEventListener("DOMContentLoaded", async () => {
       if (!publishQueued) return;
       publishQueued = false;
       await publishUnitStateNow(reason || "debounced");
-    }, 600); // debounce window (tune later)
+    }, 600);
   }
 
   async function loadUnitStateFromCloud(unitId) {
@@ -271,18 +320,12 @@ window.addEventListener("DOMContentLoaded", async () => {
     const { row, error } = await window.sb.getUnitState(String(unitId));
     if (error) return { ok: false, error };
 
-    // If row doesn't exist yet for this unit, do not wipe local state. We can publish initial state later.
     if (!row) return { ok: true, empty: true };
 
-    // Apply cloud state
     const cloudState = row.state || row.state_json || row || {};
-    // Prefer .state if present, else allow older shapes
     applySnapshotToWindow(cloudState.state || cloudState);
 
-    // Track version if present
     if (typeof row.version === "number") window.__cloud.unitStateVersion = row.version;
-
-    // UI: mark synced on load
     setSyncStatus("synced", { lastSyncedAt: new Date() });
 
     return { ok: true, row };
@@ -307,17 +350,14 @@ window.addEventListener("DOMContentLoaded", async () => {
 
     unsubscribeUnitState();
 
-    // Subscribe and apply changes
     window.__cloud.unitStateChannel = window.sb.subscribeUnitState(String(unitId), async () => {
       try {
-        // safest is to re-fetch row for this unit
         const { row, error } = await window.sb.getUnitState(String(unitId));
         if (error || !row) return;
 
         const incomingV = typeof row.version === "number" ? row.version : 0;
         const localV = typeof window.__cloud.unitStateVersion === "number" ? window.__cloud.unitStateVersion : 0;
 
-        // Only apply if it's newer than what we have
         if (incomingV > localV) {
           window.__cloud.unitStateVersion = incomingV;
 
@@ -325,8 +365,6 @@ window.addEventListener("DOMContentLoaded", async () => {
           applySnapshotToWindow(st.state || st);
 
           refreshAllUI();
-
-          // ✅ realtime apply counts as “synced”
           setSyncStatus("synced", { lastSyncedAt: new Date() });
 
           console.log(`[cloud] applied incoming unit_state v=${incomingV}`);
@@ -337,7 +375,6 @@ window.addEventListener("DOMContentLoaded", async () => {
     });
   }
 
-  // Expose a minimal API other scripts can call
   window.cloudSync = {
     loadUnitStateFromCloud,
     subscribeUnitState,
@@ -349,22 +386,16 @@ window.addEventListener("DOMContentLoaded", async () => {
   // -----------------------------
   // BOOT (do not assume local is canonical)
   // -----------------------------
+  bootStep(10, "Preparing local state…");
 
-  // Ensure base patient structure exists (safe defaults)
   try { if (typeof window.ensureDefaultPatients === "function") window.ensureDefaultPatients(); } catch {}
-
-  // Load localStorage as fallback/bootstrap for now,
-  // but cloud will overwrite once we fetch unit_state.
   try { if (typeof window.loadStateFromStorage === "function") window.loadStateFromStorage(); } catch {}
 
   // Wrap saveState() so existing UI actions trigger cloud publish too
   if (!window.__cloud.__saveWrapped && typeof window.saveState === "function") {
     const originalSaveState = window.saveState;
     window.saveState = function wrappedSaveState() {
-      // keep existing behavior (local cache)
       try { originalSaveState(); } catch {}
-
-      // publish to cloud (charge/admin/owner only)
       try { publishUnitStateDebounced("saveState"); } catch {}
     };
     window.__cloud.__saveWrapped = true;
@@ -373,6 +404,8 @@ window.addEventListener("DOMContentLoaded", async () => {
   // -----------------------------
   // MULTI-UNIT BOOTSTRAP
   // -----------------------------
+  bootStep(25, "Loading your units…");
+
   if (sbReady() && window.refreshMyUnits && typeof window.refreshMyUnits === "function") {
     try {
       const res = await window.refreshMyUnits();
@@ -385,6 +418,7 @@ window.addEventListener("DOMContentLoaded", async () => {
   }
 
   // Ensure active unit settings are loaded (your existing behavior)
+  bootStep(45, "Selecting active unit…");
   if (window.activeUnitId && window.setActiveUnit && typeof window.setActiveUnit === "function") {
     try {
       await window.setActiveUnit(window.activeUnitId, window.activeUnitRole || null);
@@ -397,24 +431,30 @@ window.addEventListener("DOMContentLoaded", async () => {
   // CLOUD LOAD + REALTIME SUBSCRIBE (canonical)
   // -----------------------------
   if (sbReady() && window.activeUnitId) {
+    bootStep(65, "Syncing unit state…");
     try {
       const res = await loadUnitStateFromCloud(window.activeUnitId);
 
-      // If no row exists yet for this unit, you can seed it from current state (charge/admin/owner only)
       if (res?.ok && res?.empty) {
         console.log("[cloud] No unit_state row found yet; will publish initial state when eligible.");
         publishUnitStateDebounced("seed-if-empty");
       }
 
+      bootStep(85, "Connecting realtime…");
       await subscribeUnitState(window.activeUnitId);
     } catch (e) {
       console.warn("[init] cloud load/subscribe failed", e);
     }
+  } else {
+    // If no cloud, we’re effectively ready after local + renders
+    bootStep(70, "Offline/demo mode…");
   }
 
   // -----------------------------
   // STAFFING INIT (if empty, create defaults)
   // -----------------------------
+  bootStep(92, "Preparing staffing & assignments…");
+
   const currentNurseCountSel = document.getElementById("currentNurseCount");
   const incomingNurseCountSel = document.getElementById("incomingNurseCount");
   const currentPcaCountSel = document.getElementById("currentPcaCount");
@@ -452,16 +492,15 @@ window.addEventListener("DOMContentLoaded", async () => {
     renderIncomingPcaList();
   }
 
-  // PCA shift selector
   const shiftSel = document.getElementById("pcaShift");
   if (shiftSel) shiftSel.value = pcaShift;
 
-  // Autopopulate LIVE assignment if empty
   if (typeof autoPopulateLiveAssignments === "function") {
     autoPopulateLiveAssignments();
   }
 
   // Initial renders
+  bootStep(97, "Rendering UI…");
   refreshAllUI();
 
   // Tab fix
@@ -470,5 +509,6 @@ window.addEventListener("DOMContentLoaded", async () => {
     showTab("staffingTab", firstTabBtn);
   }
 
+  bootFinish();
   console.log("APP INIT: Initialization complete.");
 });
