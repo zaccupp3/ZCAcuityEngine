@@ -5,16 +5,12 @@
 // - Optionally publish analytics metrics (analytics_shift_metrics)
 // - Then promote Oncoming -> Current (your existing workflow)
 // - Guards: role-based, active unit required, SB ready
-//
-// Notes:
-// - Expects button: #btnFinalizeShift
-// - Expects inputs: #finalizeShiftDate, #finalizeShiftType
-// - Uses window.sb.insertShiftSnapshot / insertAnalyticsShiftMetrics if present
-// - Uses existing window.finalizeShiftChange() if present (your promote/swap logic)
 // ---------------------------------------------------------
 
 (function () {
   const $ = (id) => document.getElementById(id);
+
+  let __finalizeInFlight = false;
 
   function sbReady() {
     return !!(window.sb && window.sb.client);
@@ -136,9 +132,6 @@
 
     const currentChargeName = ($("currentChargeName")?.value || "").trim();
 
-    // ✅ Your schema stores payload inside JSONB columns:
-    // - shift_snapshots.state (jsonb)
-    // - analytics_shift_metrics.metrics (jsonb)
     const snapshotState = {
       unit_id: unitId,
       shift_date,
@@ -167,7 +160,6 @@
       return { ok: false, error };
     }
 
-    // Optional analytics write (only if helper exists)
     if (typeof window.sb.insertAnalyticsShiftMetrics === "function") {
       try {
         const metricsPayload = {
@@ -194,15 +186,17 @@
   }
 
   async function handleFinalizeClick() {
+    const btn = $("btnFinalizeShift");
+
+    // ✅ Single-flight guard (prevents double submit)
+    if (__finalizeInFlight) return;
+    __finalizeInFlight = true;
+
     try {
-      const btn = $("btnFinalizeShift");
       if (btn) btn.disabled = true;
 
       const pub = await publishShiftSnapshot();
-      if (!pub.ok) {
-        if (btn) btn.disabled = false;
-        return;
-      }
+      if (!pub.ok) return;
 
       if (typeof window.finalizeShiftChange === "function") {
         window.finalizeShiftChange();
@@ -219,8 +213,10 @@
     } catch (e) {
       console.warn("[finalize] unexpected error", e);
       setMsg(`Finalize error: ${String(e)}`, true);
-      const btn = $("btnFinalizeShift");
-      if (btn) btn.disabled = false;
+    } finally {
+      __finalizeInFlight = false;
+      // re-enable based on eligibility rules
+      updateFinalizeButtonState();
     }
   }
 
@@ -243,7 +239,7 @@
     const unitId = activeUnitId();
     const role = activeRole();
 
-    const ok = !!unitId && canWriteRole(role) && sbReady();
+    const ok = !!unitId && canWriteRole(role) && sbReady() && !__finalizeInFlight;
     btn.disabled = !ok;
 
     btn.style.opacity = ok ? "1" : "0.55";
