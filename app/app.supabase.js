@@ -11,20 +11,23 @@
 //   so other modules never end up with stale references.
 //
 // ✅ NEW (THIS UPDATE):
-// - insertStaffShiftMetrics(rows[]) helper for staff_shift_metrics
+// - upsertStaffShiftMetrics(rows[]) helper (anti-duplicate)
 
 (function () {
   const SUPABASE_URL = window.SUPABASE_URL || "";
   const SUPABASE_ANON_KEY = window.SUPABASE_ANON_KEY || "";
 
+  // supabase-js UMD exposes `window.supabase` as the library (with createClient)
   const supabaseLib = window.supabase;
 
+  // Always keep a stable sb object reference
   window.sb = window.sb || {};
 
   function markNotReady(reason) {
     console.warn(reason);
     window.sb.client = null;
     window.supabaseClient = null;
+    // optional marker for debugging
     window.sb.__ready = false;
   }
 
@@ -38,6 +41,7 @@
     return;
   }
 
+  // If client already exists, reuse it (prevents accidental double-init)
   let client = window.sb.client;
   if (!client) {
     client = supabaseLib.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
@@ -45,8 +49,11 @@
     });
   }
 
+  // Canonical + alias (same object)
   window.sb.client = client;
   window.supabaseClient = client;
+
+  // optional marker for debugging / readiness checks
   window.sb.__ready = true;
 
   // ------------------------
@@ -140,13 +147,11 @@
 
   // ------------------------
   // Shift publishing + analytics
-  // ✅ UPDATED: use UPSERT to prevent duplicates
-  // Requires a unique constraint on (unit_id, shift_date, shift_type)
   // ------------------------
   async function sbInsertShiftSnapshot(payload) {
     const { data, error } = await client
       .from("shift_snapshots")
-      .upsert(payload, { onConflict: "unit_id,shift_date,shift_type" })
+      .insert(payload)
       .select("*")
       .single();
 
@@ -156,31 +161,34 @@
   async function sbInsertAnalyticsShiftMetrics(payload) {
     const { data, error } = await client
       .from("analytics_shift_metrics")
-      .upsert(payload, { onConflict: "unit_id,shift_date,shift_type" })
+      .insert(payload)
       .select("*")
       .single();
 
     return { row: data || null, error };
   }
 
-  // ✅ Staff metrics (batch insert)
-  // Keeping as insert for now, but you can swap to upsert later
-  // once you add a unique constraint (recommended) like:
-  // unique (unit_id, shift_date, shift_type, staff_id, role)
-  async function sbInsertStaffShiftMetrics(rows) {
+  // ------------------------
+  // ✅ Staff metrics (batch UPSERT - anti-duplicate)
+  // Requires a unique constraint/index on:
+  // (unit_id, shift_date, shift_type, role, staff_id)
+  // ------------------------
+  async function sbUpsertStaffShiftMetrics(rows) {
     const payload = Array.isArray(rows) ? rows : [];
     if (!payload.length) return { rows: [], error: null };
 
     const { data, error } = await client
       .from("staff_shift_metrics")
-      .insert(payload)
+      .upsert(payload, { onConflict: "unit_id,shift_date,shift_type,role,staff_id" })
       .select("*");
 
     return { rows: Array.isArray(data) ? data : [], error };
   }
 
   // ------------------------
-  // Unit Staff helpers (autosuggest)
+  // ✅ Unit Staff helpers (for autosuggest + de-dupe)
+  // Table columns confirmed:
+  // id, unit_id, role, display_name, display_name_norm, is_active, created_at
   // ------------------------
   async function sbListUnitStaff(unitId, role, limit = 50) {
     const uid = String(unitId || "");
@@ -206,6 +214,7 @@
     if (!uid || !r) return { rows: [], error: new Error("Missing unitId or invalid role (RN/PCA)") };
     if (!query) return { rows: [], error: null };
 
+    // Search against display_name_norm (NOT normalized_name)
     const { data, error } = await client
       .from("unit_staff")
       .select("id, unit_id, role, display_name, display_name_norm, is_active, created_at")
@@ -228,6 +237,7 @@
     if (!uid || !r) return { row: null, error: new Error("Missing unitId or invalid role (RN/PCA)") };
     if (!dn) return { row: null, error: new Error("Missing displayName") };
 
+    // 1) try find existing by normalized name
     const found = await client
       .from("unit_staff")
       .select("id, unit_id, role, display_name, display_name_norm, is_active, created_at")
@@ -239,6 +249,7 @@
     if (found.error) return { row: null, error: found.error };
     if (Array.isArray(found.data) && found.data[0]) return { row: found.data[0], error: null };
 
+    // 2) insert new
     const ins = await client
       .from("unit_staff")
       .insert([{
@@ -257,7 +268,7 @@
   // ------------------------
   // Unit State (cloud) helpers
   // ------------------------
-  const UNIT_STATE_TABLE = "unit_state";
+  const UNIT_STATE_TABLE = "unit_state"; // expects: unit_id, state(jsonb), version(int), updated_by, updated_at
 
   function hasClient() {
     return !!(client && typeof client.from === "function");
@@ -292,6 +303,7 @@
     if (!payload || !payload.unit_id) return { row: null, error: new Error("Missing payload.unit_id") };
 
     const uid = String(payload.unit_id);
+
     const next = {
       ...payload,
       unit_id: uid,
@@ -324,6 +336,7 @@
       return { unsubscribe() {} };
     }
 
+    // kill old channel if exists (store it on sb, which is now stable)
     try {
       if (window.sb.__unitStateChannel && typeof window.sb.__unitStateChannel.unsubscribe === "function") {
         window.sb.__unitStateChannel.unsubscribe();
@@ -354,7 +367,11 @@
     };
   }
 
+  // ------------------------
+  // Expose API (extend sb; do NOT replace it)
+  // ------------------------
   Object.assign(window.sb, {
+    // client
     client,
 
     // auth
@@ -377,10 +394,10 @@
     insertShiftSnapshot: sbInsertShiftSnapshot,
     insertAnalyticsShiftMetrics: sbInsertAnalyticsShiftMetrics,
 
-    // staff metrics
-    insertStaffShiftMetrics: sbInsertStaffShiftMetrics,
+    // ✅ staff metrics (UPSERT)
+    upsertStaffShiftMetrics: sbUpsertStaffShiftMetrics,
 
-    // staff directory
+    // ✅ staff directory
     listUnitStaff: sbListUnitStaff,
     searchUnitStaff: sbSearchUnitStaff,
     ensureUnitStaff: sbEnsureUnitStaff,
@@ -391,8 +408,12 @@
     subscribeUnitState: sbSubscribeUnitState
   });
 
+  // Ensure alias always matches canonical (paranoia / future-proofing)
   window.supabaseClient = window.sb.client;
 
+  // ------------------------
+  // Optional post-auth hook
+  // ------------------------
   window.afterAuthRoute = async function (_session) {
     try {
       if (typeof window.setActiveUnitFromMembership === "function") {

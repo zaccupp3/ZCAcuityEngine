@@ -3,14 +3,19 @@
 // FINALIZE / SHIFT CHANGE (Dec 2025)
 // - Publish a shift snapshot to Supabase (shift_snapshots)
 // - Optionally publish analytics metrics (analytics_shift_metrics)
+// - ✅ Publish per-staff metrics (staff_shift_metrics) via UPSERT (anti-duplicate)
 // - Then promote Oncoming -> Current (your existing workflow)
 // - Guards: role-based, active unit required, SB ready
+//
+// Notes:
+// - Expects button: #btnFinalizeShift
+// - Expects inputs: #finalizeShiftDate, #finalizeShiftType
+// - Uses window.sb.insertShiftSnapshot / insertAnalyticsShiftMetrics / upsertStaffShiftMetrics if present
+// - Uses existing window.finalizeShiftChange() if present (your promote/swap logic)
 // ---------------------------------------------------------
 
 (function () {
   const $ = (id) => document.getElementById(id);
-
-  let __finalizeInFlight = false;
 
   function sbReady() {
     return !!(window.sb && window.sb.client);
@@ -102,6 +107,93 @@
     }
   }
 
+  // ------------------------
+  // ✅ Build per-staff metrics rows (RN + PCA) for staff_shift_metrics
+  // Requires:
+  // - unit_staff exists (ensureUnitStaff returns id)
+  // - staff_shift_metrics has columns:
+  //   unit_id, shift_date, shift_type, role, staff_id, display_name, created_by, metrics(jsonb)
+  // ------------------------
+  async function buildStaffMetricsRows(unitId, shift_date, shift_type, created_by) {
+    const rows = [];
+
+    const canScoreRn = typeof window.getNurseLoadScore === "function";
+    const canScorePca = typeof window.getPcaLoadScore === "function";
+
+    // RN rows (ONCOMING board = incomingNurses)
+    (Array.isArray(window.incomingNurses) ? window.incomingNurses : []).forEach(n => {
+      const name = String(n?.name || "").trim();
+      if (!name) return;
+
+      const patientIds = Array.isArray(n.patients) ? n.patients.slice() : [];
+      const patient_count = patientIds.length;
+
+      const load_score = canScoreRn ? (window.getNurseLoadScore(n) || 0) : 0;
+
+      const drivers = (typeof window.getRnDriversSummaryFromPatientIds === "function")
+        ? window.getRnDriversSummaryFromPatientIds(patientIds)
+        : "";
+
+      rows.push({
+        unit_id: unitId,
+        shift_date,
+        shift_type,
+        role: "RN",
+        staff_id: null,            // filled below
+        display_name: name,
+        created_by,
+        metrics: {
+          patient_count,
+          load_score,
+          drivers,
+          patient_ids: patientIds
+        }
+      });
+    });
+
+    // PCA rows (ONCOMING board = incomingPcas)
+    (Array.isArray(window.incomingPcas) ? window.incomingPcas : []).forEach(p => {
+      const name = String(p?.name || "").trim();
+      if (!name) return;
+
+      const patientIds = Array.isArray(p.patients) ? p.patients.slice() : [];
+      const patient_count = patientIds.length;
+
+      const load_score = canScorePca ? (window.getPcaLoadScore(p) || 0) : 0;
+
+      const drivers = (typeof window.getPcaDriversSummaryFromPatientIds === "function")
+        ? window.getPcaDriversSummaryFromPatientIds(patientIds)
+        : "";
+
+      rows.push({
+        unit_id: unitId,
+        shift_date,
+        shift_type,
+        role: "PCA",
+        staff_id: null,            // filled below
+        display_name: name,
+        created_by,
+        metrics: {
+          patient_count,
+          load_score,
+          drivers,
+          patient_ids: patientIds
+        }
+      });
+    });
+
+    // Resolve staff_id via unit_staff de-dupe
+    if (window.sb && typeof window.sb.ensureUnitStaff === "function") {
+      for (const r of rows) {
+        const ensured = await window.sb.ensureUnitStaff(unitId, r.role, r.display_name);
+        if (ensured?.row?.id) r.staff_id = ensured.row.id;
+      }
+    }
+
+    // Only keep rows that have staff_id
+    return rows.filter(r => !!r.staff_id);
+  }
+
   async function publishShiftSnapshot() {
     const unitId = activeUnitId();
     const role = activeRole();
@@ -132,6 +224,7 @@
 
     const currentChargeName = ($("currentChargeName")?.value || "").trim();
 
+    // ✅ Snapshot schema: JSONB state
     const snapshotState = {
       unit_id: unitId,
       shift_date,
@@ -160,6 +253,7 @@
       return { ok: false, error };
     }
 
+    // Optional analytics write
     if (typeof window.sb.insertAnalyticsShiftMetrics === "function") {
       try {
         const metricsPayload = {
@@ -181,22 +275,35 @@
       }
     }
 
+    // ✅ NEW: publish per-staff metrics (UPSERT to avoid duplicates)
+    if (window.sb && typeof window.sb.upsertStaffShiftMetrics === "function") {
+      try {
+        const staffRows = await buildStaffMetricsRows(unitId, shift_date, shift_type, created_by);
+        if (staffRows.length) {
+          const res = await window.sb.upsertStaffShiftMetrics(staffRows);
+          if (res?.error) console.warn("[finalize] staff_shift_metrics upsert error", res.error);
+        }
+      } catch (e) {
+        console.warn("[finalize] staff_shift_metrics upsert failed", e);
+      }
+    } else {
+      console.warn("[finalize] sb.upsertStaffShiftMetrics missing (skipping staff metrics publish)");
+    }
+
     setMsg("Snapshot published. Finalizing shift change…");
     return { ok: true, row };
   }
 
   async function handleFinalizeClick() {
-    const btn = $("btnFinalizeShift");
-
-    // ✅ Single-flight guard (prevents double submit)
-    if (__finalizeInFlight) return;
-    __finalizeInFlight = true;
-
     try {
+      const btn = $("btnFinalizeShift");
       if (btn) btn.disabled = true;
 
       const pub = await publishShiftSnapshot();
-      if (!pub.ok) return;
+      if (!pub.ok) {
+        if (btn) btn.disabled = false;
+        return;
+      }
 
       if (typeof window.finalizeShiftChange === "function") {
         window.finalizeShiftChange();
@@ -213,10 +320,8 @@
     } catch (e) {
       console.warn("[finalize] unexpected error", e);
       setMsg(`Finalize error: ${String(e)}`, true);
-    } finally {
-      __finalizeInFlight = false;
-      // re-enable based on eligibility rules
-      updateFinalizeButtonState();
+      const btn = $("btnFinalizeShift");
+      if (btn) btn.disabled = false;
     }
   }
 
@@ -239,12 +344,12 @@
     const unitId = activeUnitId();
     const role = activeRole();
 
-    const ok = !!unitId && canWriteRole(role) && sbReady() && !__finalizeInFlight;
+    const ok = !!unitId && canWriteRole(role) && sbReady();
     btn.disabled = !ok;
 
     btn.style.opacity = ok ? "1" : "0.55";
     btn.title = ok
-      ? "Publishes Oncoming snapshot + analytics, then swaps Live ← Oncoming"
+      ? "Publishes Oncoming snapshot + analytics + staff metrics, then swaps Live ← Oncoming"
       : "Requires owner/admin/charge on the active unit (and Supabase ready).";
   }
 
