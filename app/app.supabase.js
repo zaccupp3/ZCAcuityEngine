@@ -10,18 +10,15 @@
 // - NEVER replace window.sb object (only extend it)
 //   so other modules never end up with stale references.
 //
-// ✅ This revision:
-// - shift_snapshots + analytics_shift_metrics now UPSERT (prevents duplicates)
-// - staff_shift_metrics batch insert kept (optionally you can also upsert later)
+// ✅ This version:
+// - UPSERT shift_snapshots + analytics_shift_metrics to prevent duplicates
+// - UPSERT staff_shift_metrics (batch) using your real column names
 
 (function () {
   const SUPABASE_URL = window.SUPABASE_URL || "";
   const SUPABASE_ANON_KEY = window.SUPABASE_ANON_KEY || "";
-
-  // supabase-js UMD exposes `window.supabase` as the library (with createClient)
   const supabaseLib = window.supabase;
 
-  // Always keep a stable sb object reference
   window.sb = window.sb || {};
 
   function markNotReady(reason) {
@@ -35,13 +32,11 @@
     markNotReady("[supabase] Missing SUPABASE_URL / SUPABASE_ANON_KEY.");
     return;
   }
-
   if (!supabaseLib || typeof supabaseLib.createClient !== "function") {
     markNotReady("[supabase] Supabase library not loaded yet (window.supabase.createClient missing).");
     return;
   }
 
-  // If client already exists, reuse it (prevents accidental double-init)
   let client = window.sb.client;
   if (!client) {
     client = supabaseLib.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
@@ -49,19 +44,12 @@
     });
   }
 
-  // Canonical + alias (same object)
   window.sb.client = client;
   window.supabaseClient = client;
   window.sb.__ready = true;
 
-  // ------------------------
-  // Small helpers
-  // ------------------------
   function normName(s) {
-    return String(s || "")
-      .trim()
-      .toLowerCase()
-      .replace(/\s+/g, " ");
+    return String(s || "").trim().toLowerCase().replace(/\s+/g, " ");
   }
 
   function safeRole(role) {
@@ -144,9 +132,11 @@
   }
 
   // ------------------------
-  // Shift publishing + analytics
+  // Shift publishing + analytics (✅ UPSERT to prevent duplicates)
+  // Unique constraints:
+  // - shift_snapshots: (unit_id, shift_date, shift_type)
+  // - analytics_shift_metrics: (unit_id, shift_date, shift_type)
   // ------------------------
-  // ✅ UPSERT (requires unique(unit_id, shift_date, shift_type))
   async function sbUpsertShiftSnapshot(payload) {
     const { data, error } = await client
       .from("shift_snapshots")
@@ -157,7 +147,6 @@
     return { row: data || null, error };
   }
 
-  // ✅ UPSERT (requires unique(unit_id, shift_date, shift_type))
   async function sbUpsertAnalyticsShiftMetrics(payload) {
     const { data, error } = await client
       .from("analytics_shift_metrics")
@@ -168,15 +157,22 @@
     return { row: data || null, error };
   }
 
-  // ✅ Staff metrics (batch insert)
-  // (If you add a unique constraint, we can convert this to upsert later too.)
-  async function sbInsertStaffShiftMetrics(rows) {
+  // ------------------------
+  // ✅ Staff metrics (batch UPSERT)
+  // Unique constraint confirmed:
+  // (unit_id, shift_date, shift_type, staff_id, role)
+  // Table columns confirmed:
+  // id, unit_id, shift_date, shift_type, staff_id, staff_name, role,
+  // patients_assigned, workload_score, hard_violations, hard_warnings,
+  // tag_counts(jsonb), details(jsonb), created_by, created_at
+  // ------------------------
+  async function sbUpsertStaffShiftMetrics(rows) {
     const payload = Array.isArray(rows) ? rows : [];
     if (!payload.length) return { rows: [], error: null };
 
     const { data, error } = await client
       .from("staff_shift_metrics")
-      .insert(payload)
+      .upsert(payload, { onConflict: "unit_id,shift_date,shift_type,staff_id,role" })
       .select("*");
 
     return { rows: Array.isArray(data) ? data : [], error };
@@ -265,7 +261,6 @@
   function hasClient() {
     return !!(client && typeof client.from === "function");
   }
-
   function safeUnitId(unitId) {
     return unitId ? String(unitId) : null;
   }
@@ -295,12 +290,7 @@
     if (!payload || !payload.unit_id) return { row: null, error: new Error("Missing payload.unit_id") };
 
     const uid = String(payload.unit_id);
-
-    const next = {
-      ...payload,
-      unit_id: uid,
-      updated_at: payload.updated_at || new Date().toISOString()
-    };
+    const next = { ...payload, unit_id: uid, updated_at: payload.updated_at || new Date().toISOString() };
 
     try {
       const { data, error } = await client
@@ -322,7 +312,6 @@
       console.warn("[cloud] subscribeUnitState: missing unitId");
       return { unsubscribe() {} };
     }
-
     if (!hasClient() || typeof client.channel !== "function") {
       console.warn("[cloud] subscribeUnitState: realtime not ready");
       return { unsubscribe() {} };
@@ -340,9 +329,7 @@
         "postgres_changes",
         { event: "*", schema: "public", table: UNIT_STATE_TABLE, filter: `unit_id=eq.${uid}` },
         (payload) => {
-          try {
-            if (typeof onChange === "function") onChange(payload);
-          } catch (e) {
+          try { if (typeof onChange === "function") onChange(payload); } catch (e) {
             console.warn("[cloud] onChange handler error", e);
           }
         }
@@ -351,11 +338,7 @@
 
     window.sb.__unitStateChannel = channel;
 
-    return {
-      unsubscribe() {
-        try { channel.unsubscribe(); } catch {}
-      }
-    };
+    return { unsubscribe() { try { channel.unsubscribe(); } catch {} } };
   }
 
   // ------------------------
@@ -384,8 +367,8 @@
     upsertShiftSnapshot: sbUpsertShiftSnapshot,
     upsertAnalyticsShiftMetrics: sbUpsertAnalyticsShiftMetrics,
 
-    // staff shift metrics
-    insertStaffShiftMetrics: sbInsertStaffShiftMetrics,
+    // ✅ staff metrics (UPSERT batch)
+    upsertStaffShiftMetrics: sbUpsertStaffShiftMetrics,
 
     // staff directory
     listUnitStaff: sbListUnitStaff,

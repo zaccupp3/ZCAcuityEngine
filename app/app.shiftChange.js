@@ -1,26 +1,14 @@
 // app/app.shiftChange.js
 // ---------------------------------------------------------
 // FINALIZE / SHIFT CHANGE (Dec 2025)
-// - Publish a shift snapshot to Supabase (shift_snapshots)
-// - Optionally publish analytics metrics (analytics_shift_metrics)
+// - Publish a shift snapshot to Supabase (shift_snapshots) ✅ UPSERT
+// - Publish analytics metrics (analytics_shift_metrics) ✅ UPSERT
+// - Publish staff-level metrics (staff_shift_metrics) ✅ UPSERT batch
 // - Then promote Oncoming -> Current (your existing workflow)
-// - Guards: role-based, active unit required, SB ready
-//
-// Notes:
-// - Expects button: #btnFinalizeShift
-// - Expects inputs: #finalizeShiftDate, #finalizeShiftType
-// - Uses window.sb.upsertShiftSnapshot / upsertAnalyticsShiftMetrics
-// - Uses existing window.finalizeShiftChange() if present
-//
-// ✅ This revision:
-// - prevents double-submit with inFlight guard
-// - uses UPSERT so same unit/date/type overwrites instead of duplicating
 // ---------------------------------------------------------
 
 (function () {
   const $ = (id) => document.getElementById(id);
-
-  let inFlight = false;
 
   function sbReady() {
     return !!(window.sb && window.sb.client);
@@ -66,11 +54,13 @@
     return (v === "day" || v === "night") ? v : "day";
   }
 
+  function safeArray(v) { return Array.isArray(v) ? v : []; }
+
   function computeTopTagsFromPatients(patients) {
     const counts = {};
     const add = (k) => { if (!k) return; counts[k] = (counts[k] || 0) + 1; };
 
-    (Array.isArray(patients) ? patients : []).forEach(p => {
+    safeArray(patients).forEach(p => {
       const obj = p?.acuityTags || p?.tagsObj || null;
       const arr = p?.tags || p?.acuity || null;
 
@@ -92,9 +82,8 @@
   }
 
   function computeTotalPatients(patients) {
-    const list = Array.isArray(patients) ? patients : [];
-    const nonEmpty = list.filter(p => !p?.isEmpty);
-    return nonEmpty.length;
+    const list = safeArray(patients);
+    return list.filter(p => p && !p.isEmpty).length;
   }
 
   function computeAdmitDischargeCountsFromState() {
@@ -112,6 +101,177 @@
     }
   }
 
+  // -------------------------
+  // Staff metrics helpers
+  // -------------------------
+  function countTagsForPatient(p) {
+    const out = {};
+    const add = (k) => { out[k] = (out[k] || 0) + 1; };
+
+    if (!p || p.isEmpty) return out;
+
+    if (p.tele) add("tele");
+    if (p.drip) add("drip");
+    if (p.nih) add("nih");
+    if (p.bg) add("bg");
+    if (p.ciwa) add("ciwa");
+    if (p.restraint) add("restraint");
+    if (p.sitter) add("sitter");
+    if (p.vpo) add("vpo");
+    if (p.isolation) add("isolation");
+    if (p.admit) add("admit");
+    if (p.lateDc) add("lateDc");
+
+    if (p.chg) add("chg");
+    if (p.foley) add("foley");
+    if (p.q2turns) add("q2turns");
+    if (p.heavy) add("heavy");
+    if (p.feeder) add("feeder");
+
+    return out;
+  }
+
+  function mergeCounts(a, b) {
+    const out = { ...(a || {}) };
+    Object.keys(b || {}).forEach(k => out[k] = (out[k] || 0) + (b[k] || 0));
+    return out;
+  }
+
+  function sumPatientsAssigned(owner) {
+    return safeArray(owner?.patients).filter(Boolean).length;
+  }
+
+  function getPatientObjectsForOwner(owner) {
+    const ids = safeArray(owner?.patients);
+    const getter = (typeof window.getPatientById === "function")
+      ? window.getPatientById
+      : (id) => safeArray(window.patients).find(p => Number(p?.id) === Number(id)) || null;
+
+    return ids.map(id => getter(id)).filter(p => p && !p.isEmpty);
+  }
+
+  function getHardEvalCountsForOwner(owner, ownersAll, role) {
+    // If your hard-rule evaluator exists, use it; otherwise return 0/0.
+    try {
+      if (typeof window.evaluateAssignmentHardRules !== "function") return { v: 0, w: 0 };
+      const map = window.evaluateAssignmentHardRules(ownersAll, role);
+      if (!map) return { v: 0, w: 0 };
+
+      const key = owner?.name || owner?.label || null;
+      const entry = (key && map[key]) ? map[key] : null;
+      const v = Array.isArray(entry?.violations) ? entry.violations.length : 0;
+      const w = Array.isArray(entry?.warnings) ? entry.warnings.length : 0;
+      return { v, w };
+    } catch {
+      return { v: 0, w: 0 };
+    }
+  }
+
+  async function ensureStaffId(unitId, role, staffName) {
+    // staff_shift_metrics.staff_id is uuid -> we map via unit_staff.id
+    if (!window.sb || typeof window.sb.ensureUnitStaff !== "function") return { id: null, error: new Error("Missing sb.ensureUnitStaff") };
+    const r = (String(role || "").toUpperCase() === "PCA") ? "PCA" : "RN";
+    const { row, error } = await window.sb.ensureUnitStaff(unitId, r, staffName);
+    return { id: row?.id || null, error };
+  }
+
+  async function publishStaffShiftMetrics(unitId, shift_date, shift_type, created_by) {
+    if (typeof window.sb.upsertStaffShiftMetrics !== "function") {
+      console.warn("[finalize] sb.upsertStaffShiftMetrics missing");
+      return { ok: true, rows: [] }; // don't block finalize
+    }
+
+    const rows = [];
+
+    const rnOwners = Array.isArray(window.incomingNurses) ? window.incomingNurses : [];
+    const pcaOwners = Array.isArray(window.incomingPcas) ? window.incomingPcas : [];
+
+    // RN rows
+    for (const rn of rnOwners) {
+      const staff_name = String(rn?.name || "").trim() || `RN ${rn?.id || ""}`.trim();
+      const { id: staff_id } = await ensureStaffId(unitId, "RN", staff_name);
+
+      const pts = getPatientObjectsForOwner(rn);
+      const tag_counts = pts.reduce((acc, p) => mergeCounts(acc, countTagsForPatient(p)), {});
+      const workload_score = (typeof window.getNurseLoadScore === "function") ? (Number(window.getNurseLoadScore(rn)) || 0) : 0;
+
+      const { v, w } = getHardEvalCountsForOwner(rn, rnOwners, "nurse");
+
+      rows.push({
+        unit_id: unitId,
+        shift_date,
+        shift_type,
+        staff_id,
+        staff_name,
+        role: "RN",
+        patients_assigned: pts.length,
+        workload_score,
+        hard_violations: v,
+        hard_warnings: w,
+        tag_counts,
+        details: {
+          patient_ids: safeArray(rn?.patients).slice(),
+          drivers: (typeof window.getRnDriversSummaryFromPatientIds === "function")
+            ? window.getRnDriversSummaryFromPatientIds(rn?.patients || [])
+            : null
+        },
+        created_by
+      });
+    }
+
+    // PCA rows
+    for (const pc of pcaOwners) {
+      const staff_name = String(pc?.name || "").trim() || `PCA ${pc?.id || ""}`.trim();
+      const { id: staff_id } = await ensureStaffId(unitId, "PCA", staff_name);
+
+      const pts = getPatientObjectsForOwner(pc);
+      const tag_counts = pts.reduce((acc, p) => mergeCounts(acc, countTagsForPatient(p)), {});
+      const workload_score = (typeof window.getPcaLoadScore === "function") ? (Number(window.getPcaLoadScore(pc)) || 0) : 0;
+
+      const { v, w } = getHardEvalCountsForOwner(pc, pcaOwners, "pca");
+
+      rows.push({
+        unit_id: unitId,
+        shift_date,
+        shift_type,
+        staff_id,
+        staff_name,
+        role: "PCA",
+        patients_assigned: pts.length,
+        workload_score,
+        hard_violations: v,
+        hard_warnings: w,
+        tag_counts,
+        details: {
+          patient_ids: safeArray(pc?.patients).slice(),
+          drivers: (typeof window.getPcaDriversSummaryFromPatientIds === "function")
+            ? window.getPcaDriversSummaryFromPatientIds(pc?.patients || [])
+            : null
+        },
+        created_by
+      });
+    }
+
+    // If staff_id is null for any row (should be rare), we still upsert;
+    // but your DB might require staff_id NOT NULL. If it is NOT NULL, we should filter.
+    const filtered = rows.filter(r => !!r.staff_id);
+    if (!filtered.length) {
+      console.warn("[finalize] no staff rows to write (missing staff_id?)");
+      return { ok: true, rows: [] };
+    }
+
+    const res = await window.sb.upsertStaffShiftMetrics(filtered);
+    if (res?.error) {
+      console.warn("[finalize] staff metrics upsert failed", res.error);
+      // don't hard-block finalize; we want snapshot to still publish
+      return { ok: false, error: res.error, rows: [] };
+    }
+    return { ok: true, rows: res.rows || [] };
+  }
+
+  // -------------------------
+  // Publish snapshot + analytics + staff metrics
+  // -------------------------
   async function publishShiftSnapshot() {
     const unitId = activeUnitId();
     const role = activeRole();
@@ -159,8 +319,7 @@
       shift_type,
       status: "published",
       state: snapshotState,
-      created_by,
-      updated_at: new Date().toISOString()
+      created_by
     };
 
     setMsg("Publishing shift snapshot…");
@@ -171,6 +330,7 @@
       return { ok: false, error };
     }
 
+    // Analytics UPSERT (optional)
     if (typeof window.sb.upsertAnalyticsShiftMetrics === "function") {
       try {
         const metricsPayload = {
@@ -178,13 +338,7 @@
           shift_date,
           shift_type,
           created_by,
-          metrics: {
-            version: 1,
-            total_pts,
-            admits,
-            discharges,
-            top_tags
-          }
+          metrics: { version: 1, total_pts, admits, discharges, top_tags }
         };
         await window.sb.upsertAnalyticsShiftMetrics(metricsPayload);
       } catch (e) {
@@ -192,22 +346,22 @@
       }
     }
 
+    // Staff metrics UPSERT (optional but we want it)
+    setMsg("Publishing staff metrics…");
+    await publishStaffShiftMetrics(unitId, shift_date, shift_type, created_by);
+
     setMsg("Snapshot published. Finalizing shift change…");
     return { ok: true, row };
   }
 
   async function handleFinalizeClick() {
-    if (inFlight) return;
-
-    const btn = $("btnFinalizeShift");
     try {
-      inFlight = true;
+      const btn = $("btnFinalizeShift");
       if (btn) btn.disabled = true;
 
       const pub = await publishShiftSnapshot();
       if (!pub.ok) {
         if (btn) btn.disabled = false;
-        inFlight = false;
         return;
       }
 
@@ -226,9 +380,8 @@
     } catch (e) {
       console.warn("[finalize] unexpected error", e);
       setMsg(`Finalize error: ${String(e)}`, true);
+      const btn = $("btnFinalizeShift");
       if (btn) btn.disabled = false;
-    } finally {
-      inFlight = false;
     }
   }
 
@@ -250,12 +403,12 @@
 
     const unitId = activeUnitId();
     const role = activeRole();
-    const ok = !!unitId && canWriteRole(role) && sbReady();
 
-    btn.disabled = !ok || inFlight;
-    btn.style.opacity = (ok && !inFlight) ? "1" : "0.55";
+    const ok = !!unitId && canWriteRole(role) && sbReady();
+    btn.disabled = !ok;
+    btn.style.opacity = ok ? "1" : "0.55";
     btn.title = ok
-      ? "Publishes snapshot + analytics, then swaps Live ← Oncoming"
+      ? "Publishes snapshot + analytics + staff metrics, then swaps Live ← Oncoming"
       : "Requires owner/admin/charge on the active unit (and Supabase ready).";
   }
 
