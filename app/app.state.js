@@ -9,6 +9,9 @@
 // - Switching units saves the current unit workspace and loads the next unit workspace.
 // - Room labels (patient.room) are updated from unitSettings.beds without wiping acuity/tags.
 // ---------------------------------------------------------
+//
+// ✅ NEW (THIS UPDATE):
+// - Persist RN/PCA staff_id through save/load (n.staff_id / p.staff_id)
 
 (function () {
   // ============ GLOBAL ARRAYS / VARS ============
@@ -230,6 +233,7 @@
 
         currentNurses: (window.currentNurses || []).map((n, i) => ({
           id: n.id ?? i + 1,
+          staff_id: n.staff_id || null,
           name: n.name,
           type: n.type,
           restrictions: n.restrictions || defaultRestrictions(),
@@ -238,6 +242,7 @@
 
         incomingNurses: (window.incomingNurses || []).map((n, i) => ({
           id: n.id ?? i + 1,
+          staff_id: n.staff_id || null,
           name: n.name,
           type: n.type,
           restrictions: n.restrictions || defaultRestrictions(),
@@ -246,6 +251,7 @@
 
         currentPcas: (window.currentPcas || []).map((p, i) => ({
           id: p.id ?? i + 1,
+          staff_id: p.staff_id || null,
           name: p.name,
           restrictions: p.restrictions || { noIso: false },
           patients: Array.isArray(p.patients) ? p.patients.slice() : []
@@ -253,6 +259,7 @@
 
         incomingPcas: (window.incomingPcas || []).map((p, i) => ({
           id: p.id ?? i + 1,
+          staff_id: p.staff_id || null,
           name: p.name,
           restrictions: p.restrictions || { noIso: false },
           patients: Array.isArray(p.patients) ? p.patients.slice() : []

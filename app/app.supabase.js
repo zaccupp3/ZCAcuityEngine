@@ -9,6 +9,9 @@
 //     window.supabaseClient (alias, same object)
 // - NEVER replace window.sb object (only extend it)
 //   so other modules never end up with stale references.
+//
+// ✅ NEW (THIS UPDATE):
+// - insertStaffShiftMetrics(rows[]) helper for staff_shift_metrics
 
 (function () {
   const SUPABASE_URL = window.SUPABASE_URL || "";
@@ -163,6 +166,19 @@
       .single();
 
     return { row: data || null, error };
+  }
+
+  // ✅ NEW: Staff metrics (batch insert)
+  async function sbInsertStaffShiftMetrics(rows) {
+    const payload = Array.isArray(rows) ? rows : [];
+    if (!payload.length) return { rows: [], error: null };
+
+    const { data, error } = await client
+      .from("staff_shift_metrics")
+      .insert(payload)
+      .select("*");
+
+    return { rows: Array.isArray(data) ? data : [], error };
   }
 
   // ------------------------
@@ -374,7 +390,10 @@
     insertShiftSnapshot: sbInsertShiftSnapshot,
     insertAnalyticsShiftMetrics: sbInsertAnalyticsShiftMetrics,
 
-    // ✅ staff
+    // ✅ staff metrics
+    insertStaffShiftMetrics: sbInsertStaffShiftMetrics,
+
+    // ✅ staff directory
     listUnitStaff: sbListUnitStaff,
     searchUnitStaff: sbSearchUnitStaff,
     ensureUnitStaff: sbEnsureUnitStaff,

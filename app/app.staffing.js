@@ -14,6 +14,11 @@
 // - Autocomplete suggestions for RN/PCA name fields
 // - Auto-create staff record on name commit (blur/change)
 // - Roles are STRICT: "RN" or "PCA"
+//
+// ✅ NEW (THIS UPDATE):
+// - Persist staff_id onto each RN/PCA object (n.staff_id / p.staff_id)
+// - Name onchange now passes the INPUT element so we can read dataset.staffId
+//   from app.staffTypeahead.js selections.
 
 (function () {
   // Use the canonical restriction helper from app.state.js if present
@@ -54,6 +59,7 @@
       const type = prev?.type || "tele";
       next.push({
         id: i + 1,
+        staff_id: prev?.staff_id || null,
         name: prev?.name || `Current RN ${i + 1}`,
         type,
         restrictions: {
@@ -89,6 +95,7 @@
       const type = prev?.type || "tele";
       next.push({
         id: i + 1,
+        staff_id: prev?.staff_id || null,
         name: prev?.name || `Incoming RN ${i + 1}`,
         type,
         restrictions: {
@@ -122,7 +129,7 @@
             <input type="text"
                    data-staff-role="RN"
                    value="${(n.name || "").replace(/"/g, "&quot;")}"
-                   onchange="updateCurrentNurseName(${index}, this.value)">
+                   onchange="updateCurrentNurseName(${index}, this)">
           </label>
           <label>
             Type:
@@ -162,7 +169,7 @@
             <input type="text"
                    data-staff-role="RN"
                    value="${(n.name || "").replace(/"/g, "&quot;")}"
-                   onchange="updateIncomingNurseName(${index}, this.value)">
+                   onchange="updateIncomingNurseName(${index}, this)">
           </label>
           <label>
             Type:
@@ -216,10 +223,16 @@
     if (typeof window.saveState === "function") window.saveState();
   };
 
-  window.updateCurrentNurseName = function (index, value) {
+  // ✅ Updated to accept input element OR raw string
+  window.updateCurrentNurseName = function (index, elOrValue) {
     const n = currentNurses && currentNurses[index];
     if (!n) return;
+
+    const el = (elOrValue && typeof elOrValue === "object") ? elOrValue : null;
+    const value = el ? el.value : elOrValue;
+
     n.name = String(value || "").trim() || `Current RN ${index + 1}`;
+    n.staff_id = el ? (String(el.dataset.staffId || "").trim() || null) : (n.staff_id || null);
 
     syncWindowRefs();
 
@@ -227,10 +240,16 @@
     if (typeof window.saveState === "function") window.saveState();
   };
 
-  window.updateIncomingNurseName = function (index, value) {
+  // ✅ Updated to accept input element OR raw string
+  window.updateIncomingNurseName = function (index, elOrValue) {
     const n = incomingNurses && incomingNurses[index];
     if (!n) return;
+
+    const el = (elOrValue && typeof elOrValue === "object") ? elOrValue : null;
+    const value = el ? el.value : elOrValue;
+
     n.name = String(value || "").trim() || `Incoming RN ${index + 1}`;
+    n.staff_id = el ? (String(el.dataset.staffId || "").trim() || null) : (n.staff_id || null);
 
     syncWindowRefs();
 
@@ -295,6 +314,7 @@
       const prev = old[i];
       next.push({
         id: i + 1,
+        staff_id: prev?.staff_id || null,
         name: prev?.name || `Current PCA ${i + 1}`,
         restrictions: { noIso: !!(prev && prev.restrictions && prev.restrictions.noIso) },
         maxPatients: max,
@@ -325,6 +345,7 @@
       const prev = old[i];
       next.push({
         id: i + 1,
+        staff_id: prev?.staff_id || null,
         name: prev?.name || `Incoming PCA ${i + 1}`,
         restrictions: { noIso: !!(prev && prev.restrictions && prev.restrictions.noIso) },
         maxPatients: max,
@@ -354,7 +375,7 @@
             <input type="text"
                    data-staff-role="PCA"
                    value="${(p.name || "").replace(/"/g, "&quot;")}"
-                   onchange="updateCurrentPcaName(${index}, this.value)">
+                   onchange="updateCurrentPcaName(${index}, this)">
           </label>
           <div class="restrictionsGroup">
             <span>Restrictions:</span>
@@ -382,7 +403,7 @@
             <input type="text"
                    data-staff-role="PCA"
                    value="${(p.name || "").replace(/"/g, "&quot;")}"
-                   onchange="updateIncomingPcaName(${index}, this.value)">
+                   onchange="updateIncomingPcaName(${index}, this)">
           </label>
           <div class="restrictionsGroup">
             <span>Restrictions:</span>
@@ -396,10 +417,16 @@
     });
   };
 
-  window.updateCurrentPcaName = function (index, value) {
+  // ✅ Updated to accept input element OR raw string
+  window.updateCurrentPcaName = function (index, elOrValue) {
     const p = currentPcas && currentPcas[index];
     if (!p) return;
+
+    const el = (elOrValue && typeof elOrValue === "object") ? elOrValue : null;
+    const value = el ? el.value : elOrValue;
+
     p.name = String(value || "").trim() || `Current PCA ${index + 1}`;
+    p.staff_id = el ? (String(el.dataset.staffId || "").trim() || null) : (p.staff_id || null);
 
     syncWindowRefs();
 
@@ -407,10 +434,16 @@
     if (typeof window.saveState === "function") window.saveState();
   };
 
-  window.updateIncomingPcaName = function (index, value) {
+  // ✅ Updated to accept input element OR raw string
+  window.updateIncomingPcaName = function (index, elOrValue) {
     const p = incomingPcas && incomingPcas[index];
     if (!p) return;
+
+    const el = (elOrValue && typeof elOrValue === "object") ? elOrValue : null;
+    const value = el ? el.value : elOrValue;
+
     p.name = String(value || "").trim() || `Incoming PCA ${index + 1}`;
+    p.staff_id = el ? (String(el.dataset.staffId || "").trim() || null) : (p.staff_id || null);
 
     syncWindowRefs();
 
@@ -443,7 +476,7 @@
   };
 
   // =========================================================
-  // ✅ NEW: Staff autocomplete + auto-create (non-destructive)
+  // ✅ Existing staff autocomplete + auto-create block (kept)
   // =========================================================
 
   function sbReady() {

@@ -3,13 +3,14 @@
 // FINALIZE / SHIFT CHANGE (Dec 2025)
 // - Publish a shift snapshot to Supabase (shift_snapshots)
 // - Optionally publish analytics metrics (analytics_shift_metrics)
+// - Publish staff-level metrics rows (staff_shift_metrics) ✅ NEW
 // - Then promote Oncoming -> Current (your existing workflow)
 // - Guards: role-based, active unit required, SB ready
 //
 // Notes:
 // - Expects button: #btnFinalizeShift
 // - Expects inputs: #finalizeShiftDate, #finalizeShiftType
-// - Uses window.sb.insertShiftSnapshot / insertAnalyticsShiftMetrics if present
+// - Uses window.sb.insertShiftSnapshot / insertAnalyticsShiftMetrics / insertStaffShiftMetrics if present
 // - Uses existing window.finalizeShiftChange() if present (your promote/swap logic)
 // ---------------------------------------------------------
 
@@ -95,8 +96,6 @@
     // heuristic: if p.isEmpty true => exclude, else include
     const list = Array.isArray(patients) ? patients : [];
     const nonEmpty = list.filter(p => !p?.isEmpty);
-    // If everything is "nonEmpty" because you store all rooms regardless,
-    // this still works fine.
     return nonEmpty.length;
   }
 
@@ -185,6 +184,87 @@
       } catch (e) {
         // don’t fail finalize if analytics insert fails
         console.warn("[finalize] analytics insert failed", e);
+      }
+    }
+
+    // ✅ NEW: staff-level metrics write (per staff) - permissive
+    if (typeof window.sb.insertStaffShiftMetrics === "function") {
+      try {
+        const nurses = Array.isArray(window.incomingNurses) ? window.incomingNurses : [];
+        const pcas   = Array.isArray(window.incomingPcas) ? window.incomingPcas : [];
+
+        async function ensureStaffId(role, staffObj) {
+          const existing = staffObj?.staff_id ? String(staffObj.staff_id) : "";
+          if (existing) return existing;
+
+          const nm = String(staffObj?.name || "").trim();
+          if (!nm) return "";
+
+          if (typeof window.sb.ensureUnitStaff === "function") {
+            const res = await window.sb.ensureUnitStaff(unitId, role, nm);
+            if (!res?.error && res?.row?.id) {
+              staffObj.staff_id = res.row.id; // persist back into state
+              return res.row.id;
+            }
+          }
+          return "";
+        }
+
+        function patientsAssigned(list) {
+          return Array.isArray(list) ? list.length : 0;
+        }
+
+        const rows = [];
+
+        for (const n of nurses) {
+          const staff_id = await ensureStaffId("RN", n);
+          const pts = patientsAssigned(n?.patients);
+
+          rows.push({
+            unit_id: unitId,
+            shift_date,
+            shift_type,
+            staff_id: staff_id || null,
+            staff_name: String(n?.name || "").trim() || null,
+            role: "RN",
+            patients_assigned: pts,
+            workload_score: pts, // MVP: replace later with real scoring
+            hard_violations: 0,
+            hard_warnings: 0,
+            tag_counts: {},
+            details: { staff_type: n?.type || null, patient_tokens: n?.patients || [] },
+            created_by
+          });
+        }
+
+        for (const p of pcas) {
+          const staff_id = await ensureStaffId("PCA", p);
+          const pts = patientsAssigned(p?.patients);
+
+          rows.push({
+            unit_id: unitId,
+            shift_date,
+            shift_type,
+            staff_id: staff_id || null,
+            staff_name: String(p?.name || "").trim() || null,
+            role: "PCA",
+            patients_assigned: pts,
+            workload_score: pts, // MVP
+            hard_violations: 0,
+            hard_warnings: 0,
+            tag_counts: {},
+            details: { patient_tokens: p?.patients || [] },
+            created_by
+          });
+        }
+
+        const cleaned = rows.filter(r => r.staff_name && r.staff_name.length > 0);
+        if (cleaned.length) {
+          const res = await window.sb.insertStaffShiftMetrics(cleaned);
+          if (res?.error) console.warn("[finalize] staff metrics insert error", res.error);
+        }
+      } catch (e) {
+        console.warn("[finalize] staff metrics insert failed", e);
       }
     }
 

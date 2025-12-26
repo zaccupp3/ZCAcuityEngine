@@ -1,471 +1,544 @@
-// app/app.staffTypeahead.js
+// app/app.state.js
 // ---------------------------------------------------------
-// STAFF NAME TYPEAHEAD (Unit Staff Directory)
-// - Works with your unit_staff table via window.sb.* helpers
-// - Adds autocomplete suggestions when typing staff names
-// - If user types a new name and leaves the field (blur),
-//   it auto-creates it in unit_staff and caches it.
+// Core app state + storage + shared helpers
+// Canonical storage is on window.*
+// Legacy bare globals are kept in sync (critical for older files).
 //
-// Roles MUST be exactly: "RN" | "PCA"
-// We infer role based on which list container the input is inside.
-//
-// Targets (by container):
-// - #currentNurseList, #incomingNurseList  -> RN
-// - #currentPcaList,   #incomingPcaList    -> PCA
-// - Leadership fields (#currentChargeName, etc) -> RN
+// MULTI-UNIT UPDATE:
+// - Persist a separate workspace per unit in localStorage.
+// - Switching units saves the current unit workspace and loads the next unit workspace.
+// - Room labels (patient.room) are updated from unitSettings.beds without wiping acuity/tags.
 // ---------------------------------------------------------
 
 (function () {
-  const $ = (id) => document.getElementById(id);
+  // ============ GLOBAL ARRAYS / VARS ============
+  window.currentNurses  = Array.isArray(window.currentNurses)  ? window.currentNurses  : [];
+  window.incomingNurses = Array.isArray(window.incomingNurses) ? window.incomingNurses : [];
+  window.currentPcas    = Array.isArray(window.currentPcas)    ? window.currentPcas    : [];
+  window.incomingPcas   = Array.isArray(window.incomingPcas)   ? window.incomingPcas   : [];
+  window.patients       = Array.isArray(window.patients)       ? window.patients       : [];
 
-  function sbReady() {
-    return !!(window.sb && window.sb.client && window.sb.__ready);
-  }
+  window.admitQueue       = Array.isArray(window.admitQueue)       ? window.admitQueue       : [];
+  window.dischargeHistory = Array.isArray(window.dischargeHistory) ? window.dischargeHistory : [];
 
-  function activeUnitId() {
-    return window.activeUnitId ? String(window.activeUnitId) : "";
-  }
+  window.pcaShift        = typeof window.pcaShift === "string" ? window.pcaShift : "day";
+  window.nextQueueId     = typeof window.nextQueueId === "number" ? window.nextQueueId : 1;
+  window.nextDischargeId = typeof window.nextDischargeId === "number" ? window.nextDischargeId : 1;
 
-  function sleep(ms) {
-    return new Promise((r) => setTimeout(r, ms));
-  }
-
-  function safeStr(x) {
-    return String(x ?? "").trim();
-  }
-
-  function normNameForCompare(s) {
-    return safeStr(s).toLowerCase().replace(/\s+/g, " ");
-  }
+  // multi-unit
+  window.availableUnits = Array.isArray(window.availableUnits) ? window.availableUnits : [];
+  window.activeUnitId   = (typeof window.activeUnitId === "string") ? window.activeUnitId : (window.activeUnitId || null);
+  window.activeUnitRole = (typeof window.activeUnitRole === "string") ? window.activeUnitRole : (window.activeUnitRole || null);
+  window.unitSettings   = (window.unitSettings && typeof window.unitSettings === "object") ? window.unitSettings : null;
 
   // ---------------------------------------------------------
-  // Lightweight UI: suggestion dropdown
+  // LEGACY BARE GLOBALS (kept synced)
   // ---------------------------------------------------------
-  function ensureDropdown() {
-    let el = document.getElementById("staffTypeaheadDropdown");
-    if (el) return el;
+  // eslint-disable-next-line no-var
+  var currentNurses, incomingNurses, currentPcas, incomingPcas, patients;
+  // eslint-disable-next-line no-var
+  var admitQueue, dischargeHistory, pcaShift, nextQueueId, nextDischargeId;
+  // eslint-disable-next-line no-var
+  var availableUnits, activeUnitId, activeUnitRole, unitSettings;
 
-    el = document.createElement("div");
-    el.id = "staffTypeaheadDropdown";
-    el.style.position = "fixed";
-    el.style.zIndex = "100000";
-    el.style.minWidth = "240px";
-    el.style.maxWidth = "420px";
-    el.style.maxHeight = "240px";
-    el.style.overflowY = "auto";
-    el.style.background = "#fff";
-    el.style.border = "1px solid rgba(15,23,42,0.18)";
-    el.style.borderRadius = "12px";
-    el.style.boxShadow = "0 14px 40px rgba(15,23,42,0.18)";
-    el.style.display = "none";
-    el.style.padding = "6px";
-    el.style.fontFamily = "system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif";
-    el.style.fontSize = "13px";
-    el.style.color = "#0f172a";
+  function syncFromWindow() {
+    currentNurses     = window.currentNurses;
+    incomingNurses    = window.incomingNurses;
+    currentPcas       = window.currentPcas;
+    incomingPcas      = window.incomingPcas;
+    patients          = window.patients;
 
-    document.body.appendChild(el);
-    return el;
+    admitQueue        = window.admitQueue;
+    dischargeHistory  = window.dischargeHistory;
+
+    pcaShift          = window.pcaShift;
+    nextQueueId       = window.nextQueueId;
+    nextDischargeId   = window.nextDischargeId;
+
+    availableUnits    = window.availableUnits;
+    activeUnitId      = window.activeUnitId;
+    activeUnitRole    = window.activeUnitRole;
+    unitSettings      = window.unitSettings;
   }
 
-  function hideDropdown() {
-    const el = ensureDropdown();
-    el.style.display = "none";
-    el.innerHTML = "";
-    el.__targetInput = null;
+  function syncToWindow() {
+    window.currentNurses     = Array.isArray(currentNurses) ? currentNurses : [];
+    window.incomingNurses    = Array.isArray(incomingNurses) ? incomingNurses : [];
+    window.currentPcas       = Array.isArray(currentPcas) ? currentPcas : [];
+    window.incomingPcas      = Array.isArray(incomingPcas) ? incomingPcas : [];
+    window.patients          = Array.isArray(patients) ? patients : [];
+
+    window.admitQueue        = Array.isArray(admitQueue) ? admitQueue : [];
+    window.dischargeHistory  = Array.isArray(dischargeHistory) ? dischargeHistory : [];
+
+    window.pcaShift          = typeof pcaShift === "string" ? pcaShift : "day";
+    window.nextQueueId       = typeof nextQueueId === "number" ? nextQueueId : 1;
+    window.nextDischargeId   = typeof nextDischargeId === "number" ? nextDischargeId : 1;
+
+    window.availableUnits    = Array.isArray(availableUnits) ? availableUnits : [];
+    window.activeUnitId      = activeUnitId || null;
+    window.activeUnitRole    = activeUnitRole || null;
+    window.unitSettings      = unitSettings || null;
+
+    // Re-bind bare globals to the window arrays (so older files keep working)
+    syncFromWindow();
   }
 
-  function positionDropdownForInput(input) {
-    const el = ensureDropdown();
-    const r = input.getBoundingClientRect();
+  // initial sync
+  syncFromWindow();
 
-    const top = Math.min(window.innerHeight - 12, r.bottom + 6);
-    const left = Math.min(window.innerWidth - 12, r.left);
-
-    el.style.top = `${top}px`;
-    el.style.left = `${left}px`;
-    el.style.width = `${Math.max(240, Math.min(420, r.width))}px`;
+  // ============ STORAGE KEYS ============
+  const META_KEY = "cupp_assignment_engine_meta_v1";
+  function unitKey(unitId) {
+    const id = unitId ? String(unitId) : "local";
+    return `cupp_assignment_engine_unit_${id}_v1`;
   }
 
-  function renderDropdown(input, items, metaText) {
-    const el = ensureDropdown();
-    el.__targetInput = input;
+  // ============ PATIENT DEFAULTS ============
+  function makeEmptyPatient(id, roomNumber) {
+    return {
+      id,
+      room: roomNumber != null ? String(roomNumber) : "",
+      name: "",
+      gender: "",
 
-    el.innerHTML = "";
+      tele: false, drip: false, nih: false, bg: false, ciwa: false, restraint: false, sitter: false,
+      vpo: false, isolation: false, admit: false, lateDc: false,
 
-    const meta = document.createElement("div");
-    meta.textContent = metaText || "";
-    meta.style.fontSize = "12px";
-    meta.style.opacity = "0.7";
-    meta.style.padding = "6px 8px 8px 8px";
-    el.appendChild(meta);
+      chg: false, foley: false, q2turns: false, heavy: false, feeder: false,
 
-    if (!items.length) {
-      const empty = document.createElement("div");
-      empty.textContent = "No matches. Keep typing to create a new name.";
-      empty.style.padding = "10px 8px";
-      empty.style.opacity = "0.75";
-      el.appendChild(empty);
-    } else {
-      items.forEach((row) => {
-        const btn = document.createElement("button");
-        btn.type = "button";
-        btn.style.width = "100%";
-        btn.style.textAlign = "left";
-        btn.style.border = "0";
-        btn.style.background = "transparent";
-        btn.style.padding = "10px 10px";
-        btn.style.borderRadius = "10px";
-        btn.style.cursor = "pointer";
+      isEmpty: true,
+      recentlyDischarged: false,
+      reviewed: false
+    };
+  }
 
-        btn.onmouseenter = () => (btn.style.background = "rgba(15,23,42,0.06)");
-        btn.onmouseleave = () => (btn.style.background = "transparent");
-
-        const name = row.display_name || row.name || "—";
-        const role = row.role || "—";
-
-        btn.innerHTML = `
-          <div style="font-weight:800;">${escapeHtml(name)}</div>
-          <div style="font-size:12px; opacity:0.7;">${escapeHtml(role)} • saved</div>
-        `;
-
-        btn.onclick = () => {
-          try {
-            input.value = name;
-            input.dataset.staffId = row.id || "";
-            input.dataset.staffRole = role || "";
-            input.dispatchEvent(new Event("input", { bubbles: true }));
-            input.dispatchEvent(new Event("change", { bubbles: true }));
-          } finally {
-            hideDropdown();
-          }
-        };
-
-        el.appendChild(btn);
-      });
+  function ensureDefaultPatients() {
+    syncFromWindow();
+    if (!Array.isArray(patients)) patients = [];
+    if (patients.length >= 32) {
+      syncToWindow();
+      return;
     }
 
-    positionDropdownForInput(input);
-    el.style.display = "block";
+    const existingById = new Map();
+    patients.forEach(p => {
+      if (p && typeof p.id === "number") existingById.set(p.id, p);
+    });
+
+    const next = [];
+    for (let i = 1; i <= 32; i++) {
+      if (existingById.has(i)) {
+        const p = existingById.get(i);
+        if (!p.room) p.room = String(i);
+        if (typeof p.isEmpty !== "boolean") p.isEmpty = false;
+        if (typeof p.recentlyDischarged !== "boolean") p.recentlyDischarged = false;
+        next.push(p);
+      } else {
+        next.push(makeEmptyPatient(i, i));
+      }
+    }
+
+    patients = next;
+    syncToWindow();
   }
 
-  function escapeHtml(s) {
-    return String(s ?? "")
-      .replaceAll("&", "&amp;")
-      .replaceAll("<", "&lt;")
-      .replaceAll(">", "&gt;")
-      .replaceAll('"', "&quot;")
-      .replaceAll("'", "&#039;");
+  function applyBedsToPatientRooms() {
+    syncFromWindow();
+    const beds = Array.isArray(unitSettings?.beds) ? unitSettings.beds : null;
+    if (!beds || beds.length < 1) return;
+
+    ensureDefaultPatients();
+    syncFromWindow();
+
+    for (let i = 0; i < 32; i++) {
+      const p = patients[i];
+      if (!p) continue;
+      const label = beds[i] != null ? String(beds[i]) : String(i + 1);
+      p.room = label;
+    }
+
+    syncToWindow();
   }
 
-  // Close dropdown if click outside
-  document.addEventListener("mousedown", (e) => {
-    const dd = document.getElementById("staffTypeaheadDropdown");
-    if (!dd || dd.style.display === "none") return;
-    const t = e.target;
-    if (dd.contains(t)) return;
-    if (dd.__targetInput && dd.__targetInput.contains && dd.__targetInput.contains(t)) return;
-    hideDropdown();
-  });
+  function resetAllPatients() {
+    syncFromWindow();
+    patients = [];
+    syncToWindow();
 
-  window.addEventListener("resize", () => {
-    const dd = document.getElementById("staffTypeaheadDropdown");
-    if (!dd || dd.style.display === "none") return;
-    const input = dd.__targetInput;
-    if (input) positionDropdownForInput(input);
-  });
+    ensureDefaultPatients();
+    applyBedsToPatientRooms();
 
-  // ---------------------------------------------------------
-  // Cache per unit+role
-  // ---------------------------------------------------------
-  const cache = {
-    // key: `${unitId}:${role}` -> { rows: [], loadedAt: ts }
-    map: new Map()
+    if (typeof window.updateAcuityTiles === "function") window.updateAcuityTiles();
+    if (typeof window.renderPatientList === "function") window.renderPatientList();
+    if (typeof window.renderLiveAssignments === "function") window.renderLiveAssignments();
+    if (typeof window.renderAssignmentOutput === "function") window.renderAssignmentOutput();
+    if (typeof window.renderPcaAssignmentOutput === "function") window.renderPcaAssignmentOutput();
+
+    saveState();
+  }
+
+  // ============ UNIT SETTINGS APPLY ============
+  function applyUnitSettings(nextSettings) {
+    syncFromWindow();
+    unitSettings = nextSettings || null;
+    syncToWindow();
+
+    applyBedsToPatientRooms();
+
+    if (typeof window.onUnitSettingsApplied === "function") {
+      try { window.onUnitSettingsApplied(unitSettings); } catch (e) { console.warn("onUnitSettingsApplied error", e); }
+    }
+
+    if (typeof window.renderPatientList === "function") window.renderPatientList();
+    if (typeof window.updateAcuityTiles === "function") window.updateAcuityTiles();
+    if (typeof window.renderLiveAssignments === "function") window.renderLiveAssignments();
+    if (typeof window.renderAssignmentOutput === "function") window.renderAssignmentOutput();
+    if (typeof window.renderPcaAssignmentOutput === "function") window.renderPcaAssignmentOutput();
+    if (typeof window.renderQueueList === "function") window.renderQueueList();
+
+    saveState();
+  }
+
+  // ============ STORAGE HELPERS ============
+  function defaultRestrictions() {
+    return { noMales: false, noFemales: false, noTele: false, noMS: false, noFloat: false };
+  }
+
+  function saveMeta() {
+    try {
+      syncFromWindow();
+      const meta = {
+        activeUnitId: activeUnitId || null,
+        activeUnitRole: activeUnitRole || null,
+        unitSettings: unitSettings || null,
+        availableUnits: Array.isArray(availableUnits) ? availableUnits : []
+      };
+      localStorage.setItem(META_KEY, JSON.stringify(meta));
+    } catch (e) {
+      console.warn("Unable to save meta", e);
+    }
+  }
+
+  function saveState() {
+    try {
+      // IMPORTANT: always read from window.* (source of truth)
+      syncFromWindow();
+
+      const data = {
+        pcaShift: window.pcaShift || "day",
+
+        currentNurses: (window.currentNurses || []).map((n, i) => ({
+          id: n.id ?? i + 1,
+          name: n.name,
+          staff_id: n.staff_id || null, // ✅ NEW
+          type: n.type,
+          restrictions: n.restrictions || defaultRestrictions(),
+          patients: Array.isArray(n.patients) ? n.patients.slice() : []
+        })),
+
+        incomingNurses: (window.incomingNurses || []).map((n, i) => ({
+          id: n.id ?? i + 1,
+          name: n.name,
+          staff_id: n.staff_id || null, // ✅ NEW
+          type: n.type,
+          restrictions: n.restrictions || defaultRestrictions(),
+          patients: Array.isArray(n.patients) ? n.patients.slice() : []
+        })),
+
+        currentPcas: (window.currentPcas || []).map((p, i) => ({
+          id: p.id ?? i + 1,
+          name: p.name,
+          staff_id: p.staff_id || null, // ✅ NEW
+          restrictions: p.restrictions || { noIso: false },
+          patients: Array.isArray(p.patients) ? p.patients.slice() : []
+        })),
+
+        incomingPcas: (window.incomingPcas || []).map((p, i) => ({
+          id: p.id ?? i + 1,
+          name: p.name,
+          staff_id: p.staff_id || null, // ✅ NEW
+          restrictions: p.restrictions || { noIso: false },
+          patients: Array.isArray(p.patients) ? p.patients.slice() : []
+        })),
+
+        patients: (window.patients || []).map(p => ({ ...p })),
+
+        dischargeHistory: Array.isArray(window.dischargeHistory) ? window.dischargeHistory : [],
+        nextDischargeId: typeof window.nextDischargeId === "number" ? window.nextDischargeId : 1,
+
+        admitQueue: Array.isArray(window.admitQueue) ? window.admitQueue : [],
+        nextQueueId: typeof window.nextQueueId === "number" ? window.nextQueueId : 1
+      };
+
+      localStorage.setItem(unitKey(window.activeUnitId), JSON.stringify(data));
+      saveMeta();
+    } catch (e) {
+      console.warn("Unable to save state", e);
+    }
+  }
+
+  function loadMeta() {
+    try {
+      const raw = localStorage.getItem(META_KEY);
+      if (!raw) return false;
+
+      const meta = JSON.parse(raw);
+
+      window.activeUnitId   = meta.activeUnitId || null;
+      window.activeUnitRole = meta.activeUnitRole || null;
+      window.unitSettings   = (meta.unitSettings && typeof meta.unitSettings === "object") ? meta.unitSettings : null;
+      window.availableUnits = Array.isArray(meta.availableUnits) ? meta.availableUnits : [];
+
+      syncFromWindow();
+      return true;
+    } catch (e) {
+      console.warn("Unable to load meta", e);
+      return false;
+    }
+  }
+
+  function loadUnitWorkspace(unitId) {
+    try {
+      const raw = localStorage.getItem(unitKey(unitId));
+      if (!raw) return false;
+
+      const data = JSON.parse(raw);
+
+      window.pcaShift       = data.pcaShift || "day";
+      window.currentNurses  = Array.isArray(data.currentNurses) ? data.currentNurses : [];
+      window.incomingNurses = Array.isArray(data.incomingNurses) ? data.incomingNurses : [];
+      window.currentPcas    = Array.isArray(data.currentPcas) ? data.currentPcas : [];
+      window.incomingPcas   = Array.isArray(data.incomingPcas) ? data.incomingPcas : [];
+
+      window.patients       = Array.isArray(data.patients) ? data.patients : [];
+      window.dischargeHistory = Array.isArray(data.dischargeHistory) ? data.dischargeHistory : [];
+      window.nextDischargeId  = (typeof data.nextDischargeId === "number") ? data.nextDischargeId : 1;
+
+      window.admitQueue     = Array.isArray(data.admitQueue) ? data.admitQueue : [];
+      window.nextQueueId    = (typeof data.nextQueueId === "number") ? data.nextQueueId : 1;
+
+      // Sync legacy globals to match window.*
+      syncFromWindow();
+      return true;
+    } catch (e) {
+      console.warn("Unable to load unit workspace", e);
+      return false;
+    }
+  }
+
+  function loadStateFromStorage() {
+    loadMeta();
+    const ok = loadUnitWorkspace(window.activeUnitId);
+
+    ensureDefaultPatients();
+    applyBedsToPatientRooms();
+
+    // Ensure bare globals match
+    syncFromWindow();
+    return ok;
+  }
+
+  function initFromStorageOrDefaults() {
+    loadStateFromStorage();
+
+    if (typeof window.renderPatientList === "function") window.renderPatientList();
+    if (typeof window.updateAcuityTiles === "function") window.updateAcuityTiles();
+    if (typeof window.renderLiveAssignments === "function") window.renderLiveAssignments();
+    if (typeof window.renderAssignmentOutput === "function") window.renderAssignmentOutput();
+    if (typeof window.renderPcaAssignmentOutput === "function") window.renderPcaAssignmentOutput();
+    if (typeof window.renderQueueList === "function") window.renderQueueList();
+    if (typeof window.updateDischargeCount === "function") window.updateDischargeCount();
+
+    if (window.activeUnitId && (!window.unitSettings || typeof window.unitSettings !== "object")) {
+      setTimeout(() => {
+        setActiveUnit(window.activeUnitId, window.activeUnitRole).catch(e => console.warn("setActiveUnit init load failed", e));
+      }, 0);
+    }
+  }
+
+  // ============ ACTIVE UNIT SETTER ============
+  async function setActiveUnit(nextUnitId, role) {
+    saveState();
+
+    if (!nextUnitId) {
+      window.activeUnitId = null;
+      window.activeUnitRole = null;
+      applyUnitSettings(null);
+      saveMeta();
+      syncFromWindow();
+      return { ok: true };
+    }
+
+    window.activeUnitId = String(nextUnitId);
+    window.activeUnitRole = role ? String(role) : (window.activeUnitRole || null);
+
+    const loaded = loadUnitWorkspace(window.activeUnitId);
+    if (!loaded) {
+      window.currentNurses = [];
+      window.incomingNurses = [];
+      window.currentPcas = [];
+      window.incomingPcas = [];
+      window.admitQueue = [];
+      window.dischargeHistory = [];
+      window.nextQueueId = 1;
+      window.nextDischargeId = 1;
+      window.pcaShift = "day";
+      window.patients = [];
+      ensureDefaultPatients();
+    } else {
+      ensureDefaultPatients();
+    }
+
+    syncFromWindow();
+
+    if (window.sb && window.sb.getUnitSettings) {
+      const { row, error } = await window.sb.getUnitSettings(window.activeUnitId);
+      if (error) {
+        console.warn("[unit] Failed to load unit_settings", error);
+        applyBedsToPatientRooms();
+        saveState();
+        return { ok: false, error };
+      }
+      applyUnitSettings(row);
+    } else {
+      applyBedsToPatientRooms();
+      saveState();
+    }
+
+    return { ok: true };
+  }
+
+  // ============ LOAD MEMBERSHIPS ============
+  async function refreshMyUnits() {
+    if (!window.sb || !window.sb.myUnitMemberships) {
+      return { ok: false, error: new Error("Supabase not configured") };
+    }
+
+    const { data, error } = await window.sb.myUnitMemberships();
+    if (error) return { ok: false, error };
+
+    const mapped = (data || [])
+      .map(r => ({
+        unit_id: r.unit_id,
+        role: r.role,
+        unit: r.units ? { id: r.units.id, name: r.units.name, code: r.units.code } : null
+      }))
+      .filter(x => x.unit_id && x.unit);
+
+    window.availableUnits = mapped;
+
+    if (!window.activeUnitId && mapped.length) {
+      const first = mapped[0];
+      await setActiveUnit(first.unit_id, first.role);
+    } else {
+      saveMeta();
+    }
+
+    syncFromWindow();
+    return { ok: true, rows: mapped };
+  }
+
+  // ============ CLEAR “RECENTLY DISCHARGED” ============
+  function clearRecentlyDischargedFlags() {
+    syncFromWindow();
+    (patients || []).forEach(p => {
+      if (!p) return;
+      p.recentlyDischarged = false;
+    });
+    syncToWindow();
+
+    if (typeof window.updateDischargeCount === "function") window.updateDischargeCount();
+    if (typeof window.renderPatientList === "function") window.renderPatientList();
+    if (typeof window.renderLiveAssignments === "function") window.renderLiveAssignments();
+    if (typeof window.renderAssignmentOutput === "function") window.renderAssignmentOutput();
+    if (typeof window.renderPcaAssignmentOutput === "function") window.renderPcaAssignmentOutput();
+
+    saveState();
+  }
+
+  // ============ HIGH-ACUITY MODAL ============
+  function openAcuityModal() {
+    const modal = document.getElementById("acuityModal");
+    const body = document.getElementById("acuityReportBody");
+    if (!modal || !body) return;
+
+    if (typeof window.buildHighAcuityText === "function") {
+      body.innerHTML = window.buildHighAcuityText();
+    } else {
+      body.innerHTML = "<p>No high-risk patients flagged.</p>";
+    }
+
+    modal.style.display = "flex";
+  }
+
+  function closeAcuityModal() {
+    const modal = document.getElementById("acuityModal");
+    if (modal) modal.style.display = "none";
+  }
+
+  // ============ COMPATIBILITY HELPERS ============
+  window.getRoomNumber = window.getRoomNumber || function getRoomNumber(p) {
+    if (!p) return 9999;
+    const roomVal = (typeof p === "object") ? (p.room ?? p.id ?? "") : p;
+    const s = String(roomVal).trim();
+    const m = s.match(/\d+/);
+    return m ? Number(m[0]) : 9999;
   };
 
-  function cacheKey(unitId, role) {
-    return `${unitId}:${role}`;
+  if (typeof window.getRoomNumber === "function" && typeof getRoomNumber === "undefined") {
+    // eslint-disable-next-line no-var
+    var getRoomNumber = window.getRoomNumber;
   }
 
-  async function ensureCacheLoaded(unitId, role) {
-    const key = cacheKey(unitId, role);
-    const existing = cache.map.get(key);
-    const now = Date.now();
+  // ============ AUTOSAVE / SAVE-ON-REFRESH SAFETY ============
+  let __dirty = false;
+  let __saveTimer = null;
 
-    // refresh cache every 5 minutes
-    if (existing && now - (existing.loadedAt || 0) < 5 * 60 * 1000) return existing.rows || [];
-
-    if (!sbReady() || typeof window.sb.listUnitStaff !== "function") return [];
-
-    const res = await window.sb.listUnitStaff(unitId, role, 300);
-    if (res?.error) {
-      console.warn("[staff-typeahead] listUnitStaff error", res.error);
-      return existing?.rows || [];
-    }
-
-    const rows = Array.isArray(res?.rows) ? res.rows : [];
-    cache.map.set(key, { rows, loadedAt: now });
-    return rows;
+  function markDirty() {
+    __dirty = true;
+    if (__saveTimer) return;
+    __saveTimer = setTimeout(() => {
+      __saveTimer = null;
+      if (!__dirty) return;
+      __dirty = false;
+      saveState();
+    }, 500);
   }
 
-  function upsertCacheRow(unitId, role, row) {
-    const key = cacheKey(unitId, role);
-    const existing = cache.map.get(key) || { rows: [], loadedAt: Date.now() };
-    const rows = Array.isArray(existing.rows) ? existing.rows.slice() : [];
-    const id = row?.id;
+  window.markDirty = markDirty;
 
-    // remove duplicates by id or name
-    const nm = normNameForCompare(row?.display_name);
-    const filtered = rows.filter((r) => {
-      if (id && r?.id === id) return false;
-      if (nm && normNameForCompare(r?.display_name) === nm) return false;
-      return true;
-    });
-
-    filtered.unshift(row);
-    cache.map.set(key, { rows: filtered, loadedAt: Date.now() });
-  }
-
-  // ---------------------------------------------------------
-  // Identify which inputs should get typeahead
-  // ---------------------------------------------------------
-  const LEADERSHIP_IDS = new Set([
-    "currentChargeName",
-    "currentMentorName",
-    "currentCtaName",
-    "incomingChargeName",
-    "incomingMentorName",
-    "incomingCtaName"
-  ]);
-
-  function roleForInput(input) {
-    if (!input) return "";
-
-    // Leadership => RN
-    if (input.id && LEADERSHIP_IDS.has(input.id)) return "RN";
-
-    // Infer from list container
-    const rnContainers = ["currentNurseList", "incomingNurseList"];
-    const pcaContainers = ["currentPcaList", "incomingPcaList"];
-
-    for (const id of rnContainers) {
-      const wrap = $(id);
-      if (wrap && wrap.contains(input)) return "RN";
-    }
-    for (const id of pcaContainers) {
-      const wrap = $(id);
-      if (wrap && wrap.contains(input)) return "PCA";
-    }
-
-    return "";
-  }
-
-  function looksLikeNameField(input) {
-    if (!input) return false;
-    if (input.tagName !== "INPUT") return false;
-    if ((input.type || "").toLowerCase() !== "text") return false;
-
-    // Leadership inputs are definitely name fields
-    if (input.id && LEADERSHIP_IDS.has(input.id)) return true;
-
-    // Inside staff lists, we try to avoid tagging restriction fields, etc.
-    // Heuristic: placeholder includes "Name" OR id/class includes "name"
-    const ph = safeStr(input.placeholder).toLowerCase();
-    const idc = `${safeStr(input.id)} ${safeStr(input.className)}`.toLowerCase();
-
-    if (ph.includes("name")) return true;
-    if (idc.includes("name")) return true;
-
-    // If it is inside staff list containers and fairly short, treat as name
-    const r = roleForInput(input);
-    if (r && (input.maxLength === 0 || input.maxLength >= 10)) return true;
-
-    return false;
-  }
-
-  // ---------------------------------------------------------
-  // Attach behavior (debounced input + blur create)
-  // ---------------------------------------------------------
-  function attachTypeahead(input) {
-    if (!input || input.__staffTypeaheadAttached) return;
-    if (!looksLikeNameField(input)) return;
-
-    const role = roleForInput(input);
-    if (!role) return;
-
-    input.__staffTypeaheadAttached = true;
-
-    let lastQuery = "";
-    let debounceTimer = null;
-
-    input.addEventListener("focus", async () => {
-      const unitId = activeUnitId();
-      if (!unitId) return;
-
-      // load cache & show a small list when empty query
-      await ensureCacheLoaded(unitId, role);
-
-      const q = safeStr(input.value);
-      lastQuery = q;
-
-      const rows = await suggest(unitId, role, q, 10);
-      renderDropdown(input, rows, `${role} suggestions • unit staff directory`);
-    });
-
-    input.addEventListener("input", () => {
-      const unitId = activeUnitId();
-      if (!unitId) return;
-
-      const q = safeStr(input.value);
-      lastQuery = q;
-
-      // if user edits, clear staffId because it might be a different person now
-      input.dataset.staffId = "";
-
-      if (debounceTimer) clearTimeout(debounceTimer);
-      debounceTimer = setTimeout(async () => {
-        // if input blurred since timer, don't show
-        if (document.activeElement !== input) return;
-
-        const rows = await suggest(unitId, role, lastQuery, 10);
-        renderDropdown(input, rows, `${role} suggestions • typing creates new names automatically`);
-      }, 180);
-    });
-
-    input.addEventListener("keydown", (e) => {
-      // Escape closes dropdown
-      if (e.key === "Escape") hideDropdown();
-    });
-
-    input.addEventListener("blur", async () => {
-      // allow click selection to register first
-      await sleep(140);
-
-      const unitId = activeUnitId();
-      if (!unitId) return;
-
-      hideDropdown();
-
-      const name = safeStr(input.value);
-      if (!name) return;
-
-      // If already linked, done
-      if (safeStr(input.dataset.staffId)) return;
-
-      // If name exists in cache, bind to it
-      const rows = await ensureCacheLoaded(unitId, role);
-      const match = rows.find((r) => normNameForCompare(r.display_name) === normNameForCompare(name));
-      if (match) {
-        input.dataset.staffId = match.id || "";
-        input.dataset.staffRole = match.role || role;
-        return;
-      }
-
-      // Otherwise, create it
-      if (!sbReady() || typeof window.sb.upsertUnitStaff !== "function") {
-        console.warn("[staff-typeahead] sb.upsertUnitStaff missing or supabase not ready");
-        return;
-      }
-
-      try {
-        const res = await window.sb.upsertUnitStaff({
-          unit_id: unitId,
-          role,
-          display_name: name
-        });
-
-        if (res?.error) {
-          console.warn("[staff-typeahead] upsertUnitStaff error", res.error);
-          return;
-        }
-
-        const row = res?.row;
-        if (row) {
-          input.dataset.staffId = row.id || "";
-          input.dataset.staffRole = row.role || role;
-          upsertCacheRow(unitId, role, row);
-        }
-      } catch (err) {
-        console.warn("[staff-typeahead] exception creating staff", err);
-      }
-    });
-  }
-
-  async function suggest(unitId, role, query, limit) {
-    const q = safeStr(query);
-    const cached = await ensureCacheLoaded(unitId, role);
-
-    // If no query, show first N alphabetically from cache
-    if (!q) {
-      return cached
-        .slice()
-        .sort((a, b) => safeStr(a.display_name).localeCompare(safeStr(b.display_name)))
-        .slice(0, limit);
-    }
-
-    // First: local filter for instant feel
-    const qn = normNameForCompare(q);
-    const local = cached
-      .filter((r) => normNameForCompare(r.display_name).includes(qn))
-      .slice(0, limit);
-
-    // If we have enough, skip network
-    if (local.length >= Math.min(6, limit)) return local;
-
-    // Otherwise: call server search to catch newer rows
-    if (sbReady() && typeof window.sb.searchUnitStaff === "function") {
-      const res = await window.sb.searchUnitStaff(unitId, role, q, limit);
-      if (!res?.error && Array.isArray(res?.rows)) {
-        // merge into cache
-        res.rows.forEach((row) => upsertCacheRow(unitId, role, row));
-        return res.rows.slice(0, limit);
-      }
-    }
-
-    return local;
-  }
-
-  // ---------------------------------------------------------
-  // Watch for dynamic renders in staffing lists
-  // ---------------------------------------------------------
-  function scanAndAttach() {
-    const candidates = [];
-
-    // leadership inputs
-    LEADERSHIP_IDS.forEach((id) => {
-      const el = $(id);
-      if (el) candidates.push(el);
-    });
-
-    // staff list containers
-    const containers = ["currentNurseList", "incomingNurseList", "currentPcaList", "incomingPcaList"];
-    containers.forEach((cid) => {
-      const wrap = $(cid);
-      if (!wrap) return;
-      wrap.querySelectorAll("input[type='text']").forEach((inp) => candidates.push(inp));
-    });
-
-    candidates.forEach((inp) => attachTypeahead(inp));
-  }
-
-  function observeContainer(id) {
-    const wrap = $(id);
-    if (!wrap) return;
-
-    const obs = new MutationObserver(() => scanAndAttach());
-    obs.observe(wrap, { childList: true, subtree: true });
-  }
-
-  window.addEventListener("DOMContentLoaded", () => {
-    // initial attach
-    scanAndAttach();
-
-    // observe dynamic lists (these are re-rendered frequently)
-    ["currentNurseList", "incomingNurseList", "currentPcaList", "incomingPcaList"].forEach(observeContainer);
-
-    // Expose debug helper
-    window.staffTypeahead = window.staffTypeahead || {};
-    window.staffTypeahead.rescan = scanAndAttach;
-
-    console.log("[staff-typeahead] ready");
+  window.addEventListener("beforeunload", () => {
+    try { saveState(); } catch (_) {}
   });
+
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "hidden") {
+      try { saveState(); } catch (_) {}
+    }
+  });
+
+  // ============ EXPORT TO WINDOW ============
+  window.ensureDefaultPatients = ensureDefaultPatients;
+  window.resetAllPatients = resetAllPatients;
+
+  window.saveState = saveState;
+  window.loadStateFromStorage = loadStateFromStorage;
+  window.initFromStorageOrDefaults = initFromStorageOrDefaults;
+
+  window.clearRecentlyDischargedFlags = clearRecentlyDischargedFlags;
+
+  window.openAcuityModal = openAcuityModal;
+  window.closeAcuityModal = closeAcuityModal;
+
+  // multi-unit exports
+  window.applyUnitSettings = applyUnitSettings;
+  window.setActiveUnit = setActiveUnit;
+  window.refreshMyUnits = refreshMyUnits;
+
+  // Also expose legacy bare global resetAllPatients if other scripts call it directly
+  if (typeof resetAllPatients === "undefined") {
+    // eslint-disable-next-line no-var
+    var resetAllPatients = window.resetAllPatients;
+  }
 })();
