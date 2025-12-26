@@ -8,6 +8,12 @@
 // - Just read/write currentNurses/currentPcas/incomingNurses/incomingPcas/pcaShift directly.
 // - CRITICAL FIX: whenever we mutate/replace arrays, we ALSO mirror them back onto window.*
 //   so saveState() persists the true source of truth.
+//
+// ✅ NEW (Dec 2025):
+// - Staff directory typeahead (unit_staff)
+// - Autocomplete suggestions for RN/PCA name fields
+// - Auto-create staff record on name commit (blur/change)
+// - Roles are STRICT: "RN" or "PCA"
 
 (function () {
   // Use the canonical restriction helper from app.state.js if present
@@ -113,7 +119,9 @@
         <div class="nurseRow">
           <label>
             Name:
-            <input type="text" value="${(n.name || "").replace(/"/g, "&quot;")}"
+            <input type="text"
+                   data-staff-role="RN"
+                   value="${(n.name || "").replace(/"/g, "&quot;")}"
                    onchange="updateCurrentNurseName(${index}, this.value)">
           </label>
           <label>
@@ -151,7 +159,9 @@
         <div class="nurseRow">
           <label>
             Name:
-            <input type="text" value="${(n.name || "").replace(/"/g, "&quot;")}"
+            <input type="text"
+                   data-staff-role="RN"
+                   value="${(n.name || "").replace(/"/g, "&quot;")}"
                    onchange="updateIncomingNurseName(${index}, this.value)">
           </label>
           <label>
@@ -341,7 +351,9 @@
         <div class="pcaRow">
           <label>
             Name:
-            <input type="text" value="${(p.name || "").replace(/"/g, "&quot;")}"
+            <input type="text"
+                   data-staff-role="PCA"
+                   value="${(p.name || "").replace(/"/g, "&quot;")}"
                    onchange="updateCurrentPcaName(${index}, this.value)">
           </label>
           <div class="restrictionsGroup">
@@ -367,7 +379,9 @@
         <div class="pcaRow">
           <label>
             Name:
-            <input type="text" value="${(p.name || "").replace(/"/g, "&quot;")}"
+            <input type="text"
+                   data-staff-role="PCA"
+                   value="${(p.name || "").replace(/"/g, "&quot;")}"
                    onchange="updateIncomingPcaName(${index}, this.value)">
           </label>
           <div class="restrictionsGroup">
@@ -427,4 +441,139 @@
     if (typeof window.renderPcaAssignmentOutput === "function") window.renderPcaAssignmentOutput();
     if (typeof window.saveState === "function") window.saveState();
   };
+
+  // =========================================================
+  // ✅ NEW: Staff autocomplete + auto-create (non-destructive)
+  // =========================================================
+
+  function sbReady() {
+    return !!(window.sb && window.sb.client && typeof window.sb.client.from === "function");
+  }
+  function unitId() {
+    return window.activeUnitId ? String(window.activeUnitId) : "";
+  }
+  function cleanName(s) {
+    return String(s || "").replace(/\s+/g, " ").trim();
+  }
+  function isPlaceholderName(name) {
+    const n = cleanName(name);
+    if (!n) return true;
+    return (
+      /^current\s+(rn|pca)\s+\d+$/i.test(n) ||
+      /^incoming\s+(rn|pca)\s+\d+$/i.test(n) ||
+      /^rn\s*\d+$/i.test(n) ||
+      /^pca\s*\d+$/i.test(n)
+    );
+  }
+
+  function ensureDatalist(role) {
+    const id = role === "PCA" ? "dlStaffPCA" : "dlStaffRN";
+    if (document.getElementById(id)) return id;
+    const dl = document.createElement("datalist");
+    dl.id = id;
+    document.body.appendChild(dl);
+    return id;
+  }
+
+  function setOptions(role, rows) {
+    const id = ensureDatalist(role);
+    const dl = document.getElementById(id);
+    if (!dl) return;
+    dl.innerHTML = "";
+    (rows || []).forEach(r => {
+      const opt = document.createElement("option");
+      opt.value = r.display_name || "";
+      dl.appendChild(opt);
+    });
+  }
+
+  async function suggest(role, q) {
+    if (!sbReady() || !unitId()) return [];
+    if (typeof window.sb.searchUnitStaff !== "function") return [];
+    const query = cleanName(q);
+    const res = await window.sb.searchUnitStaff(unitId(), role, query, 12);
+    if (res && !res.error && Array.isArray(res.rows)) return res.rows;
+    return [];
+  }
+
+  async function ensureStaff(role, name) {
+    if (!sbReady() || !unitId()) return null;
+    if (typeof window.sb.ensureUnitStaff !== "function") return null;
+
+    const nm = cleanName(name);
+    if (!nm || isPlaceholderName(nm)) return null;
+
+    const res = await window.sb.ensureUnitStaff(unitId(), role, nm);
+    if (res && !res.error) return res.row || null;
+    return null;
+  }
+
+  function wireInput(el) {
+    if (!el || el.__staffWired) return;
+
+    const role = (el.getAttribute("data-staff-role") === "PCA") ? "PCA" : "RN";
+    el.setAttribute("list", ensureDatalist(role));
+    el.autocomplete = "off";
+
+    let t = null;
+    el.addEventListener("input", () => {
+      clearTimeout(t);
+      const q = el.value;
+      t = setTimeout(async () => {
+        const rows = await suggest(role, q);
+        setOptions(role, rows);
+      }, 160);
+    });
+
+    async function onCommit() {
+      await ensureStaff(role, el.value);
+    }
+    el.addEventListener("blur", onCommit);
+    el.addEventListener("change", onCommit);
+
+    el.__staffWired = true;
+  }
+
+  function rescan() {
+    // RN fields
+    ["currentNurseList", "incomingNurseList", "currentPcaList", "incomingPcaList"].forEach(id => {
+      const root = document.getElementById(id);
+      if (!root) return;
+      root.querySelectorAll('input[type="text"][data-staff-role]').forEach(wireInput);
+    });
+  }
+
+  // Wrap render/setup functions so after they rebuild DOM, we wire inputs again
+  function wrap(fnName) {
+    const fn = window[fnName];
+    if (typeof fn !== "function" || fn.__staffWrapped) return;
+
+    window[fnName] = function () {
+      const out = fn.apply(this, arguments);
+      setTimeout(rescan, 0);
+      return out;
+    };
+    window[fnName].__staffWrapped = true;
+  }
+
+  [
+    "setupCurrentNurses",
+    "setupIncomingNurses",
+    "setupCurrentPcas",
+    "setupIncomingPcas",
+    "renderCurrentNurseList",
+    "renderIncomingNurseList",
+    "renderCurrentPcaList",
+    "renderIncomingPcaList"
+  ].forEach(wrap);
+
+  // Expose debug hook
+  window.staffTypeahead = {
+    rescan,
+    ensureStaff
+  };
+
+  window.addEventListener("DOMContentLoaded", () => {
+    setTimeout(rescan, 400);
+  });
 })();
