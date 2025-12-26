@@ -3,14 +3,13 @@
 // FINALIZE / SHIFT CHANGE (Dec 2025)
 // - Publish a shift snapshot to Supabase (shift_snapshots)
 // - Optionally publish analytics metrics (analytics_shift_metrics)
-// - Publish staff-level metrics rows (staff_shift_metrics) ✅ NEW
 // - Then promote Oncoming -> Current (your existing workflow)
 // - Guards: role-based, active unit required, SB ready
 //
 // Notes:
 // - Expects button: #btnFinalizeShift
 // - Expects inputs: #finalizeShiftDate, #finalizeShiftType
-// - Uses window.sb.insertShiftSnapshot / insertAnalyticsShiftMetrics / insertStaffShiftMetrics if present
+// - Uses window.sb.insertShiftSnapshot / insertAnalyticsShiftMetrics if present
 // - Uses existing window.finalizeShiftChange() if present (your promote/swap logic)
 // ---------------------------------------------------------
 
@@ -52,7 +51,6 @@
     const el = $("finalizeShiftDate");
     const v = el ? clampDateStr(el.value) : "";
     if (v) return v;
-    // fallback: today
     return new Date().toISOString().slice(0, 10);
   }
 
@@ -63,12 +61,10 @@
   }
 
   function computeTopTagsFromPatients(patients) {
-    // tolerant: looks for booleans like patient.tele, patient.nih, etc. or tags arrays
     const counts = {};
     const add = (k) => { if (!k) return; counts[k] = (counts[k] || 0) + 1; };
 
     (Array.isArray(patients) ? patients : []).forEach(p => {
-      // common patterns: p.acuityTags = { tele:true, drip:true }, or p.tags = [...]
       const obj = p?.acuityTags || p?.tagsObj || null;
       const arr = p?.tags || p?.acuity || null;
 
@@ -77,13 +73,11 @@
       } else if (Array.isArray(arr)) {
         arr.forEach(k => add(String(k)));
       } else {
-        // fallback: check known fields
-        ["tele","drip","nih","bg","ciwa","restraint","sitter","vpo","iso","admit","lateDc","chg","foley","q2","heavy","feeder"]
+        ["tele","drip","nih","bg","ciwa","restraint","sitter","vpo","isolation","iso","admit","lateDc","chg","foley","q2","q2turns","heavy","feeder"]
           .forEach(k => { if (p && p[k]) add(k); });
       }
     });
 
-    // stringify "tele:22, nih:6, bg:5"
     return Object.entries(counts)
       .sort((a,b) => b[1]-a[1])
       .slice(0, 12)
@@ -92,15 +86,12 @@
   }
 
   function computeTotalPatients(patients) {
-    // count non-empty rooms if your patient array includes empty rooms too
-    // heuristic: if p.isEmpty true => exclude, else include
     const list = Array.isArray(patients) ? patients : [];
     const nonEmpty = list.filter(p => !p?.isEmpty);
     return nonEmpty.length;
   }
 
   function computeAdmitDischargeCountsFromState() {
-    // We’ll be conservative: use queue/dischargeHistory if present
     const admits = Array.isArray(window.admitQueue) ? window.admitQueue.length : 0;
     const discharges = Array.isArray(window.dischargeHistory) ? window.dischargeHistory.length : 0;
     return { admits, discharges };
@@ -143,10 +134,12 @@
     const top_tags = computeTopTagsFromPatients(window.patients);
     const created_by = await getUserIdSafe();
 
-    // optional: capture who the charge was (helpful later)
     const currentChargeName = ($("currentChargeName")?.value || "").trim();
 
-    const payload = {
+    // ✅ Your schema stores payload inside JSONB columns:
+    // - shift_snapshots.state (jsonb)
+    // - analytics_shift_metrics.metrics (jsonb)
+    const snapshotState = {
       unit_id: unitId,
       shift_date,
       shift_type,
@@ -154,9 +147,16 @@
       admits,
       discharges,
       top_tags,
-      // optional extra fields (safe even if table ignores them)
-      created_by,
       charge_name: currentChargeName || null
+    };
+
+    const payload = {
+      unit_id: unitId,
+      shift_date,
+      shift_type,
+      status: "published",
+      state: snapshotState,
+      created_by
     };
 
     setMsg("Publishing shift snapshot…");
@@ -174,97 +174,18 @@
           unit_id: unitId,
           shift_date,
           shift_type,
-          total_pts,
-          admits,
-          discharges,
-          // add more later (workload avg, infractions, etc.)
-          created_by
+          created_by,
+          metrics: {
+            version: 1,
+            total_pts,
+            admits,
+            discharges,
+            top_tags
+          }
         };
         await window.sb.insertAnalyticsShiftMetrics(metricsPayload);
       } catch (e) {
-        // don’t fail finalize if analytics insert fails
         console.warn("[finalize] analytics insert failed", e);
-      }
-    }
-
-    // ✅ NEW: staff-level metrics write (per staff) - permissive
-    if (typeof window.sb.insertStaffShiftMetrics === "function") {
-      try {
-        const nurses = Array.isArray(window.incomingNurses) ? window.incomingNurses : [];
-        const pcas   = Array.isArray(window.incomingPcas) ? window.incomingPcas : [];
-
-        async function ensureStaffId(role, staffObj) {
-          const existing = staffObj?.staff_id ? String(staffObj.staff_id) : "";
-          if (existing) return existing;
-
-          const nm = String(staffObj?.name || "").trim();
-          if (!nm) return "";
-
-          if (typeof window.sb.ensureUnitStaff === "function") {
-            const res = await window.sb.ensureUnitStaff(unitId, role, nm);
-            if (!res?.error && res?.row?.id) {
-              staffObj.staff_id = res.row.id; // persist back into state
-              return res.row.id;
-            }
-          }
-          return "";
-        }
-
-        function patientsAssigned(list) {
-          return Array.isArray(list) ? list.length : 0;
-        }
-
-        const rows = [];
-
-        for (const n of nurses) {
-          const staff_id = await ensureStaffId("RN", n);
-          const pts = patientsAssigned(n?.patients);
-
-          rows.push({
-            unit_id: unitId,
-            shift_date,
-            shift_type,
-            staff_id: staff_id || null,
-            staff_name: String(n?.name || "").trim() || null,
-            role: "RN",
-            patients_assigned: pts,
-            workload_score: pts, // MVP: replace later with real scoring
-            hard_violations: 0,
-            hard_warnings: 0,
-            tag_counts: {},
-            details: { staff_type: n?.type || null, patient_tokens: n?.patients || [] },
-            created_by
-          });
-        }
-
-        for (const p of pcas) {
-          const staff_id = await ensureStaffId("PCA", p);
-          const pts = patientsAssigned(p?.patients);
-
-          rows.push({
-            unit_id: unitId,
-            shift_date,
-            shift_type,
-            staff_id: staff_id || null,
-            staff_name: String(p?.name || "").trim() || null,
-            role: "PCA",
-            patients_assigned: pts,
-            workload_score: pts, // MVP
-            hard_violations: 0,
-            hard_warnings: 0,
-            tag_counts: {},
-            details: { patient_tokens: p?.patients || [] },
-            created_by
-          });
-        }
-
-        const cleaned = rows.filter(r => r.staff_name && r.staff_name.length > 0);
-        if (cleaned.length) {
-          const res = await window.sb.insertStaffShiftMetrics(cleaned);
-          if (res?.error) console.warn("[finalize] staff metrics insert error", res.error);
-        }
-      } catch (e) {
-        console.warn("[finalize] staff metrics insert failed", e);
       }
     }
 
@@ -283,19 +204,16 @@
         return;
       }
 
-      // Now do the actual swap/promote logic
       if (typeof window.finalizeShiftChange === "function") {
         window.finalizeShiftChange();
       } else {
         console.warn("[finalize] window.finalizeShiftChange missing. No local swap performed.");
       }
 
-      // Save after swap
       try { if (typeof window.saveState === "function") window.saveState(); } catch {}
 
       setMsg("Finalize complete ✅ (published + promoted oncoming → current).");
 
-      // refresh unit pulse if present
       try { if (window.unitPulse && typeof window.unitPulse.load === "function") window.unitPulse.load(); } catch {}
 
     } catch (e) {
@@ -328,21 +246,18 @@
     const ok = !!unitId && canWriteRole(role) && sbReady();
     btn.disabled = !ok;
 
-    // keep your existing styling expectations
     btn.style.opacity = ok ? "1" : "0.55";
     btn.title = ok
       ? "Publishes Oncoming snapshot + analytics, then swaps Live ← Oncoming"
       : "Requires owner/admin/charge on the active unit (and Supabase ready).";
   }
 
-  // keep this callable from other modules
   window.shiftFinalize = window.shiftFinalize || {};
   window.shiftFinalize.refresh = updateFinalizeButtonState;
 
   window.addEventListener("DOMContentLoaded", () => {
     wireFinalizeButton();
 
-    // default finalize fields
     const dateEl = $("finalizeShiftDate");
     if (dateEl && !clampDateStr(dateEl.value)) {
       dateEl.value = new Date().toISOString().slice(0, 10);
@@ -351,8 +266,6 @@
     if (typeEl && !typeEl.value) typeEl.value = "day";
 
     updateFinalizeButtonState();
-
-    // Re-check eligibility periodically (unit switching / auth changes)
     setInterval(updateFinalizeButtonState, 1500);
   });
 })();
