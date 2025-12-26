@@ -1,8 +1,7 @@
 // app/app.supabase.js
 // Supabase client + helpers for auth + unit access + settings + shift publishing
 // + UNIT STATE (shared board) + REALTIME subscription
-// + UNIT STAFF DIRECTORY (typeahead + ensure staff)
-// ----------------------------------------------------
+//
 // GOAL:
 // - Create exactly ONE Supabase client
 // - Expose it consistently as:
@@ -25,6 +24,7 @@
     console.warn(reason);
     window.sb.client = null;
     window.supabaseClient = null;
+    // optional marker for debugging
     window.sb.__ready = false;
   }
 
@@ -49,34 +49,9 @@
   // Canonical + alias (same object)
   window.sb.client = client;
   window.supabaseClient = client;
+
+  // optional marker for debugging / readiness checks
   window.sb.__ready = true;
-
-  function hasClient() {
-    return !!(client && typeof client.from === "function");
-  }
-
-  function safeStr(x) {
-    return (x == null) ? "" : String(x);
-  }
-
-  // IMPORTANT: roles must be "RN" or "PCA"
-  function normalizeRole(role) {
-    const r = safeStr(role).trim().toUpperCase();
-    return (r === "RN" || r === "PCA") ? r : "";
-  }
-
-  function normalizeName(s) {
-    return safeStr(s)
-      .trim()
-      .toLowerCase()
-      .replace(/\s+/g, " ")
-      .replace(/[^a-z0-9 \-']/g, "");
-  }
-
-  function looksLikeMissingColumn(err) {
-    const msg = safeStr(err?.message || err);
-    return /column .* does not exist/i.test(msg) || /PGRST\d+/i.test(msg);
-  }
 
   // ------------------------
   // Auth helpers
@@ -176,9 +151,123 @@
   }
 
   // ------------------------
+  // ✅ Staff directory helpers (Unit Staff)
+  // ------------------------
+  const UNIT_STAFF_TABLE = "unit_staff"; // NOTE: underscore, not "unit staff"
+
+  function normalizeName(name) {
+    return String(name || "")
+      .trim()
+      .toLowerCase()
+      .replace(/\s+/g, " ");
+  }
+
+  function normalizeRole(role) {
+    const r = String(role || "").trim().toUpperCase();
+    if (r === "RN" || r === "PCA") return r;
+    return ""; // invalid
+  }
+
+  async function sbListUnitStaff(unitId, role, limit = 50) {
+    try {
+      const uid = String(unitId || "");
+      const r = normalizeRole(role);
+      if (!uid) return { rows: [], error: new Error("Missing unitId") };
+      if (!r) return { rows: [], error: new Error('Invalid role (must be "RN" or "PCA")') };
+
+      const { data, error } = await client
+        .from(UNIT_STAFF_TABLE)
+        .select("id, unit_id, role, display_name, normalized_name, is_active, created_at")
+        .eq("unit_id", uid)
+        .eq("role", r)
+        .eq("is_active", true) // NOTE: underscore, not "is active"
+        .order("display_name", { ascending: true })
+        .limit(Number(limit) || 50);
+
+      return { rows: Array.isArray(data) ? data : [], error };
+    } catch (e) {
+      return { rows: [], error: e };
+    }
+  }
+
+  async function sbSearchUnitStaff(unitId, role, query, limit = 10) {
+    try {
+      const uid = String(unitId || "");
+      const r = normalizeRole(role);
+      const q = normalizeName(query);
+      if (!uid) return { rows: [], error: new Error("Missing unitId") };
+      if (!r) return { rows: [], error: new Error('Invalid role (must be "RN" or "PCA")') };
+      if (!q) return { rows: [], error: null };
+
+      // Use ilike on normalized_name for quick prefix/contains search
+      const { data, error } = await client
+        .from(UNIT_STAFF_TABLE)
+        .select("id, unit_id, role, display_name, normalized_name, is_active, created_at")
+        .eq("unit_id", uid)
+        .eq("role", r)
+        .eq("is_active", true)
+        .ilike("normalized_name", `%${q}%`)
+        .order("display_name", { ascending: true })
+        .limit(Number(limit) || 10);
+
+      return { rows: Array.isArray(data) ? data : [], error };
+    } catch (e) {
+      return { rows: [], error: e };
+    }
+  }
+
+  async function sbEnsureUnitStaff(unitId, role, displayName) {
+    try {
+      const uid = String(unitId || "");
+      const r = normalizeRole(role);
+      const dn = String(displayName || "").trim();
+      const nn = normalizeName(dn);
+
+      if (!uid) return { row: null, error: new Error("Missing unitId") };
+      if (!r) return { row: null, error: new Error('Invalid role (must be "RN" or "PCA")') };
+      if (!dn) return { row: null, error: new Error("Missing displayName") };
+
+      // 1) try to find existing
+      const found = await client
+        .from(UNIT_STAFF_TABLE)
+        .select("id, unit_id, role, display_name, normalized_name, is_active, created_at")
+        .eq("unit_id", uid)
+        .eq("role", r)
+        .eq("normalized_name", nn)
+        .limit(1);
+
+      if (found?.data?.[0]) {
+        return { row: found.data[0], error: found.error || null };
+      }
+      if (found?.error) return { row: null, error: found.error };
+
+      // 2) insert new
+      const { data, error } = await client
+        .from(UNIT_STAFF_TABLE)
+        .insert({
+          unit_id: uid,
+          role: r,
+          display_name: dn,
+          normalized_name: nn,
+          is_active: true
+        })
+        .select("id, unit_id, role, display_name, normalized_name, is_active, created_at")
+        .single();
+
+      return { row: data || null, error };
+    } catch (e) {
+      return { row: null, error: e };
+    }
+  }
+
+  // ------------------------
   // Unit State (cloud) helpers
   // ------------------------
   const UNIT_STATE_TABLE = "unit_state"; // expects: unit_id, state(jsonb), version(int), updated_by, updated_at
+
+  function hasClient() {
+    return !!(client && typeof client.from === "function");
+  }
 
   function safeUnitId(unitId) {
     return unitId ? String(unitId) : null;
@@ -273,189 +362,6 @@
     };
   }
 
-  // ----------------------------------------------------
-  // ✅ Unit Staff Directory helpers (schema tolerant)
-  // Table: unit_staff
-  // Expected (ideal) columns:
-  //  - id (uuid)
-  //  - unit_id (uuid)
-  //  - role ("RN" | "PCA")
-  //  - display_name (text)
-  //  - normalized_name (text)  [optional]
-  //  - is_active (bool)        [optional]
-  //  - created_at (timestamptz)
-  //
-  // If your schema differs, these functions auto-fallback
-  // so you stop seeing 400s.
-  // ----------------------------------------------------
-
-  async function sbListUnitStaff(unitId, role, limit = 50) {
-    const uid = safeUnitId(unitId);
-    const r = normalizeRole(role);
-    const lim = Math.max(1, Math.min(200, Number(limit) || 50));
-
-    if (!uid) return { rows: [], error: new Error("Missing unitId") };
-    if (!r) return { rows: [], error: new Error('Role must be "RN" or "PCA"') };
-    if (!hasClient()) return { rows: [], error: new Error("Supabase client not ready") };
-
-    // Attempt 1: full schema
-    let q = client
-      .from("unit_staff")
-      .select("id, unit_id, role, display_name, normalized_name, is_active, created_at")
-      .eq("unit_id", uid)
-      .eq("role", r)
-      .eq("is_active", true)
-      .order("display_name", { ascending: true })
-      .limit(lim);
-
-    let res = await q;
-    if (!res.error) return { rows: Array.isArray(res.data) ? res.data : [], error: null };
-
-    // Fallback if missing columns (normalized_name / is_active / display_name)
-    if (!looksLikeMissingColumn(res.error)) {
-      return { rows: [], error: res.error };
-    }
-
-    // Attempt 2: minimal schema (no is_active / normalized_name)
-    q = client
-      .from("unit_staff")
-      .select("id, unit_id, role, display_name, created_at")
-      .eq("unit_id", uid)
-      .eq("role", r)
-      .order("display_name", { ascending: true })
-      .limit(lim);
-
-    res = await q;
-    if (!res.error) return { rows: Array.isArray(res.data) ? res.data : [], error: null };
-
-    // Attempt 3: ultra-minimal (if display_name isn't the column name, select *)
-    q = client
-      .from("unit_staff")
-      .select("*")
-      .eq("unit_id", uid)
-      .eq("role", r)
-      .limit(lim);
-
-    res = await q;
-    return { rows: Array.isArray(res.data) ? res.data : [], error: res.error || null };
-  }
-
-  async function sbSearchUnitStaff(unitId, role, query, limit = 10) {
-    const uid = safeUnitId(unitId);
-    const r = normalizeRole(role);
-    const qstr = safeStr(query).trim();
-    const lim = Math.max(1, Math.min(50, Number(limit) || 10));
-
-    if (!uid) return { rows: [], error: new Error("Missing unitId") };
-    if (!r) return { rows: [], error: new Error('Role must be "RN" or "PCA"') };
-    if (!qstr) return { rows: [], error: null };
-    if (!hasClient()) return { rows: [], error: new Error("Supabase client not ready") };
-
-    // Prefer searching normalized_name if it exists, else ilike display_name
-    const norm = normalizeName(qstr);
-
-    // Attempt 1: normalized_name ilike
-    let res = await client
-      .from("unit_staff")
-      .select("id, unit_id, role, display_name, normalized_name, is_active, created_at")
-      .eq("unit_id", uid)
-      .eq("role", r)
-      .eq("is_active", true)
-      .ilike("normalized_name", `%${norm}%`)
-      .order("display_name", { ascending: true })
-      .limit(lim);
-
-    if (!res.error) return { rows: Array.isArray(res.data) ? res.data : [], error: null };
-    if (!looksLikeMissingColumn(res.error)) return { rows: [], error: res.error };
-
-    // Attempt 2: display_name ilike (no normalized/is_active)
-    res = await client
-      .from("unit_staff")
-      .select("id, unit_id, role, display_name, created_at")
-      .eq("unit_id", uid)
-      .eq("role", r)
-      .ilike("display_name", `%${qstr}%`)
-      .order("display_name", { ascending: true })
-      .limit(lim);
-
-    return { rows: Array.isArray(res.data) ? res.data : [], error: res.error || null };
-  }
-
-  async function sbEnsureUnitStaff(unitId, role, displayName) {
-    const uid = safeUnitId(unitId);
-    const r = normalizeRole(role);
-    const dn = safeStr(displayName).trim();
-    const norm = normalizeName(dn);
-
-    if (!uid) return { row: null, error: new Error("Missing unitId") };
-    if (!r) return { row: null, error: new Error('Role must be "RN" or "PCA"') };
-    if (!dn) return { row: null, error: new Error("Missing displayName") };
-    if (!hasClient()) return { row: null, error: new Error("Supabase client not ready") };
-
-    // Try find by normalized_name (best) then fall back to display_name
-    let findRes = await client
-      .from("unit_staff")
-      .select("id, unit_id, role, display_name, normalized_name, is_active, created_at")
-      .eq("unit_id", uid)
-      .eq("role", r)
-      .eq("normalized_name", norm)
-      .limit(1);
-
-    if (!findRes.error && Array.isArray(findRes.data) && findRes.data[0]) {
-      return { row: findRes.data[0], error: null };
-    }
-
-    // If missing normalized_name column, try display_name exact match
-    if (findRes.error && looksLikeMissingColumn(findRes.error)) {
-      findRes = await client
-        .from("unit_staff")
-        .select("id, unit_id, role, display_name, created_at")
-        .eq("unit_id", uid)
-        .eq("role", r)
-        .eq("display_name", dn)
-        .limit(1);
-
-      if (!findRes.error && Array.isArray(findRes.data) && findRes.data[0]) {
-        return { row: findRes.data[0], error: null };
-      }
-    } else if (findRes.error) {
-      // Other error type
-      return { row: null, error: findRes.error };
-    }
-
-    // Insert: attempt full payload first, then fallback minimal
-    let insertRes = await client
-      .from("unit_staff")
-      .insert({
-        unit_id: uid,
-        role: r,
-        display_name: dn,
-        normalized_name: norm,
-        is_active: true
-      })
-      .select("*")
-      .single();
-
-    if (!insertRes.error) return { row: insertRes.data || null, error: null };
-
-    if (!looksLikeMissingColumn(insertRes.error)) {
-      return { row: null, error: insertRes.error };
-    }
-
-    // Fallback insert: minimal fields only
-    insertRes = await client
-      .from("unit_staff")
-      .insert({
-        unit_id: uid,
-        role: r,
-        display_name: dn
-      })
-      .select("*")
-      .single();
-
-    return { row: insertRes.data || null, error: insertRes.error || null };
-  }
-
   // ------------------------
   // Expose API (extend sb; do NOT replace it)
   // ------------------------
@@ -483,15 +389,15 @@
     insertShiftSnapshot: sbInsertShiftSnapshot,
     insertAnalyticsShiftMetrics: sbInsertAnalyticsShiftMetrics,
 
-    // unit state
-    getUnitState: sbGetUnitState,
-    upsertUnitState: sbUpsertUnitState,
-    subscribeUnitState: sbSubscribeUnitState,
-
     // ✅ staff directory
     listUnitStaff: sbListUnitStaff,
     searchUnitStaff: sbSearchUnitStaff,
-    ensureUnitStaff: sbEnsureUnitStaff
+    ensureUnitStaff: sbEnsureUnitStaff,
+
+    // unit state
+    getUnitState: sbGetUnitState,
+    upsertUnitState: sbUpsertUnitState,
+    subscribeUnitState: sbSubscribeUnitState
   });
 
   // Ensure alias always matches canonical (paranoia / future-proofing)
