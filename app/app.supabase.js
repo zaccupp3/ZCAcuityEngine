@@ -54,6 +54,21 @@
   window.sb.__ready = true;
 
   // ------------------------
+  // Small helpers
+  // ------------------------
+  function normName(s) {
+    return String(s || "")
+      .trim()
+      .toLowerCase()
+      .replace(/\s+/g, " ");
+  }
+
+  function safeRole(role) {
+    const r = String(role || "").trim().toUpperCase();
+    return (r === "RN" || r === "PCA") ? r : "";
+  }
+
+  // ------------------------
   // Auth helpers
   // ------------------------
   async function sbGetSession() {
@@ -151,113 +166,83 @@
   }
 
   // ------------------------
-  // ✅ Staff directory helpers (Unit Staff)
+  // ✅ Unit Staff helpers (for autosuggest + de-dupe)
+  // Table columns confirmed:
+  // id, unit_id, role, display_name, display_name_norm, is_active, created_at
   // ------------------------
-  const UNIT_STAFF_TABLE = "unit_staff"; // NOTE: underscore, not "unit staff"
-
-  function normalizeName(name) {
-    return String(name || "")
-      .trim()
-      .toLowerCase()
-      .replace(/\s+/g, " ");
-  }
-
-  function normalizeRole(role) {
-    const r = String(role || "").trim().toUpperCase();
-    if (r === "RN" || r === "PCA") return r;
-    return ""; // invalid
-  }
-
   async function sbListUnitStaff(unitId, role, limit = 50) {
-    try {
-      const uid = String(unitId || "");
-      const r = normalizeRole(role);
-      if (!uid) return { rows: [], error: new Error("Missing unitId") };
-      if (!r) return { rows: [], error: new Error('Invalid role (must be "RN" or "PCA")') };
+    const uid = String(unitId || "");
+    const r = safeRole(role);
+    if (!uid || !r) return { rows: [], error: new Error("Missing unitId or invalid role (RN/PCA)") };
 
-      const { data, error } = await client
-        .from(UNIT_STAFF_TABLE)
-        .select("id, unit_id, role, display_name, normalized_name, is_active, created_at")
-        .eq("unit_id", uid)
-        .eq("role", r)
-        .eq("is_active", true) // NOTE: underscore, not "is active"
-        .order("display_name", { ascending: true })
-        .limit(Number(limit) || 50);
+    const { data, error } = await client
+      .from("unit_staff")
+      .select("id, unit_id, role, display_name, display_name_norm, is_active, created_at")
+      .eq("unit_id", uid)
+      .eq("role", r)
+      .eq("is_active", true)
+      .order("display_name", { ascending: true })
+      .limit(Number(limit) || 50);
 
-      return { rows: Array.isArray(data) ? data : [], error };
-    } catch (e) {
-      return { rows: [], error: e };
-    }
+    return { rows: Array.isArray(data) ? data : [], error };
   }
 
-  async function sbSearchUnitStaff(unitId, role, query, limit = 10) {
-    try {
-      const uid = String(unitId || "");
-      const r = normalizeRole(role);
-      const q = normalizeName(query);
-      if (!uid) return { rows: [], error: new Error("Missing unitId") };
-      if (!r) return { rows: [], error: new Error('Invalid role (must be "RN" or "PCA")') };
-      if (!q) return { rows: [], error: null };
+  async function sbSearchUnitStaff(unitId, role, q, limit = 10) {
+    const uid = String(unitId || "");
+    const r = safeRole(role);
+    const query = normName(q);
+    if (!uid || !r) return { rows: [], error: new Error("Missing unitId or invalid role (RN/PCA)") };
+    if (!query) return { rows: [], error: null };
 
-      // Use ilike on normalized_name for quick prefix/contains search
-      const { data, error } = await client
-        .from(UNIT_STAFF_TABLE)
-        .select("id, unit_id, role, display_name, normalized_name, is_active, created_at")
-        .eq("unit_id", uid)
-        .eq("role", r)
-        .eq("is_active", true)
-        .ilike("normalized_name", `%${q}%`)
-        .order("display_name", { ascending: true })
-        .limit(Number(limit) || 10);
+    // Search against display_name_norm (NOT normalized_name)
+    const { data, error } = await client
+      .from("unit_staff")
+      .select("id, unit_id, role, display_name, display_name_norm, is_active, created_at")
+      .eq("unit_id", uid)
+      .eq("role", r)
+      .eq("is_active", true)
+      .ilike("display_name_norm", `%${query}%`)
+      .order("display_name", { ascending: true })
+      .limit(Number(limit) || 10);
 
-      return { rows: Array.isArray(data) ? data : [], error };
-    } catch (e) {
-      return { rows: [], error: e };
-    }
+    return { rows: Array.isArray(data) ? data : [], error };
   }
 
   async function sbEnsureUnitStaff(unitId, role, displayName) {
-    try {
-      const uid = String(unitId || "");
-      const r = normalizeRole(role);
-      const dn = String(displayName || "").trim();
-      const nn = normalizeName(dn);
+    const uid = String(unitId || "");
+    const r = safeRole(role);
+    const dn = String(displayName || "").trim();
+    const dnNorm = normName(dn);
 
-      if (!uid) return { row: null, error: new Error("Missing unitId") };
-      if (!r) return { row: null, error: new Error('Invalid role (must be "RN" or "PCA")') };
-      if (!dn) return { row: null, error: new Error("Missing displayName") };
+    if (!uid || !r) return { row: null, error: new Error("Missing unitId or invalid role (RN/PCA)") };
+    if (!dn) return { row: null, error: new Error("Missing displayName") };
 
-      // 1) try to find existing
-      const found = await client
-        .from(UNIT_STAFF_TABLE)
-        .select("id, unit_id, role, display_name, normalized_name, is_active, created_at")
-        .eq("unit_id", uid)
-        .eq("role", r)
-        .eq("normalized_name", nn)
-        .limit(1);
+    // 1) try find existing by normalized name
+    const found = await client
+      .from("unit_staff")
+      .select("id, unit_id, role, display_name, display_name_norm, is_active, created_at")
+      .eq("unit_id", uid)
+      .eq("role", r)
+      .eq("display_name_norm", dnNorm)
+      .limit(1);
 
-      if (found?.data?.[0]) {
-        return { row: found.data[0], error: found.error || null };
-      }
-      if (found?.error) return { row: null, error: found.error };
+    if (found.error) return { row: null, error: found.error };
+    if (Array.isArray(found.data) && found.data[0]) return { row: found.data[0], error: null };
 
-      // 2) insert new
-      const { data, error } = await client
-        .from(UNIT_STAFF_TABLE)
-        .insert({
-          unit_id: uid,
-          role: r,
-          display_name: dn,
-          normalized_name: nn,
-          is_active: true
-        })
-        .select("id, unit_id, role, display_name, normalized_name, is_active, created_at")
-        .single();
+    // 2) insert new
+    const ins = await client
+      .from("unit_staff")
+      .insert([{
+        unit_id: uid,
+        role: r,
+        display_name: dn,
+        display_name_norm: dnNorm,
+        is_active: true
+      }])
+      .select("id, unit_id, role, display_name, display_name_norm, is_active, created_at")
+      .single();
 
-      return { row: data || null, error };
-    } catch (e) {
-      return { row: null, error: e };
-    }
+    return { row: ins.data || null, error: ins.error || null };
   }
 
   // ------------------------
@@ -389,7 +374,7 @@
     insertShiftSnapshot: sbInsertShiftSnapshot,
     insertAnalyticsShiftMetrics: sbInsertAnalyticsShiftMetrics,
 
-    // ✅ staff directory
+    // ✅ staff
     listUnitStaff: sbListUnitStaff,
     searchUnitStaff: sbSearchUnitStaff,
     ensureUnitStaff: sbEnsureUnitStaff,
