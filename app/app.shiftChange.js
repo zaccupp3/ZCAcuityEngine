@@ -2,17 +2,16 @@
 // ---------------------------------------------------------
 // Shift Finalize / Publish
 // - Writes shift_snapshots (UPSERT)
-// - Writes staff_shift_metrics (UPSERT batch)
-// - Writes analytics_shift_metrics (UPSERT)
+// - Writes staff_shift_metrics (UPSERT batch)  ✅ role-scoped tag_counts
+// - Writes analytics_shift_metrics (UPSERT)    ✅ UNIT-deduped tag_counts for Unit Pulse
+// - Then calls window.finalizeShiftChange() to promote Incoming -> Live
 //
-// FIX (Dec 2025 / v2):
-// ✅ Staff tag_counts remain ROLE-SCOPED (matches UI):
-//    RN:  Tele, Drip, NIH, BG, CIWA/COWS, Restraint, Sitter, VPO, ISO, Admit, Late DC
-//    PCA: Tele, CHG, Foley, Q2, Heavy, Feeder, ISO, Admit, Late DC
-// ✅ Analytics shift metrics now stores:
-//    - metrics.tag_counts      => UNIT-wide, patient-deduped (Tele NOT double-counted)
-//    - metrics.rn_tag_counts   => RN role scope (Tele counted for RN workload)
-//    - metrics.pca_tag_counts  => PCA role scope (Tele counted for PCA workload)
+// FIX (Dec 2025):
+// - Staff tag_counts are ROLE-SCOPED to match the UI:
+//   RN:  Tele, Drip, NIH, BG, CIWA/COWS, Restraint, Sitter, VPO, ISO, Admit, Late DC
+//   PCA: Tele, CHG, Foley, Q2, Heavy, Feeder, ISO, Admit, Late DC
+// - Tele is counted for PCA (role-scoped) ✅
+// - UnitPulse/analytics tag_counts are patient-deduped ✅ (tele won't double)
 // ---------------------------------------------------------
 
 (function () {
@@ -82,105 +81,70 @@
     return safeArray(window.patients).filter(p => p && !p.isEmpty);
   }
 
+  function activePatientIds() {
+    return activePatients()
+      .map(p => Number(p?.id))
+      .filter(n => Number.isFinite(n));
+  }
+
   // -------------------------
-  // ✅ Tag keys (UI exact)
-  // Store in analytics as these canonical keys:
-  // RN:  tele, drip, nih, bg, ciwa, cows, restraint, sitter, vpo, iso, admit, late_dc
-  // PCA: tele, chg, foley, q2, heavy, feeder, iso, admit, late_dc
+  // ✅ ROLE-SCOPED TAG KEYS
+  // IMPORTANT: these must match your patient boolean property names
+  // (based on what your DB is showing: tele/drip/bg/ciwa/sitter/etc.)
   // -------------------------
   const RN_KEYS = [
-    "tele", "drip", "nih", "bg", "ciwa", "cows",
-    "restraint", "sitter", "vpo", "iso", "admit", "late_dc"
+    "tele", "drip", "nih", "bg", "ciwa", "cows", "restraint", "sitter", "vpo",
+    "iso", "admit", "lateDc"
   ];
 
   const PCA_KEYS = [
     "tele", "chg", "foley", "q2", "heavy", "feeder",
-    "iso", "admit", "late_dc"
+    "iso", "admit", "lateDc"
   ];
 
-  const UNIT_KEYS = Array.from(new Set([...RN_KEYS, ...PCA_KEYS]));
-
-  function truthy(v) {
-    return !!v;
-  }
-
-  // Map patient fields to canonical keys
-  function patientHasTag(p, key) {
-    if (!p) return false;
-
-    switch (key) {
-      case "iso":
-        return truthy(p.iso) || truthy(p.ISO) || truthy(p.isolation) || truthy(p.Isolation);
-      case "late_dc":
-        return truthy(p.late_dc) || truthy(p.lateDc) || truthy(p.lateDC) || truthy(p.LateDC);
-      case "q2":
-        return truthy(p.q2) || truthy(p.q2turns) || truthy(p.q2Turns) || truthy(p.Q2);
-      case "ciwa":
-        return truthy(p.ciwa) || truthy(p.CIWA);
-      case "cows":
-        return truthy(p.cows) || truthy(p.COWS);
-      default:
-        // most are stored as simple booleans (tele, drip, nih, bg, restraint, sitter, vpo, chg, foley, heavy, feeder, admit)
-        return truthy(p[key]) || truthy(p[String(key).toUpperCase()]);
-    }
-  }
-
-  // -------------------------
-  // ROLE-SCOPED TAG COUNTS (per staff, used by staff_shift_metrics)
-  // -------------------------
-  function countTagsForRole(patientIds, role) {
-    const r = String(role || "").toUpperCase();
-    const keys = (r === "RN") ? RN_KEYS : (r === "PCA") ? PCA_KEYS : [];
+  function countTagsFromPatients(patientIds, keys) {
     const counts = {};
+    safeArray(keys).forEach(k => counts[k] = 0);
 
     safeArray(patientIds).forEach(pid => {
       const p = getPatientByIdSafe(pid);
       if (!p || p.isEmpty) return;
 
-      keys.forEach(k => {
-        if (patientHasTag(p, k)) counts[k] = (counts[k] || 0) + 1;
+      safeArray(keys).forEach(k => {
+        if (p[k]) counts[k] += 1;
       });
+    });
+
+    // drop zeros
+    Object.keys(counts).forEach(k => {
+      if (!counts[k]) delete counts[k];
     });
 
     return counts;
   }
 
-  // -------------------------
-  // ✅ UNIT-wide tag_counts (patient-deduped)
-  // Each patient contributes at most 1 count per tag.
-  // This prevents Tele double-counting on Unit Pulse.
-  // -------------------------
-  function countTagsUnitWideDeduped() {
-    const counts = {};
-    const pts = activePatients();
-
-    pts.forEach(p => {
-      UNIT_KEYS.forEach(k => {
-        if (patientHasTag(p, k)) counts[k] = (counts[k] || 0) + 1;
-      });
-    });
-
-    return counts;
+  function countTagsForRole(patientIds, role) {
+    const r = String(role || "").toUpperCase();
+    const keys = (r === "RN") ? RN_KEYS : (r === "PCA") ? PCA_KEYS : [];
+    return countTagsFromPatients(patientIds, keys);
   }
 
-  // patient-deduped within a ROLE’s covered patients (RN vs PCA)
-  function countTagsForRoleAcrossOwners(owners, role) {
-    const set = new Set();
-    safeArray(owners).forEach(o => {
-      safeArray(o?.patients).forEach(pid => {
-        const n = Number(pid);
-        if (Number.isFinite(n)) set.add(n);
-      });
-    });
-    return countTagsForRole(Array.from(set), role);
+  // ✅ UNIT-DEDUPED tags for Unit Pulse (no double counting tele)
+  function countUnitTagCountsDedup() {
+    // union of RN+PCA keys (dedup)
+    const keys = Array.from(new Set([ ...RN_KEYS, ...PCA_KEYS ]));
+    // use active patient list ONCE (dedup by patient)
+    const pids = activePatientIds();
+    return countTagsFromPatients(pids, keys);
   }
 
-  function toTopTagsString(tagCounts, limit = 10) {
+  function topTagsString(tagCounts, limit = 10) {
     const entries = Object.entries(tagCounts || {})
       .map(([k, v]) => ({ k, v: Number(v) || 0 }))
       .filter(x => x.v > 0)
       .sort((a, b) => b.v - a.v)
       .slice(0, limit);
+
     return entries.map(x => `${x.k}:${x.v}`).join(", ");
   }
 
@@ -188,7 +152,6 @@
   // Hard rule eval helper
   // -------------------------
   function ruleEvalForOwner(owners, roleKey, owner) {
-    // roleKey is what your rules engine expects: "nurse" or "pca"
     try {
       if (typeof window.evaluateAssignmentHardRules !== "function") return { violations: [], warnings: [] };
       const map = window.evaluateAssignmentHardRules(owners, roleKey);
@@ -231,22 +194,8 @@
     const shift_type = getShiftType();
     const created_by = await getUserIdSafe();
 
-    const ptsActive = activePatients();
-    const admitsCount = Array.isArray(window.admitQueue) ? window.admitQueue.length : 0;
-    const dischargesCount = Array.isArray(window.dischargeHistory) ? window.dischargeHistory.length : 0;
-
-    // Owners (oncoming/incoming)
-    const rnOwners = safeArray(window.incomingNurses);
-    const pcaOwners = safeArray(window.incomingPcas);
-
-    // ✅ Compute analytics tag maps BEFORE writing analytics
-    // Unit-wide (patient-deduped) — fixes Tele double-count in Unit Pulse
-    const unitTagCounts = countTagsUnitWideDeduped();
-    // Role-scoped totals (patient-deduped within each role’s covered patients)
-    const rnRoleTotals = countTagsForRoleAcrossOwners(rnOwners, "RN");
-    const pcaRoleTotals = countTagsForRoleAcrossOwners(pcaOwners, "PCA");
-
     // ---- shift snapshot payload (minimal but useful)
+    const ptsActive = activePatients();
     const snapshotPayload = {
       unit_id,
       shift_date,
@@ -257,8 +206,8 @@
         shift_date,
         shift_type,
         total_pts: ptsActive.length,
-        admits: admitsCount,
-        discharges: dischargesCount
+        admits: Array.isArray(window.admitQueue) ? window.admitQueue.length : 0,
+        discharges: Array.isArray(window.dischargeHistory) ? window.dischargeHistory.length : 0
       },
       created_by
     };
@@ -270,37 +219,10 @@
       return { ok: false };
     }
 
-    // ---- analytics shift metrics (UPSERT)
-    if (typeof window.sb.upsertAnalyticsShiftMetrics === "function") {
-      try {
-        await window.sb.upsertAnalyticsShiftMetrics({
-          unit_id,
-          shift_date,
-          shift_type,
-          created_by,
-          metrics: {
-            version: 2,
-            totals: {
-              totalPts: ptsActive.length,
-              admits: admitsCount,
-              discharges: dischargesCount
-            },
-            // ✅ Unit Pulse should use this (patient-deduped)
-            tag_counts: unitTagCounts,
-            // ✅ Workload views can use these if desired
-            rn_tag_counts: rnRoleTotals,
-            pca_tag_counts: pcaRoleTotals,
-            // Optional convenience string (UnitPulse already supports strings too)
-            top_tags: toTopTagsString(unitTagCounts, 10)
-          }
-        });
-      } catch (e) {
-        console.warn("[finalize] analytics upsert failed", e);
-      }
-    }
-
     // ---- staff metrics rows
     const rows = [];
+    const rnOwners = safeArray(window.incomingNurses);
+    const pcaOwners = safeArray(window.incomingPcas);
 
     // RN rows
     for (const rn of rnOwners) {
@@ -370,7 +292,7 @@
         workload_score,
         hard_violations: safeArray(ev?.violations).length,
         hard_warnings: safeArray(ev?.warnings).length,
-        tag_counts: countTagsForRole(patient_ids, "PCA"),
+        tag_counts: countTagsForRole(patient_ids, "PCA"), // ✅ PCA tags (Tele included)
         details: { drivers, patient_ids },
         created_by
       });
@@ -381,7 +303,40 @@
     if (sm?.error) {
       console.warn("[finalize] staff metrics upsert failed", sm.error);
       setMsg("Snapshot published, but staff metrics failed (see console).", true);
-      // Don’t hard-fail; snapshot still succeeded
+      // keep going; snapshot still succeeded
+    }
+
+    // ---- ✅ analytics (write AFTER counts exist)
+    if (typeof window.sb.upsertAnalyticsShiftMetrics === "function") {
+      try {
+        const unitTagCounts = countUnitTagCountsDedup(); // ✅ no double counting tele
+        const rnUnitTagCounts = countTagsFromPatients(activePatientIds(), RN_KEYS);
+        const pcaUnitTagCounts = countTagsFromPatients(activePatientIds(), PCA_KEYS);
+
+        await window.sb.upsertAnalyticsShiftMetrics({
+          unit_id,
+          shift_date,
+          shift_type,
+          created_by,
+          metrics: {
+            version: 2,
+            totals: {
+              total_pts: ptsActive.length,
+              admits: Array.isArray(window.admitQueue) ? window.admitQueue.length : 0,
+              discharges: Array.isArray(window.dischargeHistory) ? window.dischargeHistory.length : 0
+            },
+            // UnitPulse will read this:
+            tag_counts: unitTagCounts,
+            top_tags: topTagsString(unitTagCounts, 10),
+
+            // Future: split views if you want them
+            tag_counts_rn: rnUnitTagCounts,
+            tag_counts_pca: pcaUnitTagCounts
+          }
+        });
+      } catch (e) {
+        console.warn("[finalize] analytics upsert failed", e);
+      }
     }
 
     setMsg("Publish complete ✅ Promoting Oncoming → Live…");
