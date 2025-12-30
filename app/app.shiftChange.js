@@ -1,14 +1,16 @@
 // app/app.shiftChange.js
 // ---------------------------------------------------------
-// Shift Finalize / Publish
-// - Writes shift_snapshots (UPSERT)
-// - Writes staff_shift_metrics (UPSERT batch)
-// - Writes analytics_shift_metrics (UPSERT)
+// Shift Finalize / Publish (FOUNDATION-LOCKED)
 //
-// GUARANTEES (v2):
-// - analytics metrics ALWAYS written in full
-// - tag_counts are SHIFT-WIDE, patient-deduped
-// - role-specific counts remain ONLY in staff_shift_metrics
+// Writes:
+// - shift_snapshots (UPSERT)  ✅ now includes FULL patient state
+// - staff_shift_metrics (UPSERT batch)
+// - analytics_shift_metrics (UPSERT)
+//
+// GUARANTEES:
+// - Snapshots persist complete patient truth
+// - Analytics are patient-deduped, unit-level
+// - Future backfills + re-scoring are safe
 // ---------------------------------------------------------
 
 (function () {
@@ -36,14 +38,13 @@
 
   function getShiftDate() {
     const el = $("finalizeShiftDate");
-    const v = el ? clampDateStr(el.value) : "";
-    return v || new Date().toISOString().slice(0, 10);
+    return clampDateStr(el?.value) || new Date().toISOString().slice(0, 10);
   }
 
   function getShiftType() {
     const el = $("finalizeShiftType");
-    const v = el ? String(el.value || "") : "";
-    return (v === "day" || v === "night") ? v : "day";
+    const v = String(el?.value || "");
+    return v === "day" || v === "night" ? v : "day";
   }
 
   function setMsg(msg, isError = false) {
@@ -51,7 +52,6 @@
     if (!el) return;
     el.textContent = msg || "";
     el.style.color = isError ? "#b91c1c" : "#0f172a";
-    el.style.opacity = "0.85";
   }
 
   async function getUserIdSafe() {
@@ -71,7 +71,7 @@
   }
 
   // ---------------------------------------------------------
-  // Tag normalization (SINGLE SOURCE OF TRUTH)
+  // TAG NORMALIZATION (single source of truth)
   // ---------------------------------------------------------
   const TAG_ALIASES = {
     tele: ["tele"],
@@ -94,22 +94,14 @@
   };
 
   function hasTag(p, key) {
-    const keys = TAG_ALIASES[key] || [key];
-    return keys.some(k => !!p?.[k]);
+    return (TAG_ALIASES[key] || [key]).some(k => !!p?.[k]);
   }
 
   // ---------------------------------------------------------
-  // ROLE-SCOPED TAG COUNTS (staff_shift_metrics)
+  // ROLE-SCOPED TAG COUNTS (staff metrics)
   // ---------------------------------------------------------
-  const RN_KEYS = [
-    "tele","drip","nih","bg","ciwa","cows",
-    "restraint","sitter","vpo","iso","admit","late_dc"
-  ];
-
-  const PCA_KEYS = [
-    "tele","chg","foley","q2","heavy","feeder",
-    "iso","admit","late_dc"
-  ];
+  const RN_KEYS = ["tele","drip","nih","bg","ciwa","cows","restraint","sitter","vpo","iso","admit","late_dc"];
+  const PCA_KEYS = ["tele","chg","foley","q2","heavy","feeder","iso","admit","late_dc"];
 
   function countTagsForRole(patientIds, role) {
     const keys = role === "RN" ? RN_KEYS : PCA_KEYS;
@@ -127,7 +119,7 @@
   }
 
   // ---------------------------------------------------------
-  // SHIFT-WIDE TAG COUNTS (analytics, patient-deduped)
+  // UNIT-WIDE TAG COUNTS (analytics, patient-deduped)
   // ---------------------------------------------------------
   const SHIFT_WIDE_KEYS = Array.from(new Set([...RN_KEYS, ...PCA_KEYS]));
 
@@ -143,7 +135,7 @@
     return counts;
   }
 
-  function buildTopTagsString(tagCounts, limit = 12) {
+  function buildTopTags(tagCounts, limit = 12) {
     return Object.entries(tagCounts)
       .sort((a, b) => b[1] - a[1])
       .slice(0, limit)
@@ -152,14 +144,15 @@
   }
 
   // ---------------------------------------------------------
-  // Publish
+  // FINALIZE
   // ---------------------------------------------------------
   async function publishAll() {
-    const unit_id = getActiveUnitId();
-    if (!unit_id) return setMsg("No active unit.", true), { ok: false };
-    if (!canWrite()) return setMsg("Insufficient role.", true), { ok: false };
-    if (!sbReady()) return setMsg("Supabase not ready.", true), { ok: false };
+    if (!canWrite() || !sbReady()) {
+      setMsg("Cannot finalize shift.", true);
+      return { ok: false };
+    }
 
+    const unit_id = getActiveUnitId();
     const shift_date = getShiftDate();
     const shift_type = getShiftType();
     const created_by = await getUserIdSafe();
@@ -168,31 +161,23 @@
     const admits = safeArray(window.admitQueue).length;
     const discharges = safeArray(window.dischargeHistory).length;
 
-    // -------------------------
-    // SNAPSHOT
-    // -------------------------
+    // --- SNAPSHOT (FULL STATE PERSISTED)
     await window.sb.upsertShiftSnapshot({
       unit_id,
       shift_date,
       shift_type,
       status: "published",
       state: {
-        unit_id,
-        shift_date,
-        shift_type,
         total_pts: pts.length,
         admits,
-        discharges
+        discharges,
+        patients: JSON.parse(JSON.stringify(window.patients))
       },
       created_by
     });
 
-    // -------------------------
-    // ANALYTICS (LOCKED v2)
-    // -------------------------
+    // --- ANALYTICS (v2, rebuildable)
     const tag_counts = countTagsShiftWide();
-    const top_tags = buildTopTagsString(tag_counts);
-
     await window.sb.upsertAnalyticsShiftMetrics({
       unit_id,
       shift_date,
@@ -200,30 +185,22 @@
       created_by,
       metrics: {
         version: 2,
-        totals: {
-          total_pts: pts.length,
-          admits,
-          discharges
-        },
+        totals: { total_pts: pts.length, admits, discharges },
         tag_counts,
-        top_tags
+        top_tags: buildTopTags(tag_counts)
       }
     });
 
-    // -------------------------
-    // STAFF METRICS
-    // -------------------------
+    // --- STAFF METRICS
     const rows = [];
 
     for (const rn of safeArray(window.incomingNurses)) {
-      const patient_ids = safeArray(rn.patients).map(Number).filter(Number.isFinite);
+      const patient_ids = safeArray(rn.patients).map(Number);
       const ensured = await window.sb.ensureUnitStaff(unit_id, "RN", rn.name);
       if (!ensured?.row?.id) continue;
 
       rows.push({
-        unit_id,
-        shift_date,
-        shift_type,
+        unit_id, shift_date, shift_type,
         staff_id: ensured.row.id,
         staff_name: rn.name,
         role: "RN",
@@ -236,14 +213,12 @@
     }
 
     for (const pca of safeArray(window.incomingPcas)) {
-      const patient_ids = safeArray(pca.patients).map(Number).filter(Number.isFinite);
+      const patient_ids = safeArray(pca.patients).map(Number);
       const ensured = await window.sb.ensureUnitStaff(unit_id, "PCA", pca.name);
       if (!ensured?.row?.id) continue;
 
       rows.push({
-        unit_id,
-        shift_date,
-        shift_type,
+        unit_id, shift_date, shift_type,
         staff_id: ensured.row.id,
         staff_name: pca.name,
         role: "PCA",
@@ -256,7 +231,6 @@
     }
 
     await window.sb.upsertStaffShiftMetrics(rows);
-
     setMsg("Finalize complete ✅");
     return { ok: true };
   }
@@ -267,24 +241,16 @@
       if (btn) btn.disabled = true;
       const res = await publishAll();
       if (res.ok && window.finalizeShiftChange) window.finalizeShiftChange();
-    } catch (e) {
-      console.warn(e);
-      setMsg("Finalize failed.", true);
     } finally {
       if (btn) btn.disabled = false;
     }
   }
 
-  function wire() {
+  window.addEventListener("DOMContentLoaded", () => {
     const btn = $("btnFinalizeShift");
-    if (btn && !btn.__wired) {
-      btn.addEventListener("click", e => {
-        e.preventDefault();
-        handleFinalize();
-      });
-      btn.__wired = true;
-    }
-  }
-
-  window.addEventListener("DOMContentLoaded", wire);
+    if (btn) btn.addEventListener("click", e => {
+      e.preventDefault();
+      handleFinalize();
+    });
+  });
 })();
