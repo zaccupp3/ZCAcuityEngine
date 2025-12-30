@@ -4,21 +4,24 @@
 //
 // ✅ Reads analytics_shift_metrics FIRST (best for trends)
 // ✅ Falls back to shift_snapshots if analytics table has no rows
-// ✅ Still schema-tolerant (select "*")
-// ✅ Charts: Total Patients trend, Admits/Discharges trend, Top Tags bar
-// ✅ Includes table (under <details>)
+// ✅ Schema-tolerant (select "*")
+// ✅ Fix: prevents overlapping requests from overwriting UI (requestId guard)
+// ✅ Better tag extraction: supports metrics.tag_counts / metrics.tags / top-level tag_counts / tag summary strings
 //
-// Notes:
-// - Your analytics table may not have top_tags/tags_summary columns.
-// - This file now reads tags from MANY places:
-//     row.tag_counts (jsonb)
-//     row.details (jsonb)
-//     row.metrics (jsonb)
-//     blob.tags / blob.tag_counts
+// Tables:
+// - analytics_shift_metrics: 1 row per shift (unit pulse metrics)
+// - shift_snapshots: 1 row per shift (full state; fallback + later drilldown)
+//
+// NOTE ON TAGS:
+// - For Unit Pulse "Top tags", you want UNIT-level (patient-deduped) tag_counts.
+// - For RN vs PCA workload views, you can separately use role-scoped counts.
 // ---------------------------------------------------------
 
 (function () {
-  const $ = (id) => document.get deadElementById(id);
+  const $ = (id) => document.getElementById(id);
+
+  // request guard to prevent “intermittent” overwrite
+  let __pulseReqSeq = 0;
 
   function sbReady() {
     return !!(window.sb && window.sb.client);
@@ -96,9 +99,9 @@
   // Pull metrics either from columns OR jsonb blobs
   // ---------------------------------------------------------
   function getJsonBlob(r) {
-    // analytics might store jsonb under "metrics" OR "details"
-    // snapshots might store jsonb under "snapshot"/"payload"/"state"
-    return r?.metrics || r?.details || r?.snapshot || r?.payload || r?.state || null;
+    // analytics: metrics jsonb
+    // snapshots: snapshot/payload/state jsonb
+    return r?.metrics || r?.snapshot || r?.payload || r?.state || null;
   }
 
   function normalizeRow(r) {
@@ -108,8 +111,7 @@
     const blob = getJsonBlob(r);
 
     // totals (columns)
-    const colTotalPts =
-      r.total_pts ?? r.total_patients ?? r.totalPatients ?? r.patients_total;
+    const colTotalPts = r.total_pts ?? r.total_patients ?? r.totalPatients ?? r.patients_total;
 
     // totals (blob)
     const blobTotalPts =
@@ -136,19 +138,17 @@
       r.top_tags ??
       r.tags_summary ??
       r.top_acuity_tags ??
-      r.top_acuity_tags_summary ??
       blob?.top_tags ??
       blob?.tags_summary ??
       blob?.top_acuity_tags ??
       "";
 
-    // tags object (if stored as json map)
-    // ✅ NEW: also read top-level row.tag_counts (very common in your schema)
+    // tags object (preferred)
+    // support: top-level tag_counts OR metrics.tag_counts OR metrics.tags
     const tagsObj =
       (r.tag_counts && typeof r.tag_counts === "object") ? r.tag_counts :
-      (blob?.tags && typeof blob.tags === "object") ? blob.tags :
       (blob?.tag_counts && typeof blob.tag_counts === "object") ? blob.tag_counts :
-      (blob?.tags_map && typeof blob.tags_map === "object") ? blob.tags_map :
+      (blob?.tags && typeof blob.tags === "object") ? blob.tags :
       null;
 
     return { date, shift, totalPts, admits, discharges, tagsStr, tagsObj, raw: r };
@@ -160,7 +160,6 @@
   function ensureChartShell() {
     const container = $("pulseSummary");
     if (!container) return;
-
     if ($("pulseChartsWrap")) return;
 
     container.innerHTML = `
@@ -352,9 +351,7 @@
     rowsNorm.forEach(r => {
       const tagText =
         r.tagsStr ||
-        (r.tagsObj
-          ? Object.entries(r.tagsObj).slice(0, 10).map(([k, v]) => `${k}:${v}`).join(", ")
-          : "—");
+        (r.tagsObj ? topTags(r.tagsObj, 10).map(x => `${x.k}:${x.v}`).join(", ") : "—");
 
       html += `
         <tr style="font-size:13px;">
@@ -445,7 +442,7 @@
       if (meta) {
         meta.textContent = top.length
           ? `Top tags: ${top.slice(0, 5).map(x => `${x.k}:${x.v}`).join(" • ")}`
-          : "No tag data yet (no tag_counts/tags_summary found).";
+          : "No tag data yet.";
       }
     }
 
@@ -497,6 +494,8 @@
   // Public: load pulse
   // ---------------------------------------------------------
   async function loadUnitPulse() {
+    const myReq = ++__pulseReqSeq;
+
     const unitId = activeUnitId();
     const from = clampDateStr($("pulseFrom")?.value) || null;
     const to = clampDateStr($("pulseTo")?.value) || null;
@@ -519,7 +518,12 @@
     }
 
     try {
+      // 1) Prefer analytics table for Unit Pulse
       const a = await loadAnalyticsRows(unitId, from, to, shiftType);
+
+      // stale request guard
+      if (myReq !== __pulseReqSeq) return;
+
       if (a.ok && a.rows.length) {
         console.log("[UnitPulse] analytics rows:", a.rows.length);
         if (a.rows[0]) console.log("[UnitPulse] analytics sample row:", a.rows[0]);
@@ -529,7 +533,12 @@
         return;
       }
 
+      // 2) Fallback to snapshots (still useful)
       const s = await loadSnapshotRows(unitId, from, to, shiftType);
+
+      // stale request guard
+      if (myReq !== __pulseReqSeq) return;
+
       if (!s.ok) {
         console.warn("[UnitPulse] snapshot load failed", s.error);
         setPulseStatus(`Could not load pulse (${s.error?.message || s.error}).`, true);
@@ -543,12 +552,16 @@
       setPulseStatus(`Loaded ${s.rows.length} shift snapshot(s) (fallback).`);
       renderDashboard(s.rows);
     } catch (e) {
+      if (myReq !== __pulseReqSeq) return;
       console.warn("[UnitPulse] exception", e);
       setPulseStatus(`Error loading pulse (${String(e)}).`, true);
       renderDashboard([]);
     }
   }
 
+  // ---------------------------------------------------------
+  // Wire UI
+  // ---------------------------------------------------------
   function setDefaultDatesIfEmpty() {
     const fromEl = $("pulseFrom");
     const toEl = $("pulseTo");

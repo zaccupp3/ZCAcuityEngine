@@ -3,14 +3,16 @@
 // Shift Finalize / Publish
 // - Writes shift_snapshots (UPSERT)
 // - Writes staff_shift_metrics (UPSERT batch)
-// - Optionally writes analytics_shift_metrics (UPSERT)
-// - Then calls window.finalizeShiftChange() to promote Incoming -> Live
+// - Writes analytics_shift_metrics (UPSERT)
 //
-// FIX (Dec 2025):
-// - tag_counts are ROLE-SCOPED to match the UI:
-//   RN:  Tele, Drip, NIH, BG, CIWA/COWS, Restraint, Sitter, VPO, ISO, Admit, Late DC
-//   PCA: Tele, CHG, Foley, Q2, Heavy, Feeder, ISO, Admit, Late DC
-// - Tele is counted for PCA.
+// FIX (Dec 2025 / v2):
+// ✅ Staff tag_counts remain ROLE-SCOPED (matches UI):
+//    RN:  Tele, Drip, NIH, BG, CIWA/COWS, Restraint, Sitter, VPO, ISO, Admit, Late DC
+//    PCA: Tele, CHG, Foley, Q2, Heavy, Feeder, ISO, Admit, Late DC
+// ✅ Analytics shift metrics now stores:
+//    - metrics.tag_counts      => UNIT-wide, patient-deduped (Tele NOT double-counted)
+//    - metrics.rn_tag_counts   => RN role scope (Tele counted for RN workload)
+//    - metrics.pca_tag_counts  => PCA role scope (Tele counted for PCA workload)
 // ---------------------------------------------------------
 
 (function () {
@@ -81,40 +83,105 @@
   }
 
   // -------------------------
-  // ✅ ROLE-SCOPED TAG COUNTS
-  // (matches your UI exactly)
+  // ✅ Tag keys (UI exact)
+  // Store in analytics as these canonical keys:
+  // RN:  tele, drip, nih, bg, ciwa, cows, restraint, sitter, vpo, iso, admit, late_dc
+  // PCA: tele, chg, foley, q2, heavy, feeder, iso, admit, late_dc
   // -------------------------
   const RN_KEYS = [
-    "tele", "drip", "nih", "bg", "ciwa", "restraint", "sitter", "vpo",
-    "isolation", "admit", "lateDc"
+    "tele", "drip", "nih", "bg", "ciwa", "cows",
+    "restraint", "sitter", "vpo", "iso", "admit", "late_dc"
   ];
 
   const PCA_KEYS = [
-    "tele", "chg", "foley", "q2turns", "heavy", "feeder",
-    "isolation", "admit", "lateDc"
+    "tele", "chg", "foley", "q2", "heavy", "feeder",
+    "iso", "admit", "late_dc"
   ];
 
+  const UNIT_KEYS = Array.from(new Set([...RN_KEYS, ...PCA_KEYS]));
+
+  function truthy(v) {
+    return !!v;
+  }
+
+  // Map patient fields to canonical keys
+  function patientHasTag(p, key) {
+    if (!p) return false;
+
+    switch (key) {
+      case "iso":
+        return truthy(p.iso) || truthy(p.ISO) || truthy(p.isolation) || truthy(p.Isolation);
+      case "late_dc":
+        return truthy(p.late_dc) || truthy(p.lateDc) || truthy(p.lateDC) || truthy(p.LateDC);
+      case "q2":
+        return truthy(p.q2) || truthy(p.q2turns) || truthy(p.q2Turns) || truthy(p.Q2);
+      case "ciwa":
+        return truthy(p.ciwa) || truthy(p.CIWA);
+      case "cows":
+        return truthy(p.cows) || truthy(p.COWS);
+      default:
+        // most are stored as simple booleans (tele, drip, nih, bg, restraint, sitter, vpo, chg, foley, heavy, feeder, admit)
+        return truthy(p[key]) || truthy(p[String(key).toUpperCase()]);
+    }
+  }
+
+  // -------------------------
+  // ROLE-SCOPED TAG COUNTS (per staff, used by staff_shift_metrics)
+  // -------------------------
   function countTagsForRole(patientIds, role) {
     const r = String(role || "").toUpperCase();
     const keys = (r === "RN") ? RN_KEYS : (r === "PCA") ? PCA_KEYS : [];
     const counts = {};
-    keys.forEach(k => counts[k] = 0);
 
     safeArray(patientIds).forEach(pid => {
       const p = getPatientByIdSafe(pid);
       if (!p || p.isEmpty) return;
 
       keys.forEach(k => {
-        if (p[k]) counts[k] += 1;
+        if (patientHasTag(p, k)) counts[k] = (counts[k] || 0) + 1;
       });
     });
 
-    // drop zeros (keeps JSON small)
-    Object.keys(counts).forEach(k => {
-      if (!counts[k]) delete counts[k];
+    return counts;
+  }
+
+  // -------------------------
+  // ✅ UNIT-wide tag_counts (patient-deduped)
+  // Each patient contributes at most 1 count per tag.
+  // This prevents Tele double-counting on Unit Pulse.
+  // -------------------------
+  function countTagsUnitWideDeduped() {
+    const counts = {};
+    const pts = activePatients();
+
+    pts.forEach(p => {
+      UNIT_KEYS.forEach(k => {
+        if (patientHasTag(p, k)) counts[k] = (counts[k] || 0) + 1;
+      });
     });
 
     return counts;
+  }
+
+  // patient-deduped within a ROLE’s covered patients (RN vs PCA)
+  function countTagsForRoleAcrossOwners(owners, role) {
+    const set = new Set();
+    safeArray(owners).forEach(o => {
+      safeArray(o?.patients).forEach(pid => {
+        const n = Number(pid);
+        if (Number.isFinite(n)) set.add(n);
+      });
+    });
+    return countTagsForRole(Array.from(set), role);
+  }
+
+  function toTopTagsString(tagCounts, limit = 10) {
+    const entries = Object.entries(tagCounts || {})
+      .map(([k, v]) => ({ k, v: Number(v) || 0 }))
+      .filter(x => x.v > 0)
+      .sort((a, b) => b.v - a.v)
+      .slice(0, limit);
+    return entries.map(x => `${x.k}:${x.v}`).join(", ");
   }
 
   // -------------------------
@@ -139,7 +206,7 @@
   }
 
   // -------------------------
-  // Publish: shift_snapshots + staff_shift_metrics
+  // Publish: shift_snapshots + staff_shift_metrics + analytics_shift_metrics
   // -------------------------
   async function publishAll() {
     const unit_id = getActiveUnitId();
@@ -164,8 +231,22 @@
     const shift_type = getShiftType();
     const created_by = await getUserIdSafe();
 
-    // ---- shift snapshot payload (minimal but useful)
     const ptsActive = activePatients();
+    const admitsCount = Array.isArray(window.admitQueue) ? window.admitQueue.length : 0;
+    const dischargesCount = Array.isArray(window.dischargeHistory) ? window.dischargeHistory.length : 0;
+
+    // Owners (oncoming/incoming)
+    const rnOwners = safeArray(window.incomingNurses);
+    const pcaOwners = safeArray(window.incomingPcas);
+
+    // ✅ Compute analytics tag maps BEFORE writing analytics
+    // Unit-wide (patient-deduped) — fixes Tele double-count in Unit Pulse
+    const unitTagCounts = countTagsUnitWideDeduped();
+    // Role-scoped totals (patient-deduped within each role’s covered patients)
+    const rnRoleTotals = countTagsForRoleAcrossOwners(rnOwners, "RN");
+    const pcaRoleTotals = countTagsForRoleAcrossOwners(pcaOwners, "PCA");
+
+    // ---- shift snapshot payload (minimal but useful)
     const snapshotPayload = {
       unit_id,
       shift_date,
@@ -176,8 +257,8 @@
         shift_date,
         shift_type,
         total_pts: ptsActive.length,
-        admits: Array.isArray(window.admitQueue) ? window.admitQueue.length : 0,
-        discharges: Array.isArray(window.dischargeHistory) ? window.dischargeHistory.length : 0
+        admits: admitsCount,
+        discharges: dischargesCount
       },
       created_by
     };
@@ -189,7 +270,7 @@
       return { ok: false };
     }
 
-    // Optional analytics
+    // ---- analytics shift metrics (UPSERT)
     if (typeof window.sb.upsertAnalyticsShiftMetrics === "function") {
       try {
         await window.sb.upsertAnalyticsShiftMetrics({
@@ -198,8 +279,19 @@
           shift_type,
           created_by,
           metrics: {
-            version: 1,
-            total_pts: ptsActive.length
+            version: 2,
+            totals: {
+              totalPts: ptsActive.length,
+              admits: admitsCount,
+              discharges: dischargesCount
+            },
+            // ✅ Unit Pulse should use this (patient-deduped)
+            tag_counts: unitTagCounts,
+            // ✅ Workload views can use these if desired
+            rn_tag_counts: rnRoleTotals,
+            pca_tag_counts: pcaRoleTotals,
+            // Optional convenience string (UnitPulse already supports strings too)
+            top_tags: toTopTagsString(unitTagCounts, 10)
           }
         });
       } catch (e) {
@@ -209,8 +301,6 @@
 
     // ---- staff metrics rows
     const rows = [];
-    const rnOwners = safeArray(window.incomingNurses);
-    const pcaOwners = safeArray(window.incomingPcas);
 
     // RN rows
     for (const rn of rnOwners) {
@@ -280,7 +370,7 @@
         workload_score,
         hard_violations: safeArray(ev?.violations).length,
         hard_warnings: safeArray(ev?.warnings).length,
-        tag_counts: countTagsForRole(patient_ids, "PCA"), // ✅ PCA-only tags (Tele included)
+        tag_counts: countTagsForRole(patient_ids, "PCA"),
         details: { drivers, patient_ids },
         created_by
       });
