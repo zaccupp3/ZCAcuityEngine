@@ -3,25 +3,22 @@
 // UNIT PULSE — Chart-first MVP (no external libraries)
 //
 // ✅ Reads analytics_shift_metrics FIRST (best for trends)
-// ✅ Also loads shift_snapshots and MERGES when same (date,shift) exists
-// ✅ Falls back to shift_snapshots-only if analytics table has no rows
-// ✅ Schema-tolerant (select "*")
+// ✅ Falls back to shift_snapshots if analytics table has no rows
+// ✅ Still schema-tolerant (select "*")
 // ✅ Charts: Total Patients trend, Admits/Discharges trend, Top Tags bar
 // ✅ Includes table (under <details>)
 //
-// Tables:
-// - analytics_shift_metrics: 1 row per shift (unit pulse metrics)
-// - shift_snapshots: 1 row per shift (full state; fallback + later drilldown)
-//
-// Expected (flexible) fields for analytics_shift_metrics:
-// - unit_id
-// - shift_date (YYYY-MM-DD)
-// - shift_type ("day"|"night")
-// - metrics jsonb OR top-level columns for totals/tags
+// Notes:
+// - Your analytics table may not have top_tags/tags_summary columns.
+// - This file now reads tags from MANY places:
+//     row.tag_counts (jsonb)
+//     row.details (jsonb)
+//     row.metrics (jsonb)
+//     blob.tags / blob.tag_counts
 // ---------------------------------------------------------
 
 (function () {
-  const $ = (id) => document.getElementById(id);
+  const $ = (id) => document.get deadElementById(id);
 
   function sbReady() {
     return !!(window.sb && window.sb.client);
@@ -62,40 +59,6 @@
   }
 
   // ---------------------------------------------------------
-  // Tag normalization (prevents split bars: "Late DC" vs "lateDc" etc.)
-  // ---------------------------------------------------------
-  function normTagKey(k) {
-    const raw = String(k || "").trim();
-    if (!raw) return "";
-    const lc = raw.toLowerCase().replace(/\s+/g, "").replace(/[_-]/g, "");
-
-    // Shared / common
-    if (lc === "tele" || lc === "telemetry") return "tele";
-    if (lc === "iso" || lc === "isolation") return "iso";
-    if (lc === "admit" || lc === "admits") return "admit";
-    if (lc === "latedc" || lc === "latedischarge" || lc === "late_discharge") return "lateDc";
-
-    // RN set (still allowed in top tags if stored in metrics)
-    if (lc === "drip" || lc === "drips") return "drip";
-    if (lc === "nih") return "nih";
-    if (lc === "bg" || lc === "bgchecks" || lc === "bloodglucose") return "bg";
-    if (lc === "ciwa" || lc === "cows" || lc === "ciwacows") return "ciwa";
-    if (lc === "restraint" || lc === "restraints") return "restraint";
-    if (lc === "sitter" || lc === "sitters") return "sitter";
-    if (lc === "vpo") return "vpo";
-
-    // PCA set
-    if (lc === "chg") return "chg";
-    if (lc === "foley") return "foley";
-    if (lc === "q2" || lc === "q2turns" || lc === "q2turn") return "q2";
-    if (lc === "heavy") return "heavy";
-    if (lc === "feeder" || lc === "feeders") return "feeder";
-
-    // default: return original trimmed (but keep case stable-ish)
-    return raw;
-  }
-
-  // ---------------------------------------------------------
   // Parse tags summary string: "tele:22, nih:6, bg:5"
   // ---------------------------------------------------------
   function parseTagString(str) {
@@ -106,7 +69,7 @@
     parts.forEach(p => {
       const m = p.match(/^([a-zA-Z0-9_\- ]+)\s*:\s*([0-9]+(\.[0-9]+)?)$/);
       if (!m) return;
-      const k = normTagKey(String(m[1]).trim());
+      const k = String(m[1]).trim();
       const v = safeNum(m[2], 0);
       if (!k || !v) return;
       out[k] = (out[k] || 0) + v;
@@ -117,9 +80,7 @@
   function mergeTagCounts(into, tagsObj) {
     if (!tagsObj || typeof tagsObj !== "object") return;
     Object.keys(tagsObj).forEach(k => {
-      const nk = normTagKey(k);
-      if (!nk) return;
-      into[nk] = (into[nk] || 0) + safeNum(tagsObj[k], 0);
+      into[k] = (into[k] || 0) + safeNum(tagsObj[k], 0);
     });
   }
 
@@ -135,9 +96,9 @@
   // Pull metrics either from columns OR jsonb blobs
   // ---------------------------------------------------------
   function getJsonBlob(r) {
-    // analytics might store jsonb under "metrics"
+    // analytics might store jsonb under "metrics" OR "details"
     // snapshots might store jsonb under "snapshot"/"payload"/"state"
-    return r?.metrics || r?.snapshot || r?.payload || r?.state || null;
+    return r?.metrics || r?.details || r?.snapshot || r?.payload || r?.state || null;
   }
 
   function normalizeRow(r) {
@@ -147,7 +108,8 @@
     const blob = getJsonBlob(r);
 
     // totals (columns)
-    const colTotalPts = r.total_pts ?? r.total_patients ?? r.totalPatients ?? r.patients_total;
+    const colTotalPts =
+      r.total_pts ?? r.total_patients ?? r.totalPatients ?? r.patients_total;
 
     // totals (blob)
     const blobTotalPts =
@@ -160,16 +122,10 @@
       blob?.patients_total;
 
     const colAdmits = r.admits ?? r.total_admits ?? r.admit_count;
-    const blobAdmits =
-      blob?.totals?.admits ??
-      blob?.admits ??
-      blob?.admit_count;
+    const blobAdmits = blob?.totals?.admits ?? blob?.admits ?? blob?.admit_count;
 
     const colDis = r.discharges ?? r.total_discharges ?? r.discharge_count;
-    const blobDis =
-      blob?.totals?.discharges ??
-      blob?.discharges ??
-      blob?.discharge_count;
+    const blobDis = blob?.totals?.discharges ?? blob?.discharges ?? blob?.discharge_count;
 
     const totalPts = safeNum(colTotalPts ?? blobTotalPts, 0);
     const admits = safeNum(colAdmits ?? blobAdmits, 0);
@@ -180,64 +136,22 @@
       r.top_tags ??
       r.tags_summary ??
       r.top_acuity_tags ??
+      r.top_acuity_tags_summary ??
       blob?.top_tags ??
       blob?.tags_summary ??
+      blob?.top_acuity_tags ??
       "";
 
-    // tags object (if stored as map)
+    // tags object (if stored as json map)
+    // ✅ NEW: also read top-level row.tag_counts (very common in your schema)
     const tagsObj =
+      (r.tag_counts && typeof r.tag_counts === "object") ? r.tag_counts :
       (blob?.tags && typeof blob.tags === "object") ? blob.tags :
       (blob?.tag_counts && typeof blob.tag_counts === "object") ? blob.tag_counts :
+      (blob?.tags_map && typeof blob.tags_map === "object") ? blob.tags_map :
       null;
 
     return { date, shift, totalPts, admits, discharges, tagsStr, tagsObj, raw: r };
-  }
-
-  // ---------------------------------------------------------
-  // Merge analytics + snapshots by (date|shift)
-  // Priority: analytics for totals; snapshot fills missing
-  // ---------------------------------------------------------
-  function rowKey(r) {
-    const d = String(r?.shift_date || r?.date || "").trim();
-    const s = String(r?.shift_type || r?.shift || "").trim();
-    return `${d}__${s}`;
-  }
-
-  function mergeRawRows(analyticsRows, snapshotRows) {
-    const a = Array.isArray(analyticsRows) ? analyticsRows : [];
-    const s = Array.isArray(snapshotRows) ? snapshotRows : [];
-
-    const map = new Map();
-
-    a.forEach(r => {
-      const k = rowKey(r);
-      if (!k) return;
-      map.set(k, { a: r, s: null });
-    });
-
-    s.forEach(r => {
-      const k = rowKey(r);
-      if (!k) return;
-      if (!map.has(k)) map.set(k, { a: null, s: r });
-      else {
-        const cur = map.get(k);
-        cur.s = r;
-        map.set(k, cur);
-      }
-    });
-
-    // Produce merged raw rows (shallow merge; normalizeRow handles blobs)
-    const merged = [];
-    map.forEach(({ a: ar, s: sr }) => {
-      if (ar && sr) {
-        // prefer analytics fields, but keep snapshot blob around if analytics missing
-        merged.push({ ...sr, ...ar });
-      } else {
-        merged.push(ar || sr);
-      }
-    });
-
-    return merged;
   }
 
   // ---------------------------------------------------------
@@ -436,7 +350,12 @@
     `;
 
     rowsNorm.forEach(r => {
-      const tagText = r.tagsStr || (r.tagsObj ? Object.entries(r.tagsObj).slice(0, 10).map(([k,v]) => `${normTagKey(k)}:${v}`).join(", ") : "—");
+      const tagText =
+        r.tagsStr ||
+        (r.tagsObj
+          ? Object.entries(r.tagsObj).slice(0, 10).map(([k, v]) => `${k}:${v}`).join(", ")
+          : "—");
+
       html += `
         <tr style="font-size:13px;">
           <td style="padding:10px 12px;border-bottom:1px solid rgba(15,23,42,0.06);white-space:nowrap;">${r.date || "—"}</td>
@@ -526,7 +445,7 @@
       if (meta) {
         meta.textContent = top.length
           ? `Top tags: ${top.slice(0, 5).map(x => `${x.k}:${x.v}`).join(" • ")}`
-          : "No tag data yet.";
+          : "No tag data yet (no tag_counts/tags_summary found).";
       }
     }
 
@@ -601,27 +520,16 @@
 
     try {
       const a = await loadAnalyticsRows(unitId, from, to, shiftType);
-
-      // Always try snapshots too (cheap), so we can enrich/merge
-      const s = await loadSnapshotRows(unitId, from, to, shiftType);
-
       if (a.ok && a.rows.length) {
         console.log("[UnitPulse] analytics rows:", a.rows.length);
         if (a.rows[0]) console.log("[UnitPulse] analytics sample row:", a.rows[0]);
 
-        let merged = a.rows;
-
-        if (s.ok && s.rows.length) {
-          merged = mergeRawRows(a.rows, s.rows);
-          console.log("[UnitPulse] merged rows:", merged.length);
-        }
-
-        setPulseStatus(`Loaded ${merged.length} shift metric row(s).`);
-        renderDashboard(merged);
+        setPulseStatus(`Loaded ${a.rows.length} analytics shift metric row(s).`);
+        renderDashboard(a.rows);
         return;
       }
 
-      // analytics empty -> fallback snapshots
+      const s = await loadSnapshotRows(unitId, from, to, shiftType);
       if (!s.ok) {
         console.warn("[UnitPulse] snapshot load failed", s.error);
         setPulseStatus(`Could not load pulse (${s.error?.message || s.error}).`, true);
@@ -641,9 +549,6 @@
     }
   }
 
-  // ---------------------------------------------------------
-  // Wire UI
-  // ---------------------------------------------------------
   function setDefaultDatesIfEmpty() {
     const fromEl = $("pulseFrom");
     const toEl = $("pulseTo");
