@@ -10,21 +10,75 @@
 // NEW (Dec 2025):
 // - RN Continuity Pin (📌) per patient row on ONCOMING RN table
 // - Pinned patients stay with that RN across Populate/Rebalance.
-// - UI: pin indicator appears ONLY when pinned;
-//       unpinned rows show no icon (pin control appears on row hover).
 //
-// NEW (Dec 2025 - Fix):
-// - Post-pass count balancer for Incoming RN assignments:
-//   * aims for even counts (diff ≤ 1 when possible)
-//   * NEVER breaks pins
-//   * rejects moves that increase avoidable rule violations
-// - Optional polish repair pass after balancing
+// NEW (Dec 2025 - Fixes):
+// - MOVE-based count balancer (diff ≤ 1 when possible) for BOTH RN and PCA
+// - Scoped rebalance buttons: RN-only and PCA-only (no “other side” impact)
+// - Empty-owner drop zone row so empty cards can accept drops
 //
-// NEW (Dec 2025 - Fix #2):
-// - Empty-owner drop zone:
-//   If an RN/PCA has 0 patients, we render a single placeholder <tr>
-//   so the tbody has real height and can accept drops.
+// FIX (Jan 2026):
+// - Canonicalize state references (incomingNurses/incomingPcas/patients) to avoid
+//   “rebalance works sometimes” due to window.* vs bare-global array drift.
 // ---------------------------------------------------------
+
+// =========================================================
+// ✅ Canonical state accessors (prevents reference drift)
+// =========================================================
+function __getIncomingNurses() {
+  // Prefer window.* if present; fall back to bare globals
+  const w = window.incomingNurses;
+  if (Array.isArray(w)) return w;
+  if (Array.isArray(typeof incomingNurses !== "undefined" ? incomingNurses : null)) return incomingNurses;
+  return [];
+}
+
+function __getIncomingPcas() {
+  const w = window.incomingPcas;
+  if (Array.isArray(w)) return w;
+  if (Array.isArray(typeof incomingPcas !== "undefined" ? incomingPcas : null)) return incomingPcas;
+  return [];
+}
+
+function __getPatients() {
+  const w = window.patients;
+  if (Array.isArray(w)) return w;
+  if (Array.isArray(typeof patients !== "undefined" ? patients : null)) return patients;
+  return [];
+}
+
+function __syncIncomingGlobals() {
+  // Ensure window.* is at least set (so other modules can rely on it)
+  // And try (best-effort) to keep bare globals aligned if they are writable.
+  const nurses = __getIncomingNurses();
+  const pcas = __getIncomingPcas();
+  const pts = __getPatients();
+
+  if (!Array.isArray(window.incomingNurses)) window.incomingNurses = nurses;
+  if (!Array.isArray(window.incomingPcas)) window.incomingPcas = pcas;
+  if (!Array.isArray(window.patients)) window.patients = pts;
+
+  // Best effort: if bare globals exist AND are writable, align them too.
+  try {
+    if (typeof incomingNurses !== "undefined" && incomingNurses !== window.incomingNurses) {
+      incomingNurses = window.incomingNurses; // will fail if const
+    }
+  } catch (_) {}
+
+  try {
+    if (typeof incomingPcas !== "undefined" && incomingPcas !== window.incomingPcas) {
+      incomingPcas = window.incomingPcas;
+    }
+  } catch (_) {}
+
+  try {
+    if (typeof patients !== "undefined" && patients !== window.patients) {
+      patients = window.patients;
+    }
+  } catch (_) {}
+}
+
+// Run once on load (safe)
+__syncIncomingGlobals();
 
 // -----------------------------
 // Helpers: Previous owner lookups (from LIVE board)
@@ -114,9 +168,6 @@ function toggleIncomingRnPin(patientId, incomingRnId) {
   const rnId = Number(incomingRnId);
   const meta = getPatientLockMeta(p);
 
-  // toggle:
-  // - if pinned to this RN -> unpin
-  // - else pin to this RN
   if (meta.enabled && meta.rnId === rnId) {
     p.lockRnEnabled = false;
     p.lockRnTo = null;
@@ -132,10 +183,10 @@ window.toggleIncomingRnPin = toggleIncomingRnPin;
 
 // Remove invalid pins (RN not on incoming roster)
 function cleanupRnPinsAgainstRoster() {
-  const roster = Array.isArray(window.incomingNurses) ? window.incomingNurses : [];
+  const roster = __getIncomingNurses();
   const rosterIds = new Set(roster.map(n => Number(n.id)));
 
-  const pts = Array.isArray(window.patients) ? window.patients : [];
+  const pts = __getPatients();
   pts.forEach(p => {
     const meta = getPatientLockMeta(p);
     if (!meta.enabled) return;
@@ -148,7 +199,7 @@ function cleanupRnPinsAgainstRoster() {
 
 // Pre-assign pinned patients before distributePatientsEvenly
 function applyRnPinsBeforeDistribute(activePatients) {
-  const roster = Array.isArray(window.incomingNurses) ? window.incomingNurses : [];
+  const roster = __getIncomingNurses();
   if (!roster.length) return { pinnedAssigned: [], unlockedPool: activePatients || [] };
 
   const byId = new Map(roster.map(n => [Number(n.id), n]));
@@ -192,15 +243,12 @@ function getAvoidableViolationCount(owners, role) {
 function computeCountTargets(totalPatients, nOwners) {
   const base = Math.floor(totalPatients / Math.max(1, nOwners));
   const remainder = totalPatients % Math.max(1, nOwners);
-  // We want counts to be either base or base+1
   return { minTarget: base, maxTarget: base + (remainder > 0 ? 1 : 0) };
 }
 
 function getMovablePatientIdsFromOwner(owner, role) {
   const ids = Array.isArray(owner?.patients) ? owner.patients.slice() : [];
-  if (role !== "nurse") return ids; // PCA pins later if desired
-
-  // For nurses: pinned patients are NOT movable
+  if (role !== "nurse") return ids;
   return ids.filter(pid => !isPatientPinnedToIncomingRn(pid, owner.id));
 }
 
@@ -212,7 +260,6 @@ function tryMovePatient(owners, role, fromOwner, toOwner, patientId) {
   const idx = fromOwner.patients.indexOf(patientId);
   if (idx === -1) return false;
 
-  // Never move pinned nurse patients
   if (role === "nurse" && isPatientPinnedToIncomingRn(patientId, fromOwner.id)) return false;
 
   fromOwner.patients.splice(idx, 1);
@@ -220,16 +267,23 @@ function tryMovePatient(owners, role, fromOwner, toOwner, patientId) {
   return true;
 }
 
+/**
+ * MOVE-based count balancer:
+ * - reduces spread toward ≤ 1 when possible
+ * - does not increase avoidable hard-rule violations
+ * - respects RN pins (pinned pts never move)
+ */
 function balanceCountsWithoutCreatingNewAvoidableViolations(owners, role, opts = {}) {
-  const maxPasses = typeof opts.maxPasses === "number" ? opts.maxPasses : 40;
+  const maxPasses = typeof opts.maxPasses === "number" ? opts.maxPasses : 60;
   const list = Array.isArray(owners) ? owners : [];
   const n = list.length;
   if (n < 2) return { ok: true, changed: false };
 
-  const activeCount =
-    (Array.isArray(window.patients) ? window.patients : []).filter(p => p && !p.isEmpty).length;
+  const assignedSet = new Set();
+  list.forEach(o => (Array.isArray(o?.patients) ? o.patients : []).forEach(pid => assignedSet.add(Number(pid))));
+  const totalAssigned = assignedSet.size;
 
-  const { minTarget, maxTarget } = computeCountTargets(activeCount, n);
+  const { minTarget, maxTarget } = computeCountTargets(totalAssigned, n);
 
   let changed = false;
   let passes = 0;
@@ -237,47 +291,24 @@ function balanceCountsWithoutCreatingNewAvoidableViolations(owners, role, opts =
   while (passes < maxPasses) {
     passes++;
 
-    // find over + under
-    const over = list
+    const counts = list.map(o => (Array.isArray(o?.patients) ? o.patients.length : 0));
+    const spread = Math.max(...counts) - Math.min(...counts);
+    if (spread <= 1) break;
+
+    const over2 = list
       .map(o => ({ o, c: (Array.isArray(o?.patients) ? o.patients.length : 0) }))
-      .filter(x => x.c > maxTarget)
       .sort((a, b) => b.c - a.c);
 
-    const under = list
+    const under2 = list
       .map(o => ({ o, c: (Array.isArray(o?.patients) ? o.patients.length : 0) }))
-      .filter(x => x.c < minTarget)
       .sort((a, b) => a.c - b.c);
-
-    // If no strict under/over, we may still have diff > 1 due to pins.
-    // Next: allow under to be < maxTarget and over > minTarget to shrink spread.
-    let over2 = over;
-    let under2 = under;
-
-    if (!over2.length || !under2.length) {
-      const counts = list.map(o => (Array.isArray(o?.patients) ? o.patients.length : 0));
-      const spread = Math.max(...counts) - Math.min(...counts);
-      if (spread <= 1) break;
-
-      over2 = list
-        .map(o => ({ o, c: (Array.isArray(o?.patients) ? o.patients.length : 0) }))
-        .sort((a, b) => b.c - a.c);
-      under2 = list
-        .map(o => ({ o, c: (Array.isArray(o?.patients) ? o.patients.length : 0) }))
-        .sort((a, b) => a.c - b.c);
-
-      if (!over2.length || !under2.length) break;
-    }
 
     const from = over2[0]?.o;
     const to = under2[0]?.o;
     if (!from || !to || from === to) break;
 
     const movable = getMovablePatientIdsFromOwner(from, role);
-    if (!movable.length) {
-      over2.shift();
-      if (!over2.length) break;
-      continue;
-    }
+    if (!movable.length) break;
 
     const baseViol = getAvoidableViolationCount(list, role);
     let best = null;
@@ -295,7 +326,6 @@ function balanceCountsWithoutCreatingNewAvoidableViolations(owners, role, opts =
 
       const nextViol = getAvoidableViolationCount(list, role);
 
-      // revert
       from.patients = fromOrig;
       to.patients = toOrig;
 
@@ -314,6 +344,16 @@ function balanceCountsWithoutCreatingNewAvoidableViolations(owners, role, opts =
     if (!didApply) break;
 
     changed = true;
+
+    const counts2 = list.map(o => (Array.isArray(o?.patients) ? o.patients.length : 0));
+    const spread2 = Math.max(...counts2) - Math.min(...counts2);
+    if (spread2 <= 1) break;
+
+    const okCaps = counts2.every(c => c >= minTarget && c <= maxTarget);
+    if (okCaps) break;
+
+    // continue passes if needed
+    void maxTarget;
   }
 
   return { ok: true, changed, passes };
@@ -414,6 +454,8 @@ function buildEmptyDropRow(colspan, label) {
 // RN Oncoming Render
 // -----------------------------
 function renderAssignmentOutput() {
+  __syncIncomingGlobals();
+
   const container = document.getElementById("assignmentOutput");
   if (!container) return;
 
@@ -421,9 +463,9 @@ function renderAssignmentOutput() {
 
   let html = "";
 
-  const allOwners = Array.isArray(window.incomingNurses) ? window.incomingNurses : [];
+  const allOwners = __getIncomingNurses();
 
-  incomingNurses.forEach(nurse => {
+  allOwners.forEach(nurse => {
     const pts = (nurse.patients || [])
       .map(pid => getPatientById(pid))
       .filter(p => p && !p.isEmpty)
@@ -488,7 +530,6 @@ function renderAssignmentOutput() {
     `;
 
     if (!pts.length) {
-      // ✅ Keeps the drop target visible even when empty
       html += buildEmptyDropRow(4, "Drop a patient here to assign to this RN");
     }
 
@@ -552,6 +593,8 @@ function renderAssignmentOutput() {
 // PCA Oncoming Render
 // -----------------------------
 function renderPcaAssignmentOutput() {
+  __syncIncomingGlobals();
+
   const container = document.getElementById("pcaAssignmentOutput");
   if (!container) return;
 
@@ -559,9 +602,9 @@ function renderPcaAssignmentOutput() {
 
   let html = "";
 
-  const allOwners = Array.isArray(window.incomingPcas) ? window.incomingPcas : [];
+  const allOwners = __getIncomingPcas();
 
-  incomingPcas.forEach(pca => {
+  allOwners.forEach(pca => {
     const pts = (pca.patients || [])
       .map(pid => getPatientById(pid))
       .filter(p => p && !p.isEmpty)
@@ -626,7 +669,6 @@ function renderPcaAssignmentOutput() {
     `;
 
     if (!pts.length) {
-      // ✅ Keeps the drop target visible even when empty
       html += buildEmptyDropRow(4, "Drop a patient here to assign to this PCA");
     }
 
@@ -663,22 +705,27 @@ function renderPcaAssignmentOutput() {
 // Generator (Oncoming populate + rebalance)
 // -----------------------------
 function populateOncomingAssignment(randomize = false) {
+  __syncIncomingGlobals();
+
   if (typeof ensureDefaultPatients === "function") ensureDefaultPatients();
 
-  if (!incomingNurses.length || !incomingPcas.length) {
+  const nurses = __getIncomingNurses();
+  const pcas = __getIncomingPcas();
+  const ptsAll = __getPatients();
+
+  if (!nurses.length || !pcas.length) {
     alert("Please set up ONCOMING RNs and PCAs on the Staffing Details tab first.");
     return;
   }
 
-  const activePatients = patients.filter(p => !p.isEmpty);
+  const activePatients = ptsAll.filter(p => p && !p.isEmpty);
   if (!activePatients.length) {
     alert("No active patients found.");
     return;
   }
 
-  // Clear existing incoming lists
-  incomingNurses.forEach(n => { n.patients = []; });
-  incomingPcas.forEach(p => { p.patients = []; });
+  nurses.forEach(n => { n.patients = []; });
+  pcas.forEach(p => { p.patients = []; });
 
   cleanupRnPinsAgainstRoster();
 
@@ -686,64 +733,68 @@ function populateOncomingAssignment(randomize = false) {
   if (randomize) list.sort(() => Math.random() - 0.5);
   else list.sort(safeSortPatientsForDisplay);
 
-  // Pre-place pinned RN continuity, distribute remaining
   const { unlockedPool } = applyRnPinsBeforeDistribute(list);
 
   if (typeof window.distributePatientsEvenly === "function") {
-    window.distributePatientsEvenly(incomingNurses, unlockedPool, { randomize, role: "nurse", preserveExisting: true });
-    window.distributePatientsEvenly(incomingPcas, list, { randomize, role: "pca", preserveExisting: true });
+    window.distributePatientsEvenly(nurses, unlockedPool, { randomize, role: "nurse", preserveExisting: true });
+    window.distributePatientsEvenly(pcas, list, { randomize, role: "pca", preserveExisting: true });
   } else {
     alert("ERROR: distributePatientsEvenly is not loaded. Check script order + app.assignmentRules.js loading.");
     console.error("distributePatientsEvenly missing — check index.html script order and app.assignmentRules.js.");
     return;
   }
 
-  // ✅ Post-pass: enforce even counts (without creating new avoidable violations)
-  balanceCountsWithoutCreatingNewAvoidableViolations(window.incomingNurses, "nurse", { maxPasses: 60 });
+  balanceCountsWithoutCreatingNewAvoidableViolations(nurses, "nurse", { maxPasses: 80 });
+  balanceCountsWithoutCreatingNewAvoidableViolations(pcas, "pca", { maxPasses: 80 });
 
-  // ✅ Polish pass: try to eliminate avoidable violations after balancing
   if (typeof window.repairAssignmentsInPlace === "function") {
-    window.repairAssignmentsInPlace(window.incomingNurses, "nurse");
-    window.repairAssignmentsInPlace(window.incomingPcas, "pca");
+    window.repairAssignmentsInPlace(nurses, "nurse");
+    window.repairAssignmentsInPlace(pcas, "pca");
   }
 
   renderAssignmentOutput();
   renderPcaAssignmentOutput();
 
-  if (typeof saveState === "function") saveState();
+  if (typeof window.saveState === "function") window.saveState();
   if (typeof window.updateDischargeCount === "function") window.updateDischargeCount();
 }
 
 function rebalanceOncomingAssignment() {
+  __syncIncomingGlobals();
+
+  const nurses = __getIncomingNurses();
+  const pcas = __getIncomingPcas();
+  const ptsAll = __getPatients();
+
   if (typeof window.repairAssignmentsInPlace === "function") {
     try {
       cleanupRnPinsAgainstRoster();
 
-      // Re-place pins onto correct RN (do not allow them to drift)
-      const roster = Array.isArray(window.incomingNurses) ? window.incomingNurses : [];
+      const roster = nurses;
       roster.forEach(rn => {
         rn.patients = Array.isArray(rn.patients) ? rn.patients : [];
         rn.patients = rn.patients.filter(pid => !isPatientPinnedToIncomingRn(pid, rn.id));
       });
 
-      const active = (Array.isArray(window.patients) ? window.patients : []).filter(p => p && !p.isEmpty);
+      const active = ptsAll.filter(p => p && !p.isEmpty);
       applyRnPinsBeforeDistribute(active);
     } catch (e) {
       console.warn("[pins] pre-repair pin placement failed", e);
     }
 
-    window.repairAssignmentsInPlace(window.incomingNurses, "nurse");
-    window.repairAssignmentsInPlace(window.incomingPcas, "pca");
+    window.repairAssignmentsInPlace(nurses, "nurse");
+    window.repairAssignmentsInPlace(pcas, "pca");
 
-    balanceCountsWithoutCreatingNewAvoidableViolations(window.incomingNurses, "nurse", { maxPasses: 80 });
+    balanceCountsWithoutCreatingNewAvoidableViolations(nurses, "nurse", { maxPasses: 120 });
+    balanceCountsWithoutCreatingNewAvoidableViolations(pcas, "pca", { maxPasses: 120 });
 
-    window.repairAssignmentsInPlace(window.incomingNurses, "nurse");
-    window.repairAssignmentsInPlace(window.incomingPcas, "pca");
+    window.repairAssignmentsInPlace(nurses, "nurse");
+    window.repairAssignmentsInPlace(pcas, "pca");
 
     renderAssignmentOutput();
     renderPcaAssignmentOutput();
 
-    if (typeof saveState === "function") saveState();
+    if (typeof window.saveState === "function") window.saveState();
     if (typeof window.updateDischargeCount === "function") window.updateDischargeCount();
     return;
   }
@@ -751,11 +802,74 @@ function rebalanceOncomingAssignment() {
   populateOncomingAssignment(false);
 }
 
+// -----------------------------
+// ✅ Scoped rebalance (RN-only / PCA-only)
+// -----------------------------
+function rebalanceOncomingRnOnly() {
+  __syncIncomingGlobals();
+
+  const nurses = __getIncomingNurses();
+  const ptsAll = __getPatients();
+
+  if (typeof window.repairAssignmentsInPlace !== "function") {
+    console.warn("[rebalance RN] repairAssignmentsInPlace missing; falling back to full populate.");
+    return populateOncomingAssignment(false);
+  }
+
+  try {
+    cleanupRnPinsAgainstRoster();
+
+    const roster = nurses;
+    roster.forEach(rn => {
+      rn.patients = Array.isArray(rn.patients) ? rn.patients : [];
+      rn.patients = rn.patients.filter(pid => !isPatientPinnedToIncomingRn(pid, rn.id));
+    });
+
+    const active = ptsAll.filter(p => p && !p.isEmpty);
+    applyRnPinsBeforeDistribute(active);
+  } catch (e) {
+    console.warn("[rebalance RN] pin placement pre-pass failed", e);
+  }
+
+  window.repairAssignmentsInPlace(nurses, "nurse");
+  balanceCountsWithoutCreatingNewAvoidableViolations(nurses, "nurse", { maxPasses: 160 });
+  window.repairAssignmentsInPlace(nurses, "nurse");
+
+  renderAssignmentOutput();
+
+  if (typeof window.saveState === "function") window.saveState();
+  if (typeof window.updateDischargeCount === "function") window.updateDischargeCount();
+}
+
+function rebalanceOncomingPcaOnly() {
+  __syncIncomingGlobals();
+
+  const pcas = __getIncomingPcas();
+
+  if (typeof window.repairAssignmentsInPlace !== "function") {
+    console.warn("[rebalance PCA] repairAssignmentsInPlace missing; falling back to full populate.");
+    return populateOncomingAssignment(false);
+  }
+
+  window.repairAssignmentsInPlace(pcas, "pca");
+  balanceCountsWithoutCreatingNewAvoidableViolations(pcas, "pca", { maxPasses: 160 });
+  window.repairAssignmentsInPlace(pcas, "pca");
+
+  renderPcaAssignmentOutput();
+
+  if (typeof window.saveState === "function") window.saveState();
+  if (typeof window.updateDischargeCount === "function") window.updateDischargeCount();
+}
+
 // Expose globally (CRITICAL for index.html onclick)
 window.renderAssignmentOutput = renderAssignmentOutput;
 window.renderPcaAssignmentOutput = renderPcaAssignmentOutput;
 window.populateOncomingAssignment = populateOncomingAssignment;
 window.rebalanceOncomingAssignment = rebalanceOncomingAssignment;
+
+// New scoped rebalance endpoints
+window.rebalanceOncomingRnOnly = rebalanceOncomingRnOnly;
+window.rebalanceOncomingPcaOnly = rebalanceOncomingPcaOnly;
 
 window.getPrevRnNameForPatient = getPrevRnNameForPatient;
 window.getPrevPcaNameForPatient = getPrevPcaNameForPatient;

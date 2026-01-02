@@ -439,8 +439,14 @@
       <h1>Oncoming Assignment (Incoming Staff)</h1>
 
       <div class="actions-row" style="flex-wrap:wrap;">
-        <button onclick="populateOncomingAssignment()">Populate Oncoming Assignment</button>
-        <button onclick="rebalanceOncomingAssignment()">Re-generate / Rebalance</button>
+        <button onclick="window.populateOncomingAssignment && window.populateOncomingAssignment(false)">Populate Oncoming Assignment</button>
+
+        <!-- ✅ Scoped rebalances (THIS IS THE FIX) -->
+        <button type="button" onclick="window.rebalanceOncomingRnOnly && window.rebalanceOncomingRnOnly()">Rebalance RN (Only)</button>
+        <button type="button" onclick="window.rebalanceOncomingPcaOnly && window.rebalanceOncomingPcaOnly()">Rebalance PCA (Only)</button>
+
+        <!-- Optional: keep a “full rebalance” if you want -->
+        <button onclick="window.rebalanceOncomingAssignment && window.rebalanceOncomingAssignment()">Rebalance (Both)</button>
 
         <button id="btnFinalizeShift" type="button" title="Publishes Oncoming snapshot + analytics, then swaps Live ← Oncoming">
           Finalize / Submit Shift Change
@@ -467,10 +473,22 @@
         <div id="finalizeStatusMsg" style="margin-top:10px; font-size:12px; opacity:0.85;"></div>
       </div>
 
-      <h2>Incoming RN Assignments</h2>
+      <!-- RN header + button on same line -->
+      <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; margin-top: 12px;">
+        <h2 style="margin:0;">Incoming RN Assignments</h2>
+        <button type="button" onclick="window.rebalanceOncomingRnOnly && window.rebalanceOncomingRnOnly()">
+          Rebalance RN
+        </button>
+      </div>
       <div id="assignmentOutput" class="assignment-grid two-column-grid"></div>
 
-      <h2 style="margin-top: 24px;">Incoming PCA Assignments</h2>
+      <!-- PCA header + button on same line -->
+      <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; margin-top: 24px;">
+        <h2 style="margin:0;">Incoming PCA Assignments</h2>
+        <button type="button" onclick="window.rebalanceOncomingPcaOnly && window.rebalanceOncomingPcaOnly()">
+          Rebalance PCA
+        </button>
+      </div>
       <div id="pcaAssignmentOutput" class="assignment-grid two-column-grid"></div>
     </section>
 
@@ -519,7 +537,7 @@
 
   </main>
 
-  <!-- MODALS -->
+  <!-- MODALS (unchanged) -->
   <div id="patientProfileModal" class="modal">
     <div class="modal-content">
       <div class="modal-header">
@@ -594,7 +612,6 @@
     </div>
   </div>
 
-  <!-- ASSIGN ADMIT MODAL -->
   <div id="queueAssignModal" class="modal">
     <div class="modal-content">
       <div class="modal-header">
@@ -634,7 +651,6 @@
     </div>
   </div>
 
-  <!-- PRE-ADMIT TAGS MODAL -->
   <div id="admitDraftModal" class="modal">
     <div class="modal-content">
       <div class="modal-header">
@@ -694,7 +710,6 @@
     </div>
   </div>
 
-  <!-- Assignment Quality Index Modal -->
   <div id="aqiModal" class="modal" style="display:none;">
     <div id="aqiPanel" class="modal-content aqi-panel">
       <div id="aqiDragHandle" class="aqi-header">
@@ -709,18 +724,14 @@
     </div>
   </div>
 
-  <script src="app/app.state.js"></script>
-  <script src="app/app.queue.js"></script>
-  <script src="app/app.staffing.js"></script>
-  <script src="app/app.patientsAcuity.js"></script>
-  <script src="app/app.assignmentsDrag.js"></script>
-  <script src="app/app.assignmentRules.js"></script>
-
-  <script src="app/app.explanations.js"></script>
-
-  <script src="app/app.liveAssignments.js"></script>
-  <script src="app/app.assignmentsrender.js"></script>
-  <script src="app/app.modals.js"></script>
+  <!-- =====================================================
+       ✅ SCRIPT ORDER FIX
+       - Supabase CDN FIRST
+       - then config/wrapper/auth UI
+       - then app modules
+       - then init
+       - script.js LAST
+  ===================================================== -->
 
   <!-- ✅ Supabase library FIRST -->
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
@@ -729,17 +740,35 @@
   <script src="app/app.supabaseConfig.js"></script>
   <script src="app/app.supabase.js"></script>
   <script src="app/app.authUI.js"></script>
-
   <script src="app/app.authGate.js"></script>
+
+  <!-- Core app state + UI modules -->
+  <script src="app/app.state.js"></script>
+  <script src="app/app.queue.js"></script>
+  <script src="app/app.staffing.js"></script>
+  <script src="app/app.patientsAcuity.js"></script>
+
+  <!-- Explanation + rules + live/oncoming -->
+  <script src="app/app.explanations.js"></script>
+  <script src="app/app.assignmentRules.js"></script>
+  <script src="app/app.liveAssignments.js"></script>
+
+  <!-- ✅ Oncoming render exports scoped rebalancers -->
+  <script src="app/app.assignmentsrender.js"></script>
+
+  <!-- ✅ Drag/drop can be after render (handlers needed at interaction time) -->
+  <script src="app/app.assignmentsDrag.js"></script>
+
+  <!-- Modals + AQI + extras -->
+  <script src="app/app.modals.js"></script>
+  <script src="app/app.patientProfileUI.js"></script>
   <script src="app/app.assignmentQuality.js"></script>
   <script src="app/app.staffTypeahead.js"></script>
 
-  <!-- ✅ shift change (logic), then init -->
+  <!-- ✅ shift change (logic), pulse, then init LAST -->
   <script src="app/app.shiftChange.js"></script>
   <script src="app/app.unitPulse.js"></script>
   <script src="app/app.init.js"></script>
-
-  <script src="app/app.patientProfileUI.js"></script>
 
   <!-- Keep LAST so it can hook up handlers after DOM exists -->
   <script src="script.js"></script>
