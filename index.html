@@ -744,6 +744,10 @@
 
   <!-- Core app state + UI modules -->
   <script src="app/app.state.js"></script>
+
+  <!-- ✅ init MUST be before any module that logs events -->
+  <script src="app/app.init.js"></script>
+
   <script src="app/app.queue.js"></script>
   <script src="app/app.staffing.js"></script>
   <script src="app/app.patientsAcuity.js"></script>
@@ -768,7 +772,6 @@
   <!-- ✅ shift change (logic), pulse, then init LAST -->
   <script src="app/app.shiftChange.js"></script>
   <script src="app/app.unitPulse.js"></script>
-  <script src="app/app.init.js"></script>
 
   <!-- Keep LAST so it can hook up handlers after DOM exists -->
   <script src="script.js"></script>

@@ -81,6 +81,28 @@ function persistAndRefresh() {
 }
 
 // -----------------------------
+// ✅ Event log helpers (LIVE only; append-only)
+// -----------------------------
+function canLogEvents() {
+  return typeof window.appendEvent === "function";
+}
+
+function safePatientSummary(patientId) {
+  try {
+    const p = (typeof window.getPatientById === "function") ? window.getPatientById(patientId) : null;
+    if (!p) return { patientId };
+    return {
+      patientId: p.id,
+      room: p.room || "",
+      name: p.name || "",
+      isEmpty: !!p.isEmpty
+    };
+  } catch {
+    return { patientId };
+  }
+}
+
+// -----------------------------
 // RN Lock helpers (local, no dependency on assignmentsrender.js load order)
 // Stored on patient record for persistence:
 // - patient.lockRnEnabled (bool)
@@ -203,6 +225,21 @@ function onRowDrop(event, context, role, newOwnerId) {
   if (idx !== -1) fromOwner.patients.splice(idx, 1);
   if (!toOwner.patients.includes(pid)) toOwner.patients.push(pid);
 
+  // ✅ LIVE-only event log (oncoming intentionally excluded for Phase 1 scope)
+  if (context === "live" && canLogEvents()) {
+    try {
+      window.appendEvent("ASSIGNMENT_MOVED", {
+        context: "live",
+        role: role, // 'nurse'|'pca'
+        patient: safePatientSummary(pid),
+        fromOwner: { id: fromOwner.id, name: fromOwner.name || "" },
+        toOwner: { id: toOwner.id, name: toOwner.name || "" }
+      }, { v: 1, source: "app.assignmentsDrag.js" });
+    } catch (e) {
+      console.warn("[eventLog] ASSIGNMENT_MOVED failed", e);
+    }
+  }
+
   dragCtx = null;
 
   // ✅ Always persist after every drag/drop so refresh doesn't lose layout.
@@ -260,6 +297,8 @@ function onDischargeDrop(event) {
   }
 
   const patient = getPatientById(patientId);
+  let patientSummaryBefore = safePatientSummary(patientId);
+
   if (patient) {
     patient.recentlyDischarged = true;
     patient.isEmpty = true;
@@ -268,16 +307,37 @@ function onDischargeDrop(event) {
     // (keeps things sane if bed turns over)
     patient.lockRnEnabled = false;
     patient.lockRnTo = null;
+
+    // refresh summary after mutation (still useful; isEmpty true)
+    patientSummaryBefore = safePatientSummary(patientId);
   }
+
+  const dischargeId = window.nextDischargeId++;
 
   // Canonical history record
   window.dischargeHistory.unshift({
-    id: window.nextDischargeId++,
+    id: dischargeId,
     patientId,
     nurseId: rnOwner ? rnOwner.id : null,
     pcaId: pcOwner ? pcOwner.id : null,
     timestamp: Date.now(),
   });
+
+  // ✅ LIVE-only event log
+  if (canLogEvents()) {
+    try {
+      window.appendEvent("PATIENT_DISCHARGED", {
+        context: "live",
+        dischargeId,
+        patient: patientSummaryBefore,
+        nurse: rnOwner ? { id: rnOwner.id, name: rnOwner.name || "" } : null,
+        pca: pcOwner ? { id: pcOwner.id, name: pcOwner.name || "" } : null,
+        timestamp: Date.now()
+      }, { v: 1, source: "app.assignmentsDrag.js" });
+    } catch (e) {
+      console.warn("[eventLog] PATIENT_DISCHARGED failed", e);
+    }
+  }
 
   dragCtx = null;
 
@@ -365,6 +425,22 @@ function reinstateDischargedPatient(index) {
     }
   }
 
+  // ✅ LIVE-only event log (this modal is LIVE discharge history)
+  if (canLogEvents()) {
+    try {
+      window.appendEvent("PATIENT_REINSTATED", {
+        context: "live",
+        dischargeId: entry.id ?? null,
+        patient: safePatientSummary(entry.patientId),
+        nurseId: entry.nurseId ?? null,
+        pcaId: entry.pcaId ?? null,
+        timestamp: Date.now()
+      }, { v: 1, source: "app.assignmentsDrag.js" });
+    } catch (e) {
+      console.warn("[eventLog] PATIENT_REINSTATED failed", e);
+    }
+  }
+
   history.splice(index, 1);
 
   persistAndRefresh();
@@ -399,6 +475,19 @@ function clearRecentlyDischargedFlags() {
     // 2) Reset discharge session tracking
     window.dischargeHistory = [];
     window.nextDischargeId = 1;
+
+    // ✅ LIVE-only event log
+    if (canLogEvents()) {
+      try {
+        window.appendEvent("DISCHARGE_SESSION_RESET", {
+          context: "live",
+          clearedPatients: cleared,
+          timestamp: Date.now()
+        }, { v: 1, source: "app.assignmentsDrag.js" });
+      } catch (e) {
+        console.warn("[eventLog] DISCHARGE_SESSION_RESET failed", e);
+      }
+    }
 
     // 3) Persist + re-render
     persistAndRefresh();

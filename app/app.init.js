@@ -18,10 +18,105 @@
 // ✅ NEW (Dec 2025):
 // - Cloud loop protection (mute publish during remote apply + snapshot dedupe + cooldown)
 //   Fixes “publishing every second” feedback loops.
+//
+// ✅ NEW (EVENT LOG - LIVE ONLY, PHASE 1):
+// - Establish a LIVE shift session key (window.liveShiftKey)
+// - Provide window.appendEvent helper for append-only audit log
+// - Append SHIFT_LIVE_STARTED AFTER unit selection + storage/cloud load for correct unitId/pcaShift
+//
+// ✅ NEW (UI RELIABILITY):
+// - Bind "Clear recently discharged" button click in JS (no reliance on inline onclick)
+//
+// NOTE: eventLog is local-only for now (NOT included in cloud unit_state snapshot).
 
 window.addEventListener("DOMContentLoaded", async () => {
   console.log("APP INIT: Starting initialization…");
 
+  // -----------------------------
+  // ✅ Event Log (LIVE only) bootstrap (helper + session key)
+  // -----------------------------
+  window.eventLog = Array.isArray(window.eventLog) ? window.eventLog : [];
+
+  function __evtId() {
+    const t = Date.now();
+    const r = Math.random().toString(36).slice(2, 10);
+    return `evt_${t}_${r}`;
+  }
+
+  function __isoNow() {
+    try { return new Date().toISOString(); } catch { return String(Date.now()); }
+  }
+
+  function __makeLiveShiftKey() {
+    const t = Date.now();
+    const r = Math.random().toString(36).slice(2, 10);
+    return `live_${t}_${r}`;
+  }
+
+  // Canonical append-only helper (other files will call this)
+  window.appendEvent = window.appendEvent || function appendEvent(type, payload = {}, meta = {}) {
+    try {
+      window.eventLog = Array.isArray(window.eventLog) ? window.eventLog : [];
+
+      const evt = {
+        id: __evtId(),
+        ts: __isoNow(),
+        type: String(type || "UNKNOWN"),
+        unitId: window.activeUnitId ? String(window.activeUnitId) : null,
+        shiftKey: window.liveShiftKey ? String(window.liveShiftKey) : null,
+        actor: meta.actor || "local",
+        payload: payload && typeof payload === "object" ? payload : { value: payload },
+        meta: meta && typeof meta === "object" ? meta : {}
+      };
+
+      window.eventLog.push(evt);
+
+      // Persist using existing pattern (debounced)
+      try { if (typeof window.markDirty === "function") window.markDirty(); } catch {}
+
+      return evt;
+    } catch (e) {
+      console.warn("[eventLog] appendEvent failed", e);
+      return null;
+    }
+  };
+
+  // Create a LIVE shiftKey once per boot (MVP)
+  if (!window.liveShiftKey || typeof window.liveShiftKey !== "string") {
+    window.liveShiftKey = __makeLiveShiftKey();
+  }
+
+  // Append SHIFT_LIVE_STARTED once, but ONLY when unitId/pcaShift are settled (called later)
+  function appendLiveShiftStartedOnce(context = {}) {
+    try {
+      window.eventLog = Array.isArray(window.eventLog) ? window.eventLog : [];
+
+      // Dedupe per shiftKey
+      const already = window.eventLog.some(e =>
+        e && e.type === "SHIFT_LIVE_STARTED" && e.shiftKey === window.liveShiftKey
+      );
+      if (already) return;
+
+      window.appendEvent("SHIFT_LIVE_STARTED", {
+        mode: "live",
+        pcaShift: window.pcaShift || "day",
+        ...context
+      }, {
+        v: 1,
+        source: "app.init.js"
+      });
+    } catch (e) {
+      console.warn("[eventLog] SHIFT_LIVE_STARTED failed", e);
+    }
+  }
+
+  // ---- EVENT CAPTURE ARMING (LIVE) ----
+  if (typeof window.appendEvent === "function" && typeof window.canLogEvents === "function") {
+    try {
+      window.canLogEvents(true);
+    } catch (_) {}
+  }
+  
   // -----------------------------
   // Boot loader overlay (step-based %)
   // -----------------------------
@@ -282,10 +377,8 @@ window.addEventListener("DOMContentLoaded", async () => {
       return;
     }
 
-    // If we are applying remote state / booting, do not publish
     if (window.__cloud.mutePublishDepth > 0) return;
 
-    // Dedupe: if unchanged since last publish, skip writing
     const snapStr = snapshotString();
     if (snapStr && snapStr === window.__cloud.lastPublishedSnapshotStr) {
       setSyncStatus("synced", { lastSyncedAt: window.__cloud.sync.lastSyncedAt || new Date() });
@@ -318,7 +411,6 @@ window.addEventListener("DOMContentLoaded", async () => {
 
       window.__cloud.unitStateVersion = (row && typeof row.version === "number") ? row.version : nextVersion;
 
-      // Mark publish success for dedupe/cooldown
       if (snapStr) window.__cloud.lastPublishedSnapshotStr = snapStr;
       window.__cloud.lastPublishAt = Date.now();
 
@@ -332,10 +424,8 @@ window.addEventListener("DOMContentLoaded", async () => {
   }
 
   function publishUnitStateDebounced(reason = "") {
-    // If we are applying remote state / booting, don't echo back to cloud
     if (window.__cloud.mutePublishDepth > 0) return;
 
-    // Dedupe: if snapshot hasn't changed since last queue, ignore
     const snapStr = snapshotString();
     if (!snapStr) return;
 
@@ -352,9 +442,8 @@ window.addEventListener("DOMContentLoaded", async () => {
       if (!publishQueued) return;
       publishQueued = false;
 
-      // Cooldown (prevents rapid-fire spam if something is noisy)
       const now = Date.now();
-      const minGapMs = 900; // tune: 600–1500ms typical
+      const minGapMs = 900;
       if (now - window.__cloud.lastPublishAt < minGapMs) {
         publishUnitStateDebounced(reason || "cooldown");
         return;
@@ -380,7 +469,6 @@ window.addEventListener("DOMContentLoaded", async () => {
 
     const cloudState = row.state || row.state_json || row || {};
 
-    // ✅ apply without triggering publish loops
     withPublishMuted(() => {
       applySnapshotToWindow(cloudState.state || cloudState);
     });
@@ -423,7 +511,6 @@ window.addEventListener("DOMContentLoaded", async () => {
 
           const st = row.state || row.state_json || row || {};
 
-          // ✅ apply + render without triggering publish loops
           withPublishMuted(() => {
             applySnapshotToWindow(st.state || st);
             refreshAllUI();
@@ -455,15 +542,11 @@ window.addEventListener("DOMContentLoaded", async () => {
   try { if (typeof window.ensureDefaultPatients === "function") window.ensureDefaultPatients(); } catch {}
   try { if (typeof window.loadStateFromStorage === "function") window.loadStateFromStorage(); } catch {}
 
-  // Wrap saveState() so existing UI actions trigger cloud publish too
   if (!window.__cloud.__saveWrapped && typeof window.saveState === "function") {
     const originalSaveState = window.saveState;
     window.saveState = function wrappedSaveState() {
       try { originalSaveState(); } catch {}
-
-      // ✅ never publish while applying remote/boot normalization
       if (window.__cloud.mutePublishDepth > 0) return;
-
       try { publishUnitStateDebounced("saveState"); } catch {}
     };
     window.__cloud.__saveWrapped = true;
@@ -485,7 +568,6 @@ window.addEventListener("DOMContentLoaded", async () => {
     console.warn("[init] Supabase not configured or refreshMyUnits missing (offline/demo mode).");
   }
 
-  // Ensure active unit settings are loaded
   bootStep(45, "Selecting active unit…");
   if (window.activeUnitId && window.setActiveUnit && typeof window.setActiveUnit === "function") {
     try {
@@ -498,6 +580,7 @@ window.addEventListener("DOMContentLoaded", async () => {
   // -----------------------------
   // CLOUD LOAD + REALTIME SUBSCRIBE (canonical)
   // -----------------------------
+  let __bootSource = "local";
   if (sbReady() && window.activeUnitId) {
     bootStep(65, "Syncing unit state…");
     try {
@@ -506,6 +589,8 @@ window.addEventListener("DOMContentLoaded", async () => {
       if (res?.ok && res?.empty) {
         console.log("[cloud] No unit_state row found yet; will publish initial state when eligible.");
         publishUnitStateDebounced("seed-if-empty");
+      } else if (res?.ok) {
+        __bootSource = "cloud";
       }
 
       bootStep(85, "Connecting realtime…");
@@ -516,6 +601,9 @@ window.addEventListener("DOMContentLoaded", async () => {
   } else {
     bootStep(70, "Offline/demo mode…");
   }
+
+  // ✅ Now that unitId + pcaShift are settled, append SHIFT_LIVE_STARTED (once per shiftKey)
+  appendLiveShiftStartedOnce({ bootSource: __bootSource });
 
   // -----------------------------
   // STAFFING INIT (if empty, create defaults)
@@ -575,6 +663,44 @@ window.addEventListener("DOMContentLoaded", async () => {
   if (typeof showTab === "function" && firstTabBtn) {
     showTab("staffingTab", firstTabBtn);
   }
+
+  // -----------------------------
+  // ✅ Bind "Clear recently discharged" button reliably
+  // -----------------------------
+  function bindClearRecentlyDischargedButton() {
+    try {
+      if (typeof window.clearRecentlyDischargedFlags !== "function") return;
+
+      const btn = [...document.querySelectorAll("[onclick]")]
+        .find(el => (el.getAttribute("onclick") || "").trim() === "clearRecentlyDischargedFlags()");
+
+      if (!btn) {
+        console.warn("[init] clearRecentlyDischargedFlags button not found to bind");
+        return;
+      }
+
+      if (btn.__cuppClearBound) return;
+      btn.__cuppClearBound = true;
+
+      btn.addEventListener("click", (e) => {
+        // Let the inline handler exist, but ensure we run the canonical function too.
+        // Prevent double-run by stopping inline (we own this now).
+        e.preventDefault();
+        e.stopPropagation();
+        try { window.clearRecentlyDischargedFlags(); } catch (err) { console.warn("clearRecentlyDischargedFlags click failed", err); }
+      }, false);
+
+      // Optional: remove inline attribute to avoid confusion
+      // (keeps behavior stable; button still works if attribute is present)
+      // btn.removeAttribute("onclick");
+
+      console.log("[init] Bound clearRecentlyDischargedFlags button");
+    } catch (e) {
+      console.warn("[init] bindClearRecentlyDischargedButton failed", e);
+    }
+  }
+
+  bindClearRecentlyDischargedButton();
 
   bootFinish();
   console.log("APP INIT: Initialization complete.");

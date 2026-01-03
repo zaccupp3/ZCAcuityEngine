@@ -10,9 +10,12 @@
 // - Room labels (patient.room) are updated from unitSettings.beds without wiping acuity/tags.
 // ---------------------------------------------------------
 //
-// ✅ NEW (THIS UPDATE):
-// - Persist RN/PCA staff_id through save/load (n.staff_id / p.staff_id)
-
+// ✅ Persist RN/PCA staff_id through save/load (n.staff_id / p.staff_id)
+//
+// ✅ NEW (this replacement):
+// - Fix broken export block at bottom (incomplete if statement)
+// - Add canonical helpers to derive "responsible staff" for a patient at event-time
+//   (used later for ACUITY_CHANGED / ADMIT_PLACED / ASSIGNMENT_MOVED payload enrichment).
 (function () {
   // ============ GLOBAL ARRAYS / VARS ============
   window.currentNurses  = Array.isArray(window.currentNurses)  ? window.currentNurses  : [];
@@ -314,7 +317,7 @@
       window.currentPcas    = Array.isArray(data.currentPcas) ? data.currentPcas : [];
       window.incomingPcas   = Array.isArray(data.incomingPcas) ? data.incomingPcas : [];
 
-      window.patients       = Array.isArray(data.patients) ? data.patients : [];
+      window.patients         = Array.isArray(data.patients) ? data.patients : [];
       window.dischargeHistory = Array.isArray(data.dischargeHistory) ? data.dischargeHistory : [];
       window.nextDischargeId  = (typeof data.nextDischargeId === "number") ? data.nextDischargeId : 1;
 
@@ -443,6 +446,7 @@
   }
 
   // ============ CLEAR “RECENTLY DISCHARGED” ============
+  // NOTE: This is a legacy fallback. assignmentsDrag.js owns the canonical version now.
   function clearRecentlyDischargedFlags() {
     syncFromWindow();
     (patients || []).forEach(p => {
@@ -494,6 +498,96 @@
     var getRoomNumber = window.getRoomNumber;
   }
 
+  // ============ STAFF ↔ PATIENT RESOLUTION HELPERS ============
+  // These helpers intentionally DO NOT mutate state.
+  // They read current assignment arrays and return the "responsible staff at this moment"
+  // so event emitters can attach staff to payloads at event-time.
+
+  function normalizePatientId(patientOrId) {
+    if (patientOrId == null) return null;
+    if (typeof patientOrId === "number") return patientOrId;
+    if (typeof patientOrId === "string") {
+      const n = Number(patientOrId);
+      return Number.isFinite(n) ? n : null;
+    }
+    if (typeof patientOrId === "object") {
+      if (typeof patientOrId.id === "number") return patientOrId.id;
+      // fall back to room parsing if id missing
+      if (typeof window.getRoomNumber === "function") {
+        const maybe = window.getRoomNumber(patientOrId);
+        return Number.isFinite(maybe) ? maybe : null;
+      }
+    }
+    return null;
+  }
+
+  function listIncludesPatient(list, patientId) {
+    if (!Array.isArray(list) || patientId == null) return false;
+    // Most common: numeric ids like [1,2,3]
+    if (list.includes(patientId)) return true;
+    // Defensive: string ids like ["1","2"]
+    if (list.includes(String(patientId))) return true;
+    // Defensive: objects like [{id:1}] (rare but safe)
+    for (let i = 0; i < list.length; i++) {
+      const x = list[i];
+      if (x == null) continue;
+      if (typeof x === "number" && x === patientId) return true;
+      if (typeof x === "string" && Number(x) === patientId) return true;
+      if (typeof x === "object" && typeof x.id === "number" && x.id === patientId) return true;
+    }
+    return false;
+  }
+
+  function findAssignedNurse(patientOrId) {
+    const pid = normalizePatientId(patientOrId);
+    if (pid == null) return null;
+    const nursesArr = Array.isArray(window.currentNurses) ? window.currentNurses : [];
+    for (let i = 0; i < nursesArr.length; i++) {
+      const n = nursesArr[i];
+      if (!n) continue;
+      if (listIncludesPatient(n.patients, pid)) return n;
+    }
+    return null;
+  }
+
+  function findAssignedPca(patientOrId) {
+    const pid = normalizePatientId(patientOrId);
+    if (pid == null) return null;
+    const pcasArr = Array.isArray(window.currentPcas) ? window.currentPcas : [];
+    for (let i = 0; i < pcasArr.length; i++) {
+      const p = pcasArr[i];
+      if (!p) continue;
+      if (listIncludesPatient(p.patients, pid)) return p;
+    }
+    return null;
+  }
+
+  function getAssignmentContextForPatient(patientOrId) {
+    const rn = findAssignedNurse(patientOrId);
+    const pca = findAssignedPca(patientOrId);
+    return {
+      rnId: rn ? (rn.id ?? null) : null,
+      pcaId: pca ? (pca.id ?? null) : null,
+      rnStaffId: rn ? (rn.staff_id ?? null) : null,
+      pcaStaffId: pca ? (pca.staff_id ?? null) : null
+    };
+  }
+
+  function getResponsibleStaffIdsForPatient(patientOrId) {
+    const ctx = getAssignmentContextForPatient(patientOrId);
+    // Prefer stable staff_id if present; fall back to local numeric id.
+    return {
+      rnId: ctx.rnStaffId || ctx.rnId || null,
+      pcaId: ctx.pcaStaffId || ctx.pcaId || null
+    };
+  }
+
+  // Expose helpers for later file updates
+  window.findAssignedNurse = window.findAssignedNurse || findAssignedNurse;
+  window.findAssignedPca = window.findAssignedPca || findAssignedPca;
+  window.getAssignmentContextForPatient = window.getAssignmentContextForPatient || getAssignmentContextForPatient;
+  window.getResponsibleStaffIdsForPatient = window.getResponsibleStaffIdsForPatient || getResponsibleStaffIdsForPatient;
+
   // ============ AUTOSAVE / SAVE-ON-REFRESH SAFETY ============
   let __dirty = false;
   let __saveTimer = null;
@@ -529,7 +623,11 @@
   window.loadStateFromStorage = loadStateFromStorage;
   window.initFromStorageOrDefaults = initFromStorageOrDefaults;
 
-  window.clearRecentlyDischargedFlags = clearRecentlyDischargedFlags;
+  // ✅ IMPORTANT: Do NOT overwrite a newer implementation (assignmentsDrag owns this now).
+  // Fix: previously the file ended with an incomplete if statement.
+  if (typeof window.clearRecentlyDischargedFlags !== "function") {
+    window.clearRecentlyDischargedFlags = clearRecentlyDischargedFlags;
+  }
 
   window.openAcuityModal = openAcuityModal;
   window.closeAcuityModal = closeAcuityModal;

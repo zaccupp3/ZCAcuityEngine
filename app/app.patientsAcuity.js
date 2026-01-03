@@ -62,6 +62,57 @@
   }
 
   // =========================
+  // Event logging helpers (NEW)
+  // =========================
+ 
+  function append(type, payload) {
+    try {
+      if (typeof window.appendEvent === "function") {
+        window.appendEvent(type, payload || {});
+      }
+    } catch (e) {
+      console.warn("[events] appendEvent failed", e);
+    }
+  }
+
+  function logAcuityChange(patient, key, beforeVal, afterVal, source) {
+    if (!patient) return;
+    if (beforeVal === afterVal) return;
+
+    append("ACUITY_CHANGED", {
+      patientId: Number(patient.id),
+      bed: String(patient.room || patient.id || ""),
+      changes: [{ key, before: beforeVal, after: afterVal }],
+      source: source || "patient_details"
+    });
+  }
+
+  function logBulkAcuityChanges(patient, changes, source) {
+    if (!patient) return;
+    const list = safeArray(changes).filter(Boolean);
+    if (!list.length) return;
+
+    append("ACUITY_CHANGED", {
+      patientId: Number(patient.id),
+      bed: String(patient.room || patient.id || ""),
+      changes: list,
+      source: source || "patient_profile"
+    });
+  }
+
+  function logBedStateChange(patient, beforeEmpty, afterEmpty, source) {
+    if (!patient) return;
+    if (beforeEmpty === afterEmpty) return;
+
+    append("BED_STATE_CHANGED", {
+      patientId: Number(patient.id),
+      bed: String(patient.room || patient.id || ""),
+      changes: [{ key: "isEmpty", before: !!beforeEmpty, after: !!afterEmpty }],
+      source: source || "patient_details"
+    });
+  }
+
+  // =========================
   // Room Schema Mapping (NEW)
   // =========================
 
@@ -119,6 +170,8 @@
     const p = getPatientById(patientId);
     if (!p) return;
 
+    const beforeEmpty = !!p.isEmpty;
+
     if (makeEmpty) {
       // Clearing patient details when bed becomes empty
       p.gender = "";
@@ -148,6 +201,9 @@
       p.isEmpty = false;
       p.recentlyDischarged = false;
     }
+
+    const afterEmpty = !!p.isEmpty;
+    logBedStateChange(p, beforeEmpty, afterEmpty, "patient_details");
 
     if (typeof window.saveState === "function") window.saveState();
     if (typeof window.updateAcuityTiles === "function") window.updateAcuityTiles();
@@ -201,8 +257,11 @@
       return;
     }
 
+    const before = p.gender || "";
     p.gender = value;
     recomputeIsEmpty(p);
+
+    logAcuityChange(p, "gender", before, p.gender || "", "patient_details");
 
     if (typeof window.saveState === "function") window.saveState();
 
@@ -223,8 +282,11 @@
       return;
     }
 
+    const before = !!p[key];
     p[key] = checked;
     recomputeIsEmpty(p);
+
+    logAcuityChange(p, String(key), before, !!checked, "patient_details");
 
     if (typeof window.saveState === "function") window.saveState();
     if (typeof window.renderPatientList === "function") window.renderPatientList();
@@ -661,12 +723,9 @@
     const modal = document.getElementById("patientProfileModal");
     if (!modal) return null;
 
-    // Ensure modal has a predictable inner container; if your HTML already has one, reuse it.
-    // We’ll build a modern layout INSIDE the existing modal element.
-    modal.classList.add("pp-overlay"); // CSS will handle overlay behavior
+    modal.classList.add("pp-overlay");
     modal.style.display = "none";
 
-    // If there isn’t a card wrapper, create one
     let card = modal.querySelector(".pp-card");
     if (!card) {
       modal.innerHTML = `
@@ -681,14 +740,12 @@
       card = modal.querySelector(".pp-card");
     }
 
-    // Close behaviors
     const closeBtn = modal.querySelector("#ppCloseBtn");
     if (closeBtn && !closeBtn.__wired) {
       closeBtn.__wired = true;
       closeBtn.addEventListener("click", closePatientProfileModal);
     }
 
-    // Click outside closes
     if (!modal.__wiredOutsideClose) {
       modal.__wiredOutsideClose = true;
       modal.addEventListener("click", (e) => {
@@ -696,7 +753,6 @@
       });
     }
 
-    // ESC closes
     if (!window.__ppEscWired) {
       window.__ppEscWired = true;
       document.addEventListener("keydown", (e) => {
@@ -704,9 +760,7 @@
       });
     }
 
-    // Draggable
     makeDraggable(modal.querySelector(".pp-card"), modal.querySelector(".pp-header"));
-
     return modal;
   }
 
@@ -714,7 +768,6 @@
     const card = modal?.querySelector(".pp-card");
     if (!card) return;
 
-    // Reset to centered each open (unless user drags it)
     card.style.left = "50%";
     card.style.top = "50%";
     card.style.transform = "translate(-50%, -50%)";
@@ -738,7 +791,6 @@
       startLeft = rect.left;
       startTop = rect.top;
 
-      // Switch to positioned mode
       cardEl.style.transform = "none";
       cardEl.style.left = startLeft + "px";
       cardEl.style.top = startTop + "px";
@@ -790,7 +842,6 @@
       `;
     }
 
-    // RN tags
     const rnItems = [
       ["profTele", "Tele", !!p.tele],
       ["profDrip", "Drip", !!p.drip],
@@ -805,7 +856,6 @@
       ["profLateDc", "Late DC", !!(p.lateDc || p.lateDC || p.latedc)],
     ];
 
-    // PCA tags
     const pcaItems = [
       ["profTelePca", "Tele", !!p.tele],
       ["profIsoPca", "Isolation", !!(p.isolation || p.iso)],
@@ -859,7 +909,6 @@
     const saveBtn = modal.querySelector("#ppSaveBtn");
     if (saveBtn) saveBtn.onclick = savePatientProfile;
 
-    // Show + center
     modal.style.display = "flex";
     centerLegacyModal(modal);
   }
@@ -878,6 +927,15 @@
       closePatientProfileModal();
       return;
     }
+
+    // Capture "before" snapshot for diff logging
+    const before = {
+      gender: p.gender || "",
+      tele: !!p.tele, drip: !!p.drip, nih: !!p.nih, bg: !!p.bg,
+      ciwa: !!p.ciwa, restraint: !!p.restraint, sitter: !!p.sitter, vpo: !!p.vpo,
+      isolation: !!p.isolation, admit: !!p.admit, lateDc: !!p.lateDc,
+      chg: !!p.chg, foley: !!p.foley, q2turns: !!p.q2turns, heavy: !!p.heavy, feeder: !!p.feeder
+    };
 
     const gSel = document.getElementById("profGender");
     const newGender = gSel ? gSel.value : "";
@@ -926,6 +984,21 @@
 
     recomputeIsEmpty(p);
 
+    // Diff + log (single event)
+    const after = {
+      gender: p.gender || "",
+      tele: !!p.tele, drip: !!p.drip, nih: !!p.nih, bg: !!p.bg,
+      ciwa: !!p.ciwa, restraint: !!p.restraint, sitter: !!p.sitter, vpo: !!p.vpo,
+      isolation: !!p.isolation, admit: !!p.admit, lateDc: !!p.lateDc,
+      chg: !!p.chg, foley: !!p.foley, q2turns: !!p.q2turns, heavy: !!p.heavy, feeder: !!p.feeder
+    };
+
+    const changes = [];
+    Object.keys(after).forEach(k => {
+      if (before[k] !== after[k]) changes.push({ key: k, before: before[k], after: after[k] });
+    });
+    logBulkAcuityChanges(p, changes, "patient_profile");
+
     if (typeof window.saveState === "function") window.saveState();
 
     if (typeof window.updateAcuityTiles === "function") window.updateAcuityTiles();
@@ -944,7 +1017,6 @@
   window.getPatientById = getPatientById;
   window.getPatientByRoom = getPatientByRoom;
 
-  // Room schema helpers for other modules (Live/Oncoming renderers, queue, etc.)
   window.applyRoomSchemaToPatients = applyRoomSchemaToPatients;
   window.getRoomLabelForPatient = getRoomLabelForPatient;
 

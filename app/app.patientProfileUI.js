@@ -23,6 +23,39 @@
     return true;
   }
 
+  function takeAcuitySnapshot(p) {
+    // Keep this list aligned with the tags you actually mutate in savePatientProfile()
+    return {
+      gender: p.gender || "",
+      tele: !!p.tele,
+      drip: !!p.drip,
+      nih: !!p.nih,
+      bg: !!p.bg,
+      ciwa: !!p.ciwa,
+      restraint: !!p.restraint,
+      sitter: !!p.sitter,
+      vpo: !!p.vpo,
+      isolation: !!p.isolation,
+      admit: !!p.admit,
+      lateDc: !!p.lateDc,
+
+      chg: !!p.chg,
+      foley: !!p.foley,
+      q2turns: !!p.q2turns,
+      heavy: !!p.heavy,
+      feeder: !!p.feeder
+    };
+  }
+
+  function diffSnapshots(before, after) {
+    const changes = [];
+    if (!before || !after) return changes;
+    Object.keys(after).forEach(k => {
+      if (before[k] !== after[k]) changes.push({ key: k, before: before[k], after: after[k] });
+    });
+    return changes;
+  }
+
   let currentProfilePatientId = null;
 
   function makeDraggable(cardEl, handleEl) {
@@ -64,7 +97,6 @@
   function ensureModalShell() {
     let modal = document.getElementById("patientProfileModal");
     if (!modal) {
-      // If legacy modal element is missing, create it
       modal = document.createElement("div");
       modal.id = "patientProfileModal";
       document.body.appendChild(modal);
@@ -136,6 +168,15 @@
     }
 
     currentProfilePatientId = Number(patientId);
+
+    // ✅ Capture BEFORE snapshot *on open*
+    try {
+      window.__profileBeforeSnapshot = takeAcuitySnapshot(p);
+      window.__profileBeforePatientId = Number(p.id);
+    } catch (_) {
+      window.__profileBeforeSnapshot = null;
+      window.__profileBeforePatientId = null;
+    }
 
     const modal = ensureModalShell();
     const titleEl = modal.querySelector("#profileModalTitle");
@@ -218,6 +259,10 @@
     const modal = document.getElementById("patientProfileModal");
     if (modal) modal.style.display = "none";
     currentProfilePatientId = null;
+
+    // ✅ clear snapshot
+    window.__profileBeforeSnapshot = null;
+    window.__profileBeforePatientId = null;
   }
 
   function savePatientProfile() {
@@ -225,6 +270,12 @@
 
     const p = safeGetPatient(currentProfilePatientId);
     if (!p) return closePatientProfileModal();
+
+    // Capture BEFORE (fallback in case open didn’t)
+    const before =
+      (window.__profileBeforeSnapshot && Number(window.__profileBeforePatientId) === Number(p.id))
+        ? window.__profileBeforeSnapshot
+        : takeAcuitySnapshot(p);
 
     const gSel = document.getElementById("profGender");
     const newGender = gSel ? gSel.value : "";
@@ -271,6 +322,23 @@
 
     p.isEmpty = false;
     p.recentlyDischarged = false;
+
+    // ✅ AFTER snapshot + diff + log (runs AFTER mutations)
+    try {
+      const after = takeAcuitySnapshot(p);
+      const changes = diffSnapshots(before, after);
+
+      if (changes.length && typeof window.appendEvent === "function") {
+        window.appendEvent("ACUITY_CHANGED", {
+          patientId: Number(p.id),
+          bed: String(p.room || p.id || ""),
+          changes,
+          source: "patient_profile"
+        });
+      }
+    } catch (e) {
+      console.warn("[eventLog] profile acuity logging failed", e);
+    }
 
     if (typeof window.saveState === "function") window.saveState();
 

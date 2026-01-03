@@ -7,6 +7,13 @@
 // - Assign modal: empty bed selection + capacity-based RN/PCA filtering
 // - Confirm-time recheck for bed emptiness + staff capacity
 //
+// ✅ EVENT LOG (Jan 2026):
+// - Logs queue + placement events for auditability:
+//   * ADMIT_ADDED_TO_QUEUE
+//   * ADMIT_REMOVED_FROM_QUEUE
+//   * PRE_ADMIT_TAGS_UPDATED
+//   * ADMIT_PLACED (queue -> bed + RN/PCA)
+//
 // Compatibility:
 // - Supports legacy queue item shapes: { preTags, preGender }
 // - Exposes legacy function names: renderQueueList, promptAddAdmit, removeAdmit, renameAdmit
@@ -53,6 +60,30 @@
     if (typeof window.renderAssignmentOutput === "function") window.renderAssignmentOutput();
     if (typeof window.renderPcaAssignmentOutput === "function") window.renderPcaAssignmentOutput();
     renderQueueList();
+  }
+
+  // --------------------------
+  // ✅ Event log helpers
+  // --------------------------
+  function ensureEventLog() {
+    if (!Array.isArray(window.eventLog)) window.eventLog = [];
+  }
+
+  function appendEventCompat(type, payload) {
+    // Prefer canonical appendEvent if present (from your event log module)
+    if (typeof window.appendEvent === "function") {
+      try { window.appendEvent(type, payload); return; } catch (e) { console.warn("appendEvent failed", e); }
+    }
+
+    // Fallback: direct push (keeps app usable even if appendEvent isn't loaded)
+    ensureEventLog();
+    window.eventLog.push({
+      type,
+      ts: Date.now(),
+      unit_id: window.activeUnitId || null,
+      context: "live",
+      payload: payload || {}
+    });
   }
 
   // --------------------------
@@ -241,12 +272,25 @@
     window.admitQueue = safeArray(window.admitQueue);
     window.admitQueue.push(item);
 
+    appendEventCompat("ADMIT_ADDED_TO_QUEUE", {
+      queue_id: item.id,
+      name: item.name
+    });
+
     renderQueueList();
     if (typeof window.saveState === "function") window.saveState();
   }
 
   function removeQueuedAdmit(id) {
+    const item = getQueueItem(id);
+
     window.admitQueue = safeArray(window.admitQueue).filter(x => x && Number(x.id) !== Number(id));
+
+    appendEventCompat("ADMIT_REMOVED_FROM_QUEUE", {
+      queue_id: Number(id),
+      name: item?.name || item?.label || ""
+    });
+
     renderQueueList();
     if (typeof window.saveState === "function") window.saveState();
   }
@@ -370,6 +414,7 @@
       closeQueueAssignModal();
       return;
     }
+    ensurePreAdmitShape(item);
 
     const bed = getPatientByIdCompat(bedPatientId);
     if (!bed || !bed.isEmpty) {
@@ -393,6 +438,10 @@
       return;
     }
 
+    // Capture a few values before we mutate (for audit payload)
+    const admitName = item.name || item.label || "Admit";
+    const preAdmitSnapshot = item.preAdmit ? { ...item.preAdmit } : null;
+
     // Activate bed + mark as admit
     bed.isEmpty = false;
     bed.recentlyDischarged = false;
@@ -410,6 +459,19 @@
 
     // Remove from queue
     window.admitQueue = safeArray(window.admitQueue).filter(x => x && Number(x.id) !== Number(queueId));
+
+    // ✅ Event: admit placed (real audit value)
+    appendEventCompat("ADMIT_PLACED", {
+      queue_id: Number(queueId),
+      name: admitName,
+      bed_patient_id: Number(bed.id),
+      bed_room: bed.room || String(bed.id),
+      rn_id: Number(rn.id),
+      rn_name: rn.name || `RN ${rn.id}`,
+      pca_id: Number(pca.id),
+      pca_name: pca.name || `PCA ${pca.id}`,
+      pre_admit: preAdmitSnapshot
+    });
 
     // Save + refresh
     saveAndRefreshAll();
@@ -502,6 +564,14 @@
     d.feeder = get("adFeeder");
 
     item.preAdmitTagsText = buildPreAdmitTagsText(d);
+
+    // ✅ Event: pre-admit tags updated (useful context for later placement)
+    appendEventCompat("PRE_ADMIT_TAGS_UPDATED", {
+      queue_id: Number(queueId),
+      name: item.name || item.label || "Admit",
+      tags_text: item.preAdmitTagsText || "",
+      pre_admit: { ...d }
+    });
 
     renderQueueList();
     if (typeof window.saveState === "function") window.saveState();
