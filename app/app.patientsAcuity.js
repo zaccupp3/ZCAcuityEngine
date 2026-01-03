@@ -3,16 +3,11 @@
 // Patient grid (Patient Details tab), acuity logic, scoring,
 // high-risk tiles, patient profile modal helpers.
 //
-// CANONICAL SOURCE OF TRUTH:
-//   window.patients is an ARRAY of 32 patient objects with stable:
-//     - id: 1..32
-//     - room: (display label) defaults to "1".."32"
-//   (Owned/initialized by app.state.js via ensureDefaultPatients())
-//
-// MULTI-UNIT ROOM SCHEMA SUPPORT (NEW):
-//   If window.unitSettings.room_schema.beds is present, we map
-//   patient.id (1..32) -> display label (e.g., "200A").
-//   Internal IDs remain stable for assignments/scoring.
+// ✅ UPDATED (Jan 2026 - Staff Attribution v2):
+// - ACUITY_CHANGED events include RN/PCA attribution derived from current assignment
+// - Payload now includes: rnId, pcaId, rnStaffId, pcaStaffId, rnName, pcaName, attribution{...}
+// - Supports "role impact" flags so analytics can count RN vs PCA effects properly
+// - TELE remains a shared single-source-of-truth tag
 // ---------------------------------------------------------
 
 (function () {
@@ -22,15 +17,16 @@
 
   function safeArray(v) { return Array.isArray(v) ? v : []; }
 
+  // Version marker for debugging
+  window.__patientsAcuityLoaded = "v2_staff_attribution_2026-01-02";
+
   function ensurePatientsReady() {
     if (typeof window.ensureDefaultPatients === "function") {
       window.ensureDefaultPatients();
     }
     window.patients = safeArray(window.patients);
 
-    // Hard guarantee: 32 slots, ids 1..32, room strings
     if (window.patients.length !== 32) {
-      // If something went sideways, rebuild via state helper if possible
       if (typeof window.resetAllPatients === "function") {
         window.resetAllPatients();
       } else if (typeof window.ensureDefaultPatients === "function") {
@@ -38,7 +34,6 @@
       }
     }
 
-    // Apply room schema mapping (best-effort, non-destructive)
     applyRoomSchemaToPatients();
   }
 
@@ -48,12 +43,9 @@
     return safeArray(window.patients).find(p => p && Number(p.id) === num) || null;
   }
 
-  // IMPORTANT: Room labels may be non-numeric now (e.g., "200A").
-  // This function stays numeric-oriented for roommate pairing + legacy calls.
   function getPatientByRoom(roomNum) {
     ensurePatientsReady();
     const n = Number(roomNum);
-    // Canonical legacy mapping: room == id (string), but we support either match
     return (
       safeArray(window.patients).find(p => p && Number(p.id) === n) ||
       safeArray(window.patients).find(p => p && Number(String(p.room || "").match(/\d+/)?.[0]) === n) ||
@@ -62,14 +54,112 @@
   }
 
   // =========================
-  // Event logging helpers (NEW)
+  // Assignment lookup (RN/PCA)
   // =========================
- 
-  function append(type, payload) {
+
+  function findAssignedNurse(patientId) {
+    // Prefer canonical helpers if they exist
+    if (typeof window.findAssignedNurse === "function") {
+      try { return window.findAssignedNurse(patientId); } catch {}
+    }
+
+    const pid = Number(patientId);
+    const nurses = safeArray(window.currentNurses);
+    return nurses.find(n => safeArray(n?.patients).includes(pid)) || null;
+  }
+
+  function findAssignedPca(patientId) {
+    if (typeof window.findAssignedPca === "function") {
+      try { return window.findAssignedPca(patientId); } catch {}
+    }
+
+    const pid = Number(patientId);
+    const pcas = safeArray(window.currentPcas);
+    return pcas.find(p => safeArray(p?.patients).includes(pid)) || null;
+  }
+
+  function getAssignmentContextForPatient(patientId) {
+    const rn = findAssignedNurse(patientId);
+    const pca = findAssignedPca(patientId);
+
+    return {
+      rnId: rn ? Number(rn.id) : null,
+      pcaId: pca ? Number(pca.id) : null,
+      rnStaffId: rn ? (rn.staff_id ?? null) : null,
+      pcaStaffId: pca ? (pca.staff_id ?? null) : null,
+      rnName: rn ? (rn.name || "") : "",
+      pcaName: pca ? (pca.name || "") : ""
+    };
+  }
+
+  // Expose helper (useful for console debugging)
+  window.getAssignmentContextForPatient = window.getAssignmentContextForPatient || getAssignmentContextForPatient;
+
+  // =========================
+  // Tag impact mapping (RN vs PCA vs Shared)
+  // =========================
+
+  const RN_ONLY_KEYS = new Set(["drip","nih","bg","ciwa","restraint","sitter","vpo"]);
+  const PCA_ONLY_KEYS = new Set(["chg","foley","q2turns","heavy","feeder"]);
+  const SHARED_KEYS = new Set(["tele","isolation","admit","lateDc"]); // shared meaning: affects both RN/PCA analytics
+
+  // Gender isn't really PCA workload; treat as RN-side attribution by default
+  const RN_META_KEYS = new Set(["gender"]);
+
+  function computeImpactFromChanges(changes) {
+    const list = safeArray(changes);
+    let affectsRn = false;
+    let affectsPca = false;
+
+    list.forEach(c => {
+      const k = String(c?.key || "");
+      if (!k) return;
+
+      if (SHARED_KEYS.has(k)) { affectsRn = true; affectsPca = true; return; }
+      if (RN_ONLY_KEYS.has(k) || RN_META_KEYS.has(k)) affectsRn = true;
+      if (PCA_ONLY_KEYS.has(k)) affectsPca = true;
+    });
+
+    return { affectsRn, affectsPca };
+  }
+
+  // =========================
+  // Event logging helpers (with attribution)
+  // =========================
+
+  function appendWithAttribution(type, payload, meta) {
+    if (typeof window.appendEvent !== "function") return;
+
     try {
-      if (typeof window.appendEvent === "function") {
-        window.appendEvent(type, payload || {});
+      const p = payload && typeof payload === "object" ? { ...payload } : { value: payload };
+
+      // Attach attribution if patientId is present
+      const pid = (p.patientId != null ? Number(p.patientId) : null);
+      if (pid) {
+        const ctx = getAssignmentContextForPatient(pid);
+
+        // Determine which roles this change should count toward
+        const impact = computeImpactFromChanges(p.changes);
+
+        // Always include ids so schema is stable (even if null)
+        p.rnId = ctx.rnId;
+        p.pcaId = ctx.pcaId;
+        p.rnStaffId = ctx.rnStaffId;
+        p.pcaStaffId = ctx.pcaStaffId;
+        p.rnName = ctx.rnName;
+        p.pcaName = ctx.pcaName;
+
+        // Nested object for analytics friendliness
+        p.attribution = {
+          affects: impact,
+          rn: impact.affectsRn ? { id: ctx.rnId, staff_id: ctx.rnStaffId, name: ctx.rnName } : null,
+          pca: impact.affectsPca ? { id: ctx.pcaId, staff_id: ctx.pcaStaffId, name: ctx.pcaName } : null
+        };
       }
+
+      // Always pass meta with version/source so you can debug load order
+      const nextMeta = Object.assign({ v: 2, source: "app.patientsAcuity.js" }, (meta || {}));
+      window.appendEvent(type, p, nextMeta);
     } catch (e) {
       console.warn("[events] appendEvent failed", e);
     }
@@ -79,7 +169,7 @@
     if (!patient) return;
     if (beforeVal === afterVal) return;
 
-    append("ACUITY_CHANGED", {
+    appendWithAttribution("ACUITY_CHANGED", {
       patientId: Number(patient.id),
       bed: String(patient.room || patient.id || ""),
       changes: [{ key, before: beforeVal, after: afterVal }],
@@ -92,7 +182,7 @@
     const list = safeArray(changes).filter(Boolean);
     if (!list.length) return;
 
-    append("ACUITY_CHANGED", {
+    appendWithAttribution("ACUITY_CHANGED", {
       patientId: Number(patient.id),
       bed: String(patient.room || patient.id || ""),
       changes: list,
@@ -104,7 +194,7 @@
     if (!patient) return;
     if (beforeEmpty === afterEmpty) return;
 
-    append("BED_STATE_CHANGED", {
+    appendWithAttribution("BED_STATE_CHANGED", {
       patientId: Number(patient.id),
       bed: String(patient.room || patient.id || ""),
       changes: [{ key: "isEmpty", before: !!beforeEmpty, after: !!afterEmpty }],
@@ -126,8 +216,6 @@
     const beds = getRoomSchemaBeds();
     if (!beds) return;
 
-    // Map first 32 bed labels onto patient ids 1..32.
-    // If fewer than 32 provided, fill remaining with default numeric labels.
     const pArr = safeArray(window.patients).slice().sort((a, b) => Number(a?.id) - Number(b?.id));
 
     for (let i = 0; i < 32; i++) {
@@ -135,12 +223,7 @@
       if (!p) continue;
 
       const label = beds[i] || String(p.id);
-
-      // Keep a stable internal numeric roomIndex for roommate pairing etc.
-      // (Do NOT depend on p.room being numeric anymore.)
       p.roomIndex = Number(p.id);
-
-      // Display label used across UI (Patient Details, High Risk, etc.)
       p.room = label;
     }
 
@@ -149,19 +232,15 @@
 
   function getRoomLabelForPatient(p) {
     if (!p) return "";
-    // Prefer the mapped display label in p.room
     return String(p.room || p.id || "");
   }
 
   function getRoommateId(patientId) {
-    // Roommate pairing should be based on internal bed index (id 1..32), not the display label.
     const id = Number(patientId);
     if (!id || id < 1) return null;
     return (id % 2 === 0) ? (id - 1) : (id + 1);
   }
 
-  // Treat isEmpty as a USER/WORKFLOW state (bed empty vs occupied).
-  // We do NOT auto-flip isEmpty based on blank gender/tags.
   function recomputeIsEmpty(_p) {
     // no-op by design
   }
@@ -173,7 +252,6 @@
     const beforeEmpty = !!p.isEmpty;
 
     if (makeEmpty) {
-      // Clearing patient details when bed becomes empty
       p.gender = "";
       p.tele = false;
       p.drip = false;
@@ -217,11 +295,8 @@
   // Gender safety helper
   // =========================
   function canSetGenderFallback(patient, newGender) {
-    // If app already defines canSetGender, use it
     if (typeof window.canSetGender === "function") return window.canSetGender(patient, newGender);
 
-    // Conservative roommate check:
-    // Pairing is by internal bed index (id 1..32), NOT display labels.
     const roomIndex = Number(patient?.roomIndex || patient?.id || 0);
     if (!roomIndex || !newGender) return true;
 
@@ -238,7 +313,7 @@
   }
 
   // =========================
-  // Patient grid (Patient Details tab)
+  // Patient grid handlers
   // =========================
 
   function changePatientGender(id, value) {
@@ -283,7 +358,11 @@
     }
 
     const before = !!p[key];
+
+    // TELE is intentionally shared single-source-of-truth.
+    // (If any UI toggles Tele, it just sets p.tele)
     p[key] = checked;
+
     recomputeIsEmpty(p);
 
     logAcuityChange(p, String(key), before, !!checked, "patient_details");
@@ -296,14 +375,16 @@
     if (typeof window.renderPcaAssignmentOutput === "function") window.renderPcaAssignmentOutput();
   }
 
-  // Canonical Patient Details table renderer (32 rows, unique)
+  // =========================
+  // Patient Details table renderer
+  // =========================
+
   function renderPatientList() {
     ensurePatientsReady();
 
     const host = document.getElementById("patientList");
     if (!host) return;
 
-    // Build a stable, sorted list by id 1..32
     const rows = safeArray(window.patients)
       .slice()
       .sort((a, b) => Number(a?.id) - Number(b?.id))
@@ -372,7 +453,7 @@
 
                   <td>
                     <div class="tags-wrap">
-                      ${pcaTag(p, "tele", "Tele")} <!-- synced conceptually, stored on p.tele -->
+                      ${pcaTag(p, "tele", "Tele")}
                       ${pcaTag(p, "chg", "CHG")}
                       ${pcaTag(p, "foley", "Foley")}
                       ${pcaTag(p, "q2turns", "Q2")}
@@ -405,7 +486,6 @@
     }
 
     function pcaTag(p, key, label) {
-      // Tele for PCA mirrors p.tele (single source of truth)
       const actualKey = (key === "tele") ? "tele" : key;
       const checked = !!p[actualKey];
       const disabled = p.isEmpty ? "disabled" : "";
@@ -542,7 +622,7 @@
   }
 
   // =========================
-  // Explainability (Drivers)
+  // Explainability + High-risk tiles (unchanged)
   // =========================
 
   function fmtDriversFromCounts(order, counts) {
@@ -625,10 +705,6 @@
     if (p.feeder) tags.push("Feeder");
     return tags.join(", ");
   }
-
-  // =========================
-  // High-risk tiles
-  // =========================
 
   function normalizeRoomLabel(room) {
     return String(room ?? "").replace(/room\s*/i, "").trim();
@@ -714,7 +790,7 @@
   }
 
   // =========================
-  // Patient Profile Modal (upgraded: centered + draggable + vertical tags)
+  // Patient Profile Modal (same UX as your current file)
   // =========================
 
   let currentProfilePatientId = null;
@@ -928,7 +1004,6 @@
       return;
     }
 
-    // Capture "before" snapshot for diff logging
     const before = {
       gender: p.gender || "",
       tele: !!p.tele, drip: !!p.drip, nih: !!p.nih, bg: !!p.bg,
@@ -950,8 +1025,10 @@
       return !!(el && el.checked);
     };
 
-    // RN/shared
+    // Shared/Tele is single-source-of-truth:
     p.tele = getCheck("profTele") || getCheck("profTelePca");
+
+    // RN-only
     p.drip = getCheck("profDrip");
     p.nih = getCheck("profNih");
     p.bg = getCheck("profBg");
@@ -965,13 +1042,14 @@
     p.sitter = getCheck("profSitter");
     p.vpo = getCheck("profVpo");
 
+    // Shared
     p.isolation = getCheck("profIso") || getCheck("profIsoPca");
     p.iso = p.isolation;
 
     p.admit = getCheck("profAdmit") || getCheck("profAdmitPca");
     p.lateDc = getCheck("profLateDc") || getCheck("profLateDcPca");
 
-    // PCA
+    // PCA-only
     p.chg = getCheck("profChg");
     p.foley = getCheck("profFoley");
     p.q2turns = getCheck("profQ2");
@@ -984,7 +1062,6 @@
 
     recomputeIsEmpty(p);
 
-    // Diff + log (single event)
     const after = {
       gender: p.gender || "",
       tele: !!p.tele, drip: !!p.drip, nih: !!p.nih, bg: !!p.bg,
@@ -997,6 +1074,7 @@
     Object.keys(after).forEach(k => {
       if (before[k] !== after[k]) changes.push({ key: k, before: before[k], after: after[k] });
     });
+
     logBulkAcuityChanges(p, changes, "patient_profile");
 
     if (typeof window.saveState === "function") window.saveState();

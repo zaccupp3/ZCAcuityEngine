@@ -29,6 +29,12 @@
   function safeArray(v) { return Array.isArray(v) ? v : []; }
   function byId(id) { return document.getElementById(id); }
 
+  function stableStaffId(owner) {
+    if (!owner) return null;
+    // Prefer stable staff_id if present; fallback to local numeric id
+    return owner.staff_id || owner.staffId || owner.staffID || owner.id || null;
+  }
+
   function getRoomNumberCompat(p) {
     if (typeof window.getRoomNumber === "function") return window.getRoomNumber(p);
     if (!p) return 9999;
@@ -442,6 +448,10 @@
     const admitName = item.name || item.label || "Admit";
     const preAdmitSnapshot = item.preAdmit ? { ...item.preAdmit } : null;
 
+    // ✅ Stable staff attribution (future-proof for analytics)
+    const rnStaffId = stableStaffId(rn);
+    const pcaStaffId = stableStaffId(pca);
+
     // Activate bed + mark as admit
     bed.isEmpty = false;
     bed.recentlyDischarged = false;
@@ -466,10 +476,17 @@
       name: admitName,
       bed_patient_id: Number(bed.id),
       bed_room: bed.room || String(bed.id),
+
+      // local board ids (keep)
       rn_id: Number(rn.id),
       rn_name: rn.name || `RN ${rn.id}`,
       pca_id: Number(pca.id),
       pca_name: pca.name || `PCA ${pca.id}`,
+
+      // ✅ NEW: stable staff ids (prefer staff_id, fallback to numeric id)
+      rn_staff_id: rnStaffId,
+      pca_staff_id: pcaStaffId,
+
       pre_admit: preAdmitSnapshot
     });
 

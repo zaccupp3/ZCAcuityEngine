@@ -3,12 +3,15 @@
 // - centered
 // - draggable
 // - RN/PCA tags vertical + aligned
+// ✅ Adds RN/PCA attribution on ACUITY_CHANGED when saved from the modal
 // This file is meant to load LAST so it overrides any legacy handler.
 
 (function () {
+  function safeArray(v) { return Array.isArray(v) ? v : []; }
+
   function safeGetPatient(id) {
     if (typeof window.getPatientById === "function") return window.getPatientById(id);
-    const arr = Array.isArray(window.patients) ? window.patients : [];
+    const arr = safeArray(window.patients);
     return arr.find(p => Number(p?.id) === Number(id)) || null;
   }
 
@@ -23,8 +26,10 @@
     return true;
   }
 
+  // ----------------------------
+  // Snapshot + diff
+  // ----------------------------
   function takeAcuitySnapshot(p) {
-    // Keep this list aligned with the tags you actually mutate in savePatientProfile()
     return {
       gender: p.gender || "",
       tele: !!p.tele,
@@ -56,6 +61,100 @@
     return changes;
   }
 
+  // ----------------------------
+  // ✅ Attribution builder (uses your canonical helper if present)
+  // ----------------------------
+  function getAssignmentContextCompat(patientId) {
+    // Best: your canonical helper (already exists per your console output)
+    if (typeof window.getAssignmentContextForPatient === "function") {
+      try {
+        const ctx = window.getAssignmentContextForPatient(patientId);
+        if (ctx && typeof ctx === "object") return ctx;
+      } catch (_) {}
+    }
+
+    // Fallback: try the raw finders
+    let rn = null, pca = null;
+    try { if (typeof window.findAssignedNurse === "function") rn = window.findAssignedNurse(patientId); } catch {}
+    try { if (typeof window.findAssignedPca === "function") pca = window.findAssignedPca(patientId); } catch {}
+
+    return {
+      rnId: rn ? rn.id : null,
+      pcaId: pca ? pca.id : null,
+      rnStaffId: rn ? (rn.staff_id ?? null) : null,
+      pcaStaffId: pca ? (pca.staff_id ?? null) : null,
+      rnName: rn ? (rn.name || "") : "",
+      pcaName: pca ? (pca.name || "") : ""
+    };
+  }
+
+  function buildAttributionBlock(patientId) {
+    const ctx = getAssignmentContextCompat(patientId) || {};
+    // normalize / enrich names if missing
+    let rnName = ctx.rnName;
+    let pcaName = ctx.pcaName;
+
+    // If your ctx does not include names, look them up from the live arrays
+    if (!rnName && ctx.rnId != null) {
+      const rn = safeArray(window.currentNurses).find(n => Number(n?.id) === Number(ctx.rnId));
+      rnName = rn?.name || "";
+      if (ctx.rnStaffId == null) ctx.rnStaffId = rn?.staff_id ?? null;
+    }
+    if (!pcaName && ctx.pcaId != null) {
+      const pc = safeArray(window.currentPcas).find(p => Number(p?.id) === Number(ctx.pcaId));
+      pcaName = pc?.name || "";
+      if (ctx.pcaStaffId == null) ctx.pcaStaffId = pc?.staff_id ?? null;
+    }
+
+    // Match your “patient_details” style: top-level fields + nested attribution
+    return {
+      rnId: ctx.rnId ?? null,
+      rnStaffId: ctx.rnStaffId ?? null,
+      rnName: rnName || "",
+      pcaId: ctx.pcaId ?? null,
+      pcaStaffId: ctx.pcaStaffId ?? null,
+      pcaName: pcaName || "",
+      attribution: {
+        affects: { rn: true, pca: true }, // analytics can still decide impact per-tag
+        rn: (ctx.rnId != null) ? { id: ctx.rnId, staff_id: ctx.rnStaffId ?? null, name: rnName || "" } : null,
+        pca: (ctx.pcaId != null) ? { id: ctx.pcaId, staff_id: ctx.pcaStaffId ?? null, name: pcaName || "" } : null
+      }
+    };
+  }
+
+  function appendAcuityChangedWithStaff(patient, changes, source) {
+    if (!patient || !changes || !changes.length) return;
+    if (typeof window.appendEvent !== "function") return;
+
+    const staff = buildAttributionBlock(patient.id);
+
+    try {
+      window.appendEvent("ACUITY_CHANGED", {
+        patientId: Number(patient.id),
+        bed: String(patient.room || patient.id || ""),
+        changes: changes.slice(),
+        source: source || "patient_profile",
+
+        // ✅ staff correlation fields
+        rnId: staff.rnId,
+        rnStaffId: staff.rnStaffId,
+        rnName: staff.rnName,
+
+        pcaId: staff.pcaId,
+        pcaStaffId: staff.pcaStaffId,
+        pcaName: staff.pcaName,
+
+        // ✅ nested block (optional but useful)
+        attribution: staff.attribution
+      }, { v: 2, source: "app.patientProfileUI.js" });
+    } catch (e) {
+      console.warn("[eventLog] ACUITY_CHANGED (profile) failed", e);
+    }
+  }
+
+  // ----------------------------
+  // Modal shell + drag
+  // ----------------------------
   let currentProfilePatientId = null;
 
   function makeDraggable(cardEl, handleEl) {
@@ -169,7 +268,7 @@
 
     currentProfilePatientId = Number(patientId);
 
-    // ✅ Capture BEFORE snapshot *on open*
+    // Capture BEFORE snapshot on open
     try {
       window.__profileBeforeSnapshot = takeAcuitySnapshot(p);
       window.__profileBeforePatientId = Number(p.id);
@@ -260,7 +359,6 @@
     if (modal) modal.style.display = "none";
     currentProfilePatientId = null;
 
-    // ✅ clear snapshot
     window.__profileBeforeSnapshot = null;
     window.__profileBeforePatientId = null;
   }
@@ -271,7 +369,6 @@
     const p = safeGetPatient(currentProfilePatientId);
     if (!p) return closePatientProfileModal();
 
-    // Capture BEFORE (fallback in case open didn’t)
     const before =
       (window.__profileBeforeSnapshot && Number(window.__profileBeforePatientId) === Number(p.id))
         ? window.__profileBeforeSnapshot
@@ -291,8 +388,14 @@
       return !!(el && el.checked);
     };
 
-    // RN/shared
+    // Shared tags (apply to both sides)
     p.tele = getCheck("profTele") || getCheck("profTelePca");
+    p.isolation = getCheck("profIso") || getCheck("profIsoPca");
+    p.iso = p.isolation;
+    p.admit = getCheck("profAdmit") || getCheck("profAdmitPca");
+    p.lateDc = getCheck("profLateDc") || getCheck("profLateDcPca");
+
+    // RN-only tags
     p.drip = getCheck("profDrip");
     p.nih = getCheck("profNih");
     p.bg = getCheck("profBg");
@@ -306,13 +409,7 @@
     p.sitter = getCheck("profSitter");
     p.vpo = getCheck("profVpo");
 
-    p.isolation = getCheck("profIso") || getCheck("profIsoPca");
-    p.iso = p.isolation;
-
-    p.admit = getCheck("profAdmit") || getCheck("profAdmitPca");
-    p.lateDc = getCheck("profLateDc") || getCheck("profLateDcPca");
-
-    // PCA
+    // PCA-only tags
     p.chg = getCheck("profChg");
     p.foley = getCheck("profFoley");
     p.q2turns = getCheck("profQ2");
@@ -323,38 +420,35 @@
     p.isEmpty = false;
     p.recentlyDischarged = false;
 
-    // ✅ AFTER snapshot + diff + log (runs AFTER mutations)
+    // AFTER + diff + log with staff attribution
     try {
       const after = takeAcuitySnapshot(p);
       const changes = diffSnapshots(before, after);
-
-      if (changes.length && typeof window.appendEvent === "function") {
-        window.appendEvent("ACUITY_CHANGED", {
-          patientId: Number(p.id),
-          bed: String(p.room || p.id || ""),
-          changes,
-          source: "patient_profile"
-        });
-      }
+      appendAcuityChangedWithStaff(p, changes, "patient_profile");
     } catch (e) {
       console.warn("[eventLog] profile acuity logging failed", e);
     }
 
     if (typeof window.saveState === "function") window.saveState();
 
-    try { if (typeof window.updateAcuityTiles === "function") window.updateAcuityTiles(); } catch {}
-    try { if (typeof window.renderPatientList === "function") window.renderPatientList(); } catch {}
-    try { if (typeof window.renderLiveAssignments === "function") window.renderLiveAssignments(); } catch {}
-    try { if (typeof window.renderAssignmentOutput === "function") window.renderAssignmentOutput(); } catch {}
-    try { if (typeof window.renderPcaAssignmentOutput === "function") window.renderPcaAssignmentOutput(); } catch {}
+    // Central refresh if available
+    if (typeof window.refreshUI === "function") {
+      try { window.refreshUI(); } catch {}
+    } else {
+      try { if (typeof window.updateAcuityTiles === "function") window.updateAcuityTiles(); } catch {}
+      try { if (typeof window.renderPatientList === "function") window.renderPatientList(); } catch {}
+      try { if (typeof window.renderLiveAssignments === "function") window.renderLiveAssignments(); } catch {}
+      try { if (typeof window.renderAssignmentOutput === "function") window.renderAssignmentOutput(); } catch {}
+      try { if (typeof window.renderPcaAssignmentOutput === "function") window.renderPcaAssignmentOutput(); } catch {}
+    }
 
     closePatientProfileModal();
   }
 
-  // ✅ Override globally (this is the key)
+  // Override globally (key)
   window.openPatientProfileFromRoom = openPatientProfileFromRoom;
   window.closePatientProfileModal = closePatientProfileModal;
   window.savePatientProfile = savePatientProfile;
 
-  console.log("[patientProfileUI] upgraded modal loaded (override active)");
+  console.log("[patientProfileUI] upgraded modal loaded (override active, staff attribution enabled)");
 })();

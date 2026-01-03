@@ -57,6 +57,19 @@ function ensureArray(obj, key) {
   if (!Array.isArray(obj[key])) obj[key] = [];
 }
 
+// Prefer stable staff_id if present; fall back to local numeric id.
+function stableStaffId(owner) {
+  if (!owner) return null;
+  return owner.staff_id || owner.staffId || owner.staffID || owner.id || null;
+}
+
+// Analytics-friendly role label (optional but helpful)
+function eventRoleLabel(role) {
+  if (role === "nurse") return "RN";
+  if (role === "pca") return "PCA";
+  return String(role || "");
+}
+
 // Central refresh (preferred). Falls back to local rerender list if not defined.
 function rerenderAllBoards() {
   if (typeof window.refreshUI === "function") {
@@ -151,19 +164,6 @@ function ownerNameForIncomingRn(rnId) {
 // -----------------------------
 
 function onRowDragStart(event, context, role, ownerId, patientId) {
-  // RN lock enforcement: allow drag start, but we will enforce at drop time.
-  // (If you want to hard-block dragging locked rows entirely, uncomment below.)
-  //
-  // if (context === "incoming" && role === "nurse") {
-  //   const meta = getRnLockMeta(patientId);
-  //   if (meta.enabled && meta.rnId === Number(ownerId)) {
-  //     // locked to this RN -> block drag
-  //     if (event) event.preventDefault();
-  //     alert("This patient is locked to the current RN. Unlock to move.");
-  //     return;
-  //   }
-  // }
-
   dragCtx = { context, role, ownerId, patientId };
   if (event && event.dataTransfer) {
     event.dataTransfer.effectAllowed = "move";
@@ -230,11 +230,18 @@ function onRowDrop(event, context, role, newOwnerId) {
     try {
       window.appendEvent("ASSIGNMENT_MOVED", {
         context: "live",
-        role: role, // 'nurse'|'pca'
+        role: role,                 // 'nurse'|'pca' (keep original)
+        roleLabel: eventRoleLabel(role), // 'RN'|'PCA' (analytics-friendly)
         patient: safePatientSummary(pid),
+
+        // Old fields preserved (backwards compatible)
         fromOwner: { id: fromOwner.id, name: fromOwner.name || "" },
-        toOwner: { id: toOwner.id, name: toOwner.name || "" }
-      }, { v: 1, source: "app.assignmentsDrag.js" });
+        toOwner: { id: toOwner.id, name: toOwner.name || "" },
+
+        // ✅ NEW: staff attribution
+        fromStaffId: stableStaffId(fromOwner),
+        toStaffId: stableStaffId(toOwner)
+      }, { v: 2, source: "app.assignmentsDrag.js" });
     } catch (e) {
       console.warn("[eventLog] ASSIGNMENT_MOVED failed", e);
     }
