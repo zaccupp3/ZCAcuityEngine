@@ -116,7 +116,131 @@ window.addEventListener("DOMContentLoaded", async () => {
       window.canLogEvents(true);
     } catch (_) {}
   }
-  
+
+  // -----------------------------
+  // ✅ NEW (PHASE 1.5): Persist events to Supabase (public.audit_events) + offline outbox
+  // NOTE: This does NOT change the event model. It only publishes events after appendEvent creates them.
+  // -----------------------------
+  (function setupAuditEventPublish() {
+    // Prevent double attachment if init is ever re-run (defensive).
+    if (window.__auditPublishAttached) return;
+    window.__auditPublishAttached = true;
+
+    // Ensure window.sb exists
+    window.sb = window.sb || {};
+
+    function sbClientReady() {
+      return !!(window.sb && window.sb.client);
+    }
+
+    // Outbox key is per-unit so unit timelines don't mix.
+    window.auditOutboxKey = function auditOutboxKey() {
+      return `audit_outbox_${window.activeUnitId || "no_unit"}`;
+    };
+
+    window.enqueueAuditEvent = function enqueueAuditEvent(evt) {
+      try {
+        const key = window.auditOutboxKey();
+        const outbox = JSON.parse(localStorage.getItem(key) || "[]");
+        outbox.push({ evt, queuedAt: new Date().toISOString() });
+        localStorage.setItem(key, JSON.stringify(outbox));
+      } catch (e) {
+        console.warn("[audit] Failed to queue outbox", e);
+      }
+    };
+
+    // Insert one event into public.audit_events (append-only)
+    window.sb.insertAuditEvent = window.sb.insertAuditEvent || async function insertAuditEvent(evt) {
+      if (!sbClientReady()) throw new Error("Supabase client not ready (window.sb.client)");
+
+      // Map your event object -> audit_events row
+      const row = {
+        id: evt.id,                          // uuid (idempotency across retries)
+        unit_id: evt.unitId || null,         // uuid
+        shift_key: evt.shiftKey || null,     // text
+        ts: evt.ts || null,                  // timestamptz
+        actor: evt.actor || "local",         // text
+        event_type: evt.type || "UNKNOWN",   // text
+        payload: evt.payload || {},          // jsonb
+        meta: evt.meta || {}                 // jsonb
+        // actor_user_id is default auth.uid() on insert (per your schema)
+        // created_at is default now()
+      };
+
+      const { error } = await window.sb.client
+        .from("audit_events")
+        .insert(row);
+
+      if (!error) return true;
+
+      // Treat duplicate PK as success (outbox retries)
+      const msg = String(error.message || error);
+      if (msg.toLowerCase().includes("duplicate")) return true;
+
+      throw error;
+    };
+
+    window.flushAuditOutbox = window.flushAuditOutbox || async function flushAuditOutbox({ limit = 50 } = {}) {
+      if (!sbClientReady()) return;
+
+      const key = window.auditOutboxKey();
+      let outbox = [];
+      try { outbox = JSON.parse(localStorage.getItem(key) || "[]"); } catch {}
+
+      if (!Array.isArray(outbox) || outbox.length === 0) return;
+
+      const remaining = [];
+      let sent = 0;
+
+      for (const item of outbox) {
+        if (sent >= limit) { remaining.push(item); continue; }
+        try {
+          if (item && item.evt) await window.sb.insertAuditEvent(item.evt);
+          sent++;
+        } catch (e) {
+          remaining.push(item);
+        }
+      }
+
+      try { localStorage.setItem(key, JSON.stringify(remaining)); } catch {}
+    };
+
+    // Wrap appendEvent (best-effort publish; never block UI)
+    // IMPORTANT: we keep original appendEvent behavior completely intact.
+    const originalAppend = window.appendEvent;
+    if (typeof originalAppend === "function" && !window.__auditAppendWrapped) {
+      window.__auditAppendWrapped = true;
+
+      window.appendEvent = function patchedAppendEvent(type, payload = {}, meta = {}) {
+        const evt = originalAppend(type, payload, meta);
+
+        // Fire-and-forget publish. Never block UI.
+        (async () => {
+          try {
+            if (!evt) return;
+
+            // If we don't have a unit_id yet, we still enqueue; it will flush under "no_unit"
+            // Once activeUnitId is set, future events will enqueue to the unit-specific outbox.
+            if (sbClientReady() && typeof window.sb.insertAuditEvent === "function") {
+              await window.sb.insertAuditEvent(evt);
+            } else {
+              window.enqueueAuditEvent(evt);
+            }
+          } catch (e) {
+            try { window.enqueueAuditEvent(evt); } catch {}
+          }
+        })();
+
+        return evt;
+      };
+    }
+
+    // Flush on network restore
+    window.addEventListener("online", () => {
+      try { window.flushAuditOutbox({ limit: 100 }).catch(() => {}); } catch {}
+    });
+  })();
+
   // -----------------------------
   // Boot loader overlay (step-based %)
   // -----------------------------
@@ -577,6 +701,13 @@ window.addEventListener("DOMContentLoaded", async () => {
     }
   }
 
+  // ✅ NEW: flush any queued audit events after unit selection (so outbox key uses activeUnitId)
+  try {
+    if (sbReady() && typeof window.flushAuditOutbox === "function") {
+      window.flushAuditOutbox({ limit: 200 }).catch(() => {});
+    }
+  } catch {}
+
   // -----------------------------
   // CLOUD LOAD + REALTIME SUBSCRIBE (canonical)
   // -----------------------------
@@ -601,6 +732,13 @@ window.addEventListener("DOMContentLoaded", async () => {
   } else {
     bootStep(70, "Offline/demo mode…");
   }
+
+  // ✅ NEW: flush again after cloud setup (helpful if auth/session wasn’t ready earlier)
+  try {
+    if (sbReady() && typeof window.flushAuditOutbox === "function") {
+      window.flushAuditOutbox({ limit: 200 }).catch(() => {});
+    }
+  } catch {}
 
   // ✅ Now that unitId + pcaShift are settled, append SHIFT_LIVE_STARTED (once per shiftKey)
   appendLiveShiftStartedOnce({ bootSource: __bootSource });
