@@ -38,9 +38,19 @@ window.addEventListener("DOMContentLoaded", async () => {
   window.eventLog = Array.isArray(window.eventLog) ? window.eventLog : [];
 
   function __evtId() {
-    const t = Date.now();
-    const r = Math.random().toString(36).slice(2, 10);
-    return `evt_${t}_${r}`;
+    try {
+      // Best: native UUID (matches audit_events.id uuid type)
+      if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+        return crypto.randomUUID();
+      }
+    } catch {}
+
+    // Fallback: valid UUID v4 string format
+    return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
+      const r = (Math.random() * 16) | 0;
+      const v = c === "x" ? r : (r & 0x3) | 0x8;
+      return v.toString(16);
+    });
   }
 
   function __isoNow() {
