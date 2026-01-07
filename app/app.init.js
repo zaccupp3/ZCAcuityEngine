@@ -143,6 +143,11 @@ window.addEventListener("DOMContentLoaded", async () => {
       return !!(window.sb && window.sb.client);
     }
 
+    function isUuid(v) {
+      return typeof v === "string" &&
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(v);
+    }
+
     // Outbox key is per-unit so unit timelines don't mix.
     window.auditOutboxKey = function auditOutboxKey() {
       return `audit_outbox_${window.activeUnitId || "no_unit"}`;
@@ -163,16 +168,23 @@ window.addEventListener("DOMContentLoaded", async () => {
     window.sb.insertAuditEvent = window.sb.insertAuditEvent || async function insertAuditEvent(evt) {
       if (!sbClientReady()) throw new Error("Supabase client not ready (window.sb.client)");
 
+      // ✅ SELF-HEALING UUID:
+      // If evt.id is missing or not a UUID (old outbox / old code), replace it so inserts never get stuck.
+      const safeId = isUuid(evt?.id) ? evt.id : __evtId();
+      if (evt && evt.id !== safeId) {
+        try { evt.id = safeId; } catch {}
+      }
+
       // Map your event object -> audit_events row
       const row = {
-        id: evt.id,                          // uuid (idempotency across retries)
-        unit_id: evt.unitId || null,         // uuid
-        shift_key: evt.shiftKey || null,     // text
-        ts: evt.ts || null,                  // timestamptz
-        actor: evt.actor || "local",         // text
-        event_type: evt.type || "UNKNOWN",   // text
-        payload: evt.payload || {},          // jsonb
-        meta: evt.meta || {}                 // jsonb
+        id: safeId,                        // uuid (idempotency across retries)
+        unit_id: evt.unitId || null,       // uuid
+        shift_key: evt.shiftKey || null,   // text
+        ts: evt.ts || null,                // timestamptz
+        actor: evt.actor || "local",       // text
+        event_type: evt.type || "UNKNOWN", // text
+        payload: evt.payload || {},        // jsonb
+        meta: evt.meta || {}               // jsonb
         // actor_user_id is default auth.uid() on insert (per your schema)
         // created_at is default now()
       };
@@ -229,8 +241,6 @@ window.addEventListener("DOMContentLoaded", async () => {
           try {
             if (!evt) return;
 
-            // If we don't have a unit_id yet, we still enqueue; it will flush under "no_unit"
-            // Once activeUnitId is set, future events will enqueue to the unit-specific outbox.
             if (sbClientReady() && typeof window.sb.insertAuditEvent === "function") {
               await window.sb.insertAuditEvent(evt);
             } else {
@@ -711,7 +721,7 @@ window.addEventListener("DOMContentLoaded", async () => {
     }
   }
 
-  // ✅ NEW: flush any queued audit events after unit selection (so outbox key uses activeUnitId)
+  // ✅ Flush any queued audit events after unit selection (so outbox key uses activeUnitId)
   try {
     if (sbReady() && typeof window.flushAuditOutbox === "function") {
       window.flushAuditOutbox({ limit: 200 }).catch(() => {});
@@ -743,7 +753,7 @@ window.addEventListener("DOMContentLoaded", async () => {
     bootStep(70, "Offline/demo mode…");
   }
 
-  // ✅ NEW: flush again after cloud setup (helpful if auth/session wasn’t ready earlier)
+  // ✅ Flush again after cloud setup (helpful if auth/session wasn’t ready earlier)
   try {
     if (sbReady() && typeof window.flushAuditOutbox === "function") {
       window.flushAuditOutbox({ limit: 200 }).catch(() => {});
@@ -831,16 +841,10 @@ window.addEventListener("DOMContentLoaded", async () => {
       btn.__cuppClearBound = true;
 
       btn.addEventListener("click", (e) => {
-        // Let the inline handler exist, but ensure we run the canonical function too.
-        // Prevent double-run by stopping inline (we own this now).
         e.preventDefault();
         e.stopPropagation();
         try { window.clearRecentlyDischargedFlags(); } catch (err) { console.warn("clearRecentlyDischargedFlags click failed", err); }
       }, false);
-
-      // Optional: remove inline attribute to avoid confusion
-      // (keeps behavior stable; button still works if attribute is present)
-      // btn.removeAttribute("onclick");
 
       console.log("[init] Bound clearRecentlyDischargedFlags button");
     } catch (e) {

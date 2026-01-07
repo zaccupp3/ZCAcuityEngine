@@ -7,7 +7,7 @@
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
-  
+
   <!-- =====================================================
        FULL-PAGE AUTH GATE (Login first / Demo option)
   ===================================================== -->
@@ -441,6 +441,12 @@
       <div class="actions-row" style="flex-wrap:wrap;">
         <button onclick="window.populateOncomingAssignment && window.populateOncomingAssignment(false)">Populate Oncoming Assignment</button>
 
+        <!-- ✅ NEW: Print Oncoming (one-page handoff) -->
+        <button id="btnPrintOncoming" type="button"
+                onclick="window.printOncoming && window.printOncoming.open()">
+          Print Oncoming (1-page)
+        </button>
+
         <!-- ✅ Scoped rebalances (THIS IS THE FIX) -->
         <button type="button" onclick="window.rebalanceOncomingRnOnly && window.rebalanceOncomingRnOnly()">Rebalance RN (Only)</button>
         <button type="button" onclick="window.rebalanceOncomingPcaOnly && window.rebalanceOncomingPcaOnly()">Rebalance PCA (Only)</button>
@@ -769,11 +775,13 @@
   <script src="app/app.assignmentQuality.js"></script>
   <script src="app/app.staffTypeahead.js"></script>
 
-  <!-- ✅ shift change (logic), pulse, then init LAST -->
   <script src="app/app.shiftChange.js"></script>
   <script src="app/app.unitPulse.js"></script>
 
-  <!-- Keep LAST so it can hook up handlers after DOM exists -->
+  <!-- ✅ PRINT MODULE -->
+  <script src="app/app.printOncoming.js"></script>
+
+  <!-- Keep LAST -->
   <script src="script.js"></script>
 </body>
 </html>

@@ -11,8 +11,10 @@
 //   so other modules never end up with stale references.
 //
 // ✅ This version:
-// - UPSERT shift_snapshots + analytics_shift_metrics to prevent duplicates
-// - UPSERT staff_shift_metrics (batch) using your real column names
+// - UPSERT shift_snapshots + analytics_shift_metrics WITHOUT select() to avoid RLS-returning edge cases
+// - UPSERT staff_shift_metrics (batch) WITHOUT select() to avoid RLS-returning edge cases
+// - Keeps ensureUnitStaff and all other helpers intact
+// - Ensures only ONE definition per helper (no duplicates)
 
 (function () {
   const SUPABASE_URL = window.SUPABASE_URL || "";
@@ -122,64 +124,53 @@
   }
 
   async function sbUpsertUnitSettings(payload) {
-    const { data, error } = await client
+    const { error } = await client
       .from("unit_settings")
-      .upsert(payload, { onConflict: "unit_id" })
-      .select("*")
-      .single();
+      .upsert(payload, { onConflict: "unit_id" });
 
-    return { row: data || null, error };
+    return { ok: !error, error: error || null };
   }
 
   // ------------------------
-  // Shift publishing + analytics (✅ UPSERT to prevent duplicates)
+  // Shift publishing + analytics
   // Unique constraints:
   // - shift_snapshots: (unit_id, shift_date, shift_type)
   // - analytics_shift_metrics: (unit_id, shift_date, shift_type)
   // ------------------------
   async function sbUpsertShiftSnapshot(payload) {
-    const { data, error } = await client
+    const { error } = await client
       .from("shift_snapshots")
-      .upsert(payload, { onConflict: "unit_id,shift_date,shift_type" })
-      .select("*")
-      .single();
+      .upsert(payload, { onConflict: "unit_id,shift_date,shift_type" });
 
-    return { row: data || null, error };
+    return { ok: !error, error: error || null };
   }
 
   async function sbUpsertAnalyticsShiftMetrics(payload) {
-    const { data, error } = await client
+    const { error } = await client
       .from("analytics_shift_metrics")
-      .upsert(payload, { onConflict: "unit_id,shift_date,shift_type" })
-      .select("*")
-      .single();
+      .upsert(payload, { onConflict: "unit_id,shift_date,shift_type" });
 
-    return { row: data || null, error };
+    return { ok: !error, error: error || null };
   }
 
   // ------------------------
-  // ✅ Staff metrics (batch UPSERT)
-  // Unique constraint confirmed:
+  // Staff metrics (batch UPSERT)
+  // Unique constraint:
   // (unit_id, shift_date, shift_type, staff_id, role)
-  // Table columns confirmed:
-  // id, unit_id, shift_date, shift_type, staff_id, staff_name, role,
-  // patients_assigned, workload_score, hard_violations, hard_warnings,
-  // tag_counts(jsonb), details(jsonb), created_by, created_at
   // ------------------------
   async function sbUpsertStaffShiftMetrics(rows) {
     const payload = Array.isArray(rows) ? rows : [];
-    if (!payload.length) return { rows: [], error: null };
+    if (!payload.length) return { ok: true, error: null };
 
-    const { data, error } = await client
+    const { error } = await client
       .from("staff_shift_metrics")
-      .upsert(payload, { onConflict: "unit_id,shift_date,shift_type,staff_id,role" })
-      .select("*");
+      .upsert(payload, { onConflict: "unit_id,shift_date,shift_type,staff_id,role" });
 
-    return { rows: Array.isArray(data) ? data : [], error };
+    return { ok: !error, error: error || null };
   }
 
   // ------------------------
-  // ✅ Unit Staff helpers (for autosuggest + de-dupe)
+  // Unit Staff helpers (autosuggest + de-dupe)
   // ------------------------
   async function sbListUnitStaff(unitId, role, limit = 50) {
     const uid = String(unitId || "");
@@ -363,11 +354,11 @@
     getUnitSettings: sbGetUnitSettings,
     upsertUnitSettings: sbUpsertUnitSettings,
 
-    // ✅ publishing + analytics (UPSERT)
+    // publishing + analytics (UPSERT; no select)
     upsertShiftSnapshot: sbUpsertShiftSnapshot,
     upsertAnalyticsShiftMetrics: sbUpsertAnalyticsShiftMetrics,
 
-    // ✅ staff metrics (UPSERT batch)
+    // staff metrics (UPSERT; no select)
     upsertStaffShiftMetrics: sbUpsertStaffShiftMetrics,
 
     // staff directory
