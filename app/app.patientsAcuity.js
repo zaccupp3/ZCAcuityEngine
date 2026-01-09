@@ -8,6 +8,11 @@
 // - Payload now includes: rnId, pcaId, rnStaffId, pcaStaffId, rnName, pcaName, attribution{...}
 // - Supports "role impact" flags so analytics can count RN vs PCA effects properly
 // - TELE remains a shared single-source-of-truth tag
+//
+// ✅ UPDATED (Jan 2026 - Role-Specific TELE Scoring v1):
+// - TELE has near-zero impact on RN workflow → RN load score ignores TELE
+// - TELE has meaningful PCA impact (q4 vitals / workflow volume) → PCA load includes TELE weight
+// - UI formatting remains unchanged; this is scoring-only
 // ---------------------------------------------------------
 
 (function () {
@@ -18,7 +23,7 @@
   function safeArray(v) { return Array.isArray(v) ? v : []; }
 
   // Version marker for debugging
-  window.__patientsAcuityLoaded = "v2_staff_attribution_2026-01-02";
+  window.__patientsAcuityLoaded = "v2_staff_attribution_2026-01-02__role_tele_scoring_2026-01-08";
 
   function ensurePatientsReady() {
     if (typeof window.ensureDefaultPatients === "function") {
@@ -504,6 +509,12 @@
   // Scoring & load helpers
   // =========================
 
+  // Role-specific weights (centralized so we don't scatter magic numbers)
+  const TELE_WEIGHT_RN = 0;  // Tele has minimal RN workflow impact in your unit practice
+  const TELE_WEIGHT_PCA = 3; // Tele adds recurring workload (e.g., q4 vitals) for PCAs
+
+  // Keep the original patient score available for any other consumers that might rely on it.
+  // Note: This remains a "generic acuity-ish" score.
   function getPatientScore(p) {
     let score = 0;
     if (p.tele) score += 2;
@@ -511,7 +522,7 @@
     if (p.nih) score += 4;
     if (p.bg) score += 2;
     if (p.ciwa) score += 4;
-    if (p.restraint) score += 5;
+    if (p.restraint) score += 6;
     if (p.sitter) score += 5;
     if (p.vpo) score += 4;
     if (p.isolation) score += 3;
@@ -523,6 +534,31 @@
     if (p.q2turns) score += 4;
     if (p.heavy) score += 4;
     if (p.feeder) score += 2;
+    return score;
+  }
+
+  // RN-specific patient score used for RN load scoring (Tele intentionally de-emphasized)
+  function getRnPatientScore(p) {
+    let score = 0;
+
+    // TELE: role-specific
+    if (p.tele) score += TELE_WEIGHT_RN;
+
+    // RN drivers
+    if (p.drip) score += 6;
+    if (p.nih) score += 4;
+    if (p.bg) score += 2;
+    if (p.ciwa) score += 4;
+    if (p.restraint) score += 6;
+    if (p.sitter) score += 5;
+    if (p.vpo) score += 4;
+    if (p.isolation) score += 3;
+    if (p.admit) score += 4;
+    if (p.lateDc) score += 2;
+
+    // NOTE: RN load intentionally does not include PCA-only drivers (chg/foley/q2/heavy/feeder)
+    // (They can exist as tags, but RN workflow score here stays RN-centered.)
+
     return score;
   }
 
@@ -579,7 +615,8 @@
       .map(id => getPatientById(id))
       .filter(p => p && !p.isEmpty);
 
-    const base = pts.reduce((sum, p) => sum + getPatientScore(p), 0);
+    // RN load score uses RN-specific scoring (Tele weight = 0)
+    const base = pts.reduce((sum, p) => sum + getRnPatientScore(p), 0);
     const bonus = computeRnStackingBonus(pts);
     return base + bonus;
   }
@@ -591,6 +628,11 @@
 
     const base = pts.reduce((sum, p) => {
       let score = 0;
+
+      // TELE: role-specific (meaningful for PCA)
+      if (p.tele) score += TELE_WEIGHT_PCA;
+
+      // PCA drivers
       if (p.isolation) score += 3;
       if (p.admit) score += 3;
       if (p.lateDc) score += 2;
@@ -599,6 +641,7 @@
       if (p.q2turns) score += 4;
       if (p.heavy) score += 5;
       if (p.feeder) score += 3;
+
       return sum + score;
     }, 0);
 
@@ -659,11 +702,14 @@
 
   function getPcaDriversSummaryFromPatientIds(patientIds) {
     const ids = safeArray(patientIds);
-    const counts = { Heavy:0, Q2:0, ISO:0, CHG:0, Foley:0, Feeder:0, Admit:0, "Late DC":0 };
+
+    // ✅ Tele added to explainability drivers for PCA since it now impacts PCA load
+    const counts = { Tele:0, Heavy:0, Q2:0, ISO:0, CHG:0, Foley:0, Feeder:0, Admit:0, "Late DC":0 };
 
     ids.forEach(id => {
       const p = getPatientById(id);
       if (!p || p.isEmpty) return;
+      if (p.tele) counts.Tele++;
       if (p.heavy) counts.Heavy++;
       if (p.q2turns) counts.Q2++;
       if (p.isolation) counts.ISO++;
@@ -674,7 +720,7 @@
       if (p.lateDc) counts["Late DC"]++;
     });
 
-    const order = ["Heavy","Q2","ISO","CHG","Foley","Feeder","Admit","Late DC"];
+    const order = ["Tele","Heavy","Q2","ISO","CHG","Foley","Feeder","Admit","Late DC"];
     return fmtDriversFromCounts(order, counts);
   }
 
@@ -695,6 +741,7 @@
 
   function pcaTagString(p) {
     const tags = [];
+    if (p.tele) tags.push("Tele");
     if (p.isolation) tags.push("ISO");
     if (p.admit) tags.push("Admit");
     if (p.lateDc) tags.push("Late DC");

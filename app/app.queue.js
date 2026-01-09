@@ -23,15 +23,26 @@
   let activeQueueAssignId = null;
   let activeDraftQueueId = null;
 
+  // injected modal nodes
+  let __preAdmitModal = null; // { overlay, card }
+
   // --------------------------
   // small helpers
   // --------------------------
   function safeArray(v) { return Array.isArray(v) ? v : []; }
   function byId(id) { return document.getElementById(id); }
 
+  function escapeHtml(str) {
+    return String(str || "")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#039;");
+  }
+
   function stableStaffId(owner) {
     if (!owner) return null;
-    // Prefer stable staff_id if present; fallback to local numeric id
     return owner.staff_id || owner.staffId || owner.staffID || owner.id || null;
   }
 
@@ -66,6 +77,9 @@
     if (typeof window.renderAssignmentOutput === "function") window.renderAssignmentOutput();
     if (typeof window.renderPcaAssignmentOutput === "function") window.renderPcaAssignmentOutput();
     renderQueueList();
+
+    // optional: unit pulse refresh if present
+    try { if (typeof window.refreshUnitPulse === "function") window.refreshUnitPulse(); } catch (_) {}
   }
 
   // --------------------------
@@ -76,12 +90,9 @@
   }
 
   function appendEventCompat(type, payload) {
-    // Prefer canonical appendEvent if present (from your event log module)
     if (typeof window.appendEvent === "function") {
       try { window.appendEvent(type, payload); return; } catch (e) { console.warn("appendEvent failed", e); }
     }
-
-    // Fallback: direct push (keeps app usable even if appendEvent isn't loaded)
     ensureEventLog();
     window.eventLog.push({
       type,
@@ -95,13 +106,11 @@
   // --------------------------
   // Capacity helpers
   // --------------------------
-  function getNurseMaxPatients(nurse) {
-    // You currently treat RN max as 4 in live/queue logic.
-    // If you want nurse "tele vs ms" to matter, we can pivot to nurse.maxPatients.
+  function getNurseMaxPatients() {
     return 4;
   }
 
-  function getPcaMaxPatients(pca) {
+  function getPcaMaxPatients() {
     const shift = (typeof window.pcaShift === "string" ? window.pcaShift : "day");
     return shift === "night" ? 9 : 8;
   }
@@ -132,9 +141,7 @@
   function ensurePreAdmitShape(item) {
     if (!item || typeof item !== "object") return;
 
-    // If already using new shape, keep it.
     if (item.preAdmit && typeof item.preAdmit === "object") {
-      // ensure keys exist
       item.preAdmit = {
         gender: item.preAdmit.gender || "",
         tele: !!item.preAdmit.tele,
@@ -146,7 +153,9 @@
         sitter: !!item.preAdmit.sitter,
         vpo: !!item.preAdmit.vpo,
         isolation: !!item.preAdmit.isolation,
+        admit: !!item.preAdmit.admit, // informational (auto when placed)
         lateDc: !!item.preAdmit.lateDc,
+
         chg: !!item.preAdmit.chg,
         foley: !!item.preAdmit.foley,
         q2turns: !!item.preAdmit.q2turns,
@@ -156,7 +165,6 @@
       return;
     }
 
-    // Legacy -> new shape bridge
     const legacyTags = (item.preTags && typeof item.preTags === "object") ? item.preTags : {};
     const legacyGender = (typeof item.preGender === "string") ? item.preGender : "";
 
@@ -170,12 +178,13 @@
       restraint: !!legacyTags.restraint,
       sitter: !!legacyTags.sitter,
       vpo: !!legacyTags.vpo,
-      isolation: !!legacyTags.iso,   // legacy used "iso"
+      isolation: !!legacyTags.iso,
+      admit: !!legacyTags.admit, // may not exist; ok
       lateDc: !!legacyTags.lateDc,
 
       chg: !!legacyTags.chg,
       foley: !!legacyTags.foley,
-      q2turns: !!legacyTags.q2,      // legacy used "q2"
+      q2turns: !!legacyTags.q2,
       heavy: !!legacyTags.heavy,
       feeder: !!legacyTags.feeder
     };
@@ -187,14 +196,13 @@
     if (draft.gender) out.push(`Gender ${draft.gender}`);
     const map = [
       ["tele","Tele"],["drip","Drip"],["nih","NIH"],["bg","BG"],["ciwa","CIWA/COWS"],
-      ["restraint","Restraint"],["sitter","Sitter"],["vpo","VPO"],["isolation","ISO"],["lateDc","Late DC"],
+      ["restraint","Restraint"],["sitter","Sitter"],["vpo","VPO"],["isolation","ISO"],["admit","Admit"],["lateDc","Late DC"],
       ["chg","CHG"],["foley","Foley"],["q2turns","Q2"],["heavy","Heavy"],["feeder","Feeder"]
     ];
     map.forEach(([k,label]) => { if (draft[k]) out.push(label); });
     return out.join(", ");
   }
 
-  // Copy pre-admit tags into your canonical patient record
   function applyPreAdmitToPatient(targetPatient, queueItem) {
     if (!targetPatient || !queueItem) return;
     ensurePreAdmitShape(queueItem);
@@ -204,13 +212,33 @@
 
     if (typeof d.gender === "string" && d.gender) targetPatient.gender = d.gender;
 
-    const keys = [
-      "tele","drip","nih","bg","ciwa","restraint","sitter","vpo","isolation","lateDc",
-      "chg","foley","q2turns","heavy","feeder"
-    ];
-    keys.forEach(k => {
-      if (typeof d[k] === "boolean") targetPatient[k] = d[k];
-    });
+    // Shared
+    targetPatient.tele = !!d.tele;
+    targetPatient.isolation = !!d.isolation;
+    targetPatient.iso = targetPatient.isolation;
+    // "admit" is set on placement anyway; but if user drafted it, respect it
+    if (typeof d.admit === "boolean") targetPatient.admit = !!d.admit;
+    targetPatient.lateDc = !!d.lateDc;
+
+    // RN-only
+    targetPatient.drip = !!d.drip;
+    targetPatient.nih = !!d.nih;
+    targetPatient.bg = !!d.bg;
+    targetPatient.bgChecks = !!d.bg;
+    targetPatient.ciwa = !!d.ciwa;
+    targetPatient.cows = !!d.ciwa;
+    targetPatient.ciwaCows = !!d.ciwa;
+    targetPatient.restraint = !!d.restraint;
+    targetPatient.sitter = !!d.sitter;
+    targetPatient.vpo = !!d.vpo;
+
+    // PCA-only
+    targetPatient.chg = !!d.chg;
+    targetPatient.foley = !!d.foley;
+    targetPatient.q2turns = !!d.q2turns;
+    targetPatient.q2Turns = !!d.q2turns;
+    targetPatient.heavy = !!d.heavy;
+    targetPatient.feeder = !!d.feeder;
   }
 
   // --------------------------
@@ -236,13 +264,12 @@
           ? item.preAdmitTagsText.trim()
           : buildPreAdmitTagsText(item.preAdmit);
 
-      // Keep it in sync visually
       item.preAdmitTagsText = tagsText;
 
       return `
         <div class="queue-item">
           <div class="queue-item-header">
-            <div class="queue-item-title"><strong>${String(name).replace(/</g,"&lt;")}</strong></div>
+            <div class="queue-item-title"><strong>${escapeHtml(name)}</strong></div>
             <div class="queue-item-actions">
               <button class="queue-btn" onclick="openQueueAssignModal(${item.id})">Assign</button>
               <button class="queue-btn" onclick="editQueuedAdmitName(${item.id})">Edit Name</button>
@@ -250,7 +277,7 @@
               <button class="queue-btn" onclick="removeQueuedAdmit(${item.id})">Remove</button>
             </div>
           </div>
-          ${tagsText ? `<div class="queue-item-tags"><strong>Pre-admit:</strong> ${String(tagsText).replace(/</g,"&lt;")}</div>` : ""}
+          ${tagsText ? `<div class="queue-item-tags"><strong>Pre-admit:</strong> ${escapeHtml(tagsText)}</div>` : ""}
         </div>
       `;
     }).join("");
@@ -268,8 +295,11 @@
       createdAt: Date.now(),
       preAdmit: {
         gender: "",
-        tele: false, drip: false, nih: false, bg: false, ciwa: false,
-        restraint: false, sitter: false, vpo: false, isolation: false, lateDc: false,
+        tele: false,
+        drip: false, nih: false, bg: false, ciwa: false, restraint: false, sitter: false, vpo: false,
+        isolation: false,
+        admit: false,
+        lateDc: false,
         chg: false, foley: false, q2turns: false, heavy: false, feeder: false
       },
       preAdmitTagsText: ""
@@ -313,7 +343,6 @@
     if (typeof window.saveState === "function") window.saveState();
   }
 
-  // Legacy compatibility: some code calls renameAdmit(id, "Name")
   function renameAdmit(id, newName) {
     const item = getQueueItem(id);
     if (!item) return;
@@ -322,7 +351,6 @@
     if (typeof window.saveState === "function") window.saveState();
   }
 
-  // Legacy compatibility: some code calls removeAdmit(id)
   function removeAdmit(id) {
     removeQueuedAdmit(id);
   }
@@ -355,7 +383,6 @@
     const label = item?.name || item?.label || "Admit";
     if (info) info.textContent = `Assign "${label}" to RN / PCA / bed.`;
 
-    // Beds: only truly empty beds
     const empties = safeArray(window.patients)
       .filter(p => p && p.isEmpty)
       .sort((a, b) => getRoomNumberCompat(a) - getRoomNumberCompat(b));
@@ -367,7 +394,6 @@
       bedSel.disabled = !empties.length;
     }
 
-    // RNs: filter by capacity
     const allRns = safeArray(window.currentNurses);
     const availableRns = allRns.filter(n => n && !isRnAtCapacity(n));
 
@@ -376,13 +402,12 @@
         ? availableRns.map(n => {
             const cur = countActiveAssignedPatients(n);
             const max = getNurseMaxPatients(n);
-            return `<option value="${n.id}">${n.name || `RN ${n.id}`} (${cur}/${max})</option>`;
+            return `<option value="${n.id}">${escapeHtml(n.name || `RN ${n.id}`)} (${cur}/${max})</option>`;
           }).join("")
         : `<option value="">(No available RNs)</option>`;
       rnSel.disabled = !availableRns.length;
     }
 
-    // PCAs: filter by capacity
     const allPcas = safeArray(window.currentPcas);
     const availablePcas = allPcas.filter(p => p && !isPcaAtCapacity(p));
 
@@ -391,7 +416,7 @@
         ? availablePcas.map(p => {
             const cur = countActiveAssignedPatients(p);
             const max = getPcaMaxPatients(p);
-            return `<option value="${p.id}">${p.name || `PCA ${p.id}`} (${cur}/${max})</option>`;
+            return `<option value="${p.id}">${escapeHtml(p.name || `PCA ${p.id}`)} (${cur}/${max})</option>`;
           }).join("")
         : `<option value="">(No available PCAs)</option>`;
       pcaSel.disabled = !availablePcas.length;
@@ -432,7 +457,6 @@
     const rn = safeArray(window.currentNurses).find(n => n && Number(n.id) === rnId);
     const pca = safeArray(window.currentPcas).find(p => p && Number(p.id) === pcaId);
 
-    // Re-check capacity at confirm time
     if (!rn || isRnAtCapacity(rn)) {
       alert("That RN is now at capacity. Please pick another RN.");
       hydrateQueueAssignSelects(queueId);
@@ -444,106 +468,246 @@
       return;
     }
 
-    // Capture a few values before we mutate (for audit payload)
     const admitName = item.name || item.label || "Admit";
     const preAdmitSnapshot = item.preAdmit ? { ...item.preAdmit } : null;
 
-    // ✅ Stable staff attribution (future-proof for analytics)
     const rnStaffId = stableStaffId(rn);
     const pcaStaffId = stableStaffId(pca);
 
-    // Activate bed + mark as admit
     bed.isEmpty = false;
     bed.recentlyDischarged = false;
     bed.admit = true;
 
-    // Copy pre-admit tags into patient record
     applyPreAdmitToPatient(bed, item);
 
-    // Assign to RN/PCA arrays
     rn.patients = safeArray(rn.patients);
     if (!rn.patients.includes(bed.id)) rn.patients.push(bed.id);
 
     pca.patients = safeArray(pca.patients);
     if (!pca.patients.includes(bed.id)) pca.patients.push(bed.id);
 
-    // Remove from queue
     window.admitQueue = safeArray(window.admitQueue).filter(x => x && Number(x.id) !== Number(queueId));
 
-    // ✅ Event: admit placed (real audit value)
     appendEventCompat("ADMIT_PLACED", {
       queue_id: Number(queueId),
       name: admitName,
       bed_patient_id: Number(bed.id),
       bed_room: bed.room || String(bed.id),
 
-      // local board ids (keep)
       rn_id: Number(rn.id),
       rn_name: rn.name || `RN ${rn.id}`,
       pca_id: Number(pca.id),
       pca_name: pca.name || `PCA ${pca.id}`,
 
-      // ✅ NEW: stable staff ids (prefer staff_id, fallback to numeric id)
       rn_staff_id: rnStaffId,
       pca_staff_id: pcaStaffId,
 
       pre_admit: preAdmitSnapshot
     });
 
-    // Save + refresh
     saveAndRefreshAll();
     closeQueueAssignModal();
   }
 
   // --------------------------
-  // Pre-admit tags modal
+  // Pre-admit tags modal (match Patient Profile UI)
   // --------------------------
-  function openAdmitDraftModal(queueId) {
-    const modal = byId("admitDraftModal");
-    if (!modal) return alert("admitDraftModal not found in index.html");
-
-    activeDraftQueueId = queueId;
-
-    const item = getQueueItem(queueId);
-    if (!item) return;
-
-    ensurePreAdmitShape(item);
-    const d = item.preAdmit;
-
-    const genderSel = byId("admitDraftGender");
-    if (genderSel) genderSel.value = d.gender || "";
-
-    const set = (id, val) => { const el = byId(id); if (el) el.checked = !!val; };
-
-    // RN pre tags
-    set("adTele", d.tele);
-    set("adDrip", d.drip);
-    set("adNih", d.nih);
-    set("adBg", d.bg);
-    set("adCiwa", d.ciwa);
-    set("adRestraint", d.restraint);
-    set("adSitter", d.sitter);
-    set("adVpo", d.vpo);
-    set("adIso", d.isolation);
-    set("adLateDc", d.lateDc);
-
-    // PCA pre tags
-    set("adChg", d.chg);
-    set("adFoley", d.foley);
-    set("adQ2", d.q2turns);
-    set("adHeavy", d.heavy);
-    set("adFeeder", d.feeder);
-
-    const title = byId("admitDraftTitle");
-    if (title) title.textContent = `Pre-Admit Tags – ${item.name || "Admit"}`;
-
-    modal.style.display = "flex";
+  function destroyPreAdmitModal() {
+    try {
+      if (__preAdmitModal?.overlay?.parentNode) __preAdmitModal.overlay.parentNode.removeChild(__preAdmitModal.overlay);
+    } catch (_) {}
+    __preAdmitModal = null;
   }
 
   function closeAdmitDraftModal() {
-    const modal = byId("admitDraftModal");
-    if (modal) modal.style.display = "none";
+    destroyPreAdmitModal();
     activeDraftQueueId = null;
+  }
+
+  function makeDraggable(cardEl, handleEl) {
+    if (!cardEl || !handleEl || handleEl.__dragWired) return;
+    handleEl.__dragWired = true;
+
+    let dragging = false;
+    let startX = 0, startY = 0;
+    let startLeft = 0, startTop = 0;
+
+    handleEl.addEventListener("mousedown", (e) => {
+      if (e.button !== 0) return;
+      // ignore if clicking buttons
+      const t = e.target;
+      if (t && (t.tagName === "BUTTON" || t.closest?.("button"))) return;
+
+      dragging = true;
+
+      const rect = cardEl.getBoundingClientRect();
+      startX = e.clientX;
+      startY = e.clientY;
+      startLeft = rect.left;
+      startTop = rect.top;
+
+      cardEl.style.transform = "none";
+      cardEl.style.left = startLeft + "px";
+      cardEl.style.top = startTop + "px";
+
+      e.preventDefault();
+    });
+
+    window.addEventListener("mousemove", (e) => {
+      if (!dragging) return;
+      const dx = e.clientX - startX;
+      const dy = e.clientY - startY;
+      cardEl.style.left = (startLeft + dx) + "px";
+      cardEl.style.top = (startTop + dy) + "px";
+    });
+
+    window.addEventListener("mouseup", () => { dragging = false; });
+  }
+
+  function centerCard(card) {
+    if (!card) return;
+    card.style.left = "50%";
+    card.style.top = "50%";
+    card.style.transform = "translate(-50%, -50%)";
+  }
+
+  function tagItem(id, label, checked, disabled) {
+    return `
+      <label class="pp-tag">
+        <input type="checkbox" id="${id}" ${checked ? "checked" : ""} ${disabled ? "disabled" : ""}/>
+        <span>${escapeHtml(label)}</span>
+      </label>
+    `;
+  }
+
+  function openAdmitDraftModal(queueId) {
+    const item = getQueueItem(queueId);
+    if (!item) return;
+
+    activeDraftQueueId = queueId;
+    ensurePreAdmitShape(item);
+    const d = item.preAdmit || {};
+
+    destroyPreAdmitModal();
+
+    const overlay = document.createElement("div");
+    overlay.className = "pp-overlay";
+    overlay.style.display = "flex";
+
+    const card = document.createElement("div");
+    card.className = "pp-card";
+    card.style.position = "fixed";
+    card.style.zIndex = "10001";
+
+    card.innerHTML = `
+      <div class="pp-header" id="__padHeader">
+        <div class="pp-title" id="__padTitle">Pre-Admit Tags</div>
+        <button class="pp-close" type="button" id="__padClose">×</button>
+      </div>
+      <div class="pp-body" id="__padBody"></div>
+    `;
+
+    overlay.appendChild(card);
+    document.body.appendChild(overlay);
+
+    const titleEl = card.querySelector("#__padTitle");
+    if (titleEl) titleEl.textContent = `Pre-Admit Tags — ${item.name || "Admit"}`;
+
+    const bodyEl = card.querySelector("#__padBody");
+    if (bodyEl) {
+      bodyEl.innerHTML = `
+        <div class="pp-row">
+          <div class="pp-label">Gender:</div>
+          <select id="__padGender">
+            <option value="" ${!d.gender ? "selected" : ""}>-</option>
+            <option value="M" ${d.gender === "M" ? "selected" : ""}>M</option>
+            <option value="F" ${d.gender === "F" ? "selected" : ""}>F</option>
+            <option value="X" ${d.gender === "X" ? "selected" : ""}>X</option>
+          </select>
+        </div>
+
+        <div class="pp-grid">
+          <div class="pp-col">
+            <h4>RN Pre-Admit Tags</h4>
+            <div class="pp-taglist">
+              ${tagItem("__padTele", "Tele", !!d.tele)}
+              ${tagItem("__padDrip", "Drip", !!d.drip)}
+              ${tagItem("__padNih", "NIH", !!d.nih)}
+              ${tagItem("__padBg", "BG", !!d.bg)}
+              ${tagItem("__padCiwa", "CIWA/COWS", !!d.ciwa)}
+              ${tagItem("__padRestraint", "Restraint", !!d.restraint)}
+              ${tagItem("__padSitter", "Sitter", !!d.sitter)}
+              ${tagItem("__padVpo", "VPO", !!d.vpo)}
+              ${tagItem("__padIso", "Isolation", !!d.isolation)}
+              ${tagItem("__padAdmit", "Admit", true, true)}
+              ${tagItem("__padLateDc", "Late DC", !!d.lateDc)}
+            </div>
+          </div>
+
+          <div class="pp-col">
+            <h4>PCA Pre-Admit Tags</h4>
+            <div class="pp-taglist">
+              ${tagItem("__padTelePca", "Tele", !!d.tele)}
+              ${tagItem("__padIsoPca", "Isolation", !!d.isolation)}
+              ${tagItem("__padAdmitPca", "Admit", true, true)}
+              ${tagItem("__padLateDcPca", "Late DC", !!d.lateDc)}
+              ${tagItem("__padChg", "CHG", !!d.chg)}
+              ${tagItem("__padFoley", "Foley", !!d.foley)}
+              ${tagItem("__padQ2", "Q2 Turns", !!d.q2turns)}
+              ${tagItem("__padHeavy", "Heavy", !!d.heavy)}
+              ${tagItem("__padFeeder", "Feeder", !!d.feeder)}
+            </div>
+          </div>
+        </div>
+
+        <div class="pp-actions">
+          <button class="btn" type="button" id="__padCancel">Cancel</button>
+          <button class="btn btn-primary" type="button" id="__padSave">Save</button>
+        </div>
+      `;
+    }
+
+    // wire close behaviors
+    const closeBtn = card.querySelector("#__padClose");
+    if (closeBtn) closeBtn.onclick = closeAdmitDraftModal;
+
+    overlay.addEventListener("click", (e) => {
+      if (e.target === overlay) closeAdmitDraftModal();
+    });
+
+    if (!window.__padEscWired) {
+      window.__padEscWired = true;
+      document.addEventListener("keydown", (e) => {
+        if (e.key === "Escape") {
+          if (__preAdmitModal?.overlay) closeAdmitDraftModal();
+        }
+      });
+    }
+
+    // shared tag mirroring (Tele / ISO / Late DC)
+    function wireMirror(aId, bId) {
+      const a = card.querySelector(aId);
+      const b = card.querySelector(bId);
+      if (!a || !b) return;
+      const sync = (src, dst) => { dst.checked = !!src.checked; };
+      a.addEventListener("change", () => sync(a, b));
+      b.addEventListener("change", () => sync(b, a));
+    }
+    wireMirror("#__padTele", "#__padTelePca");
+    wireMirror("#__padIso", "#__padIsoPca");
+    wireMirror("#__padLateDc", "#__padLateDcPca");
+
+    const cancelBtn = card.querySelector("#__padCancel");
+    if (cancelBtn) cancelBtn.onclick = closeAdmitDraftModal;
+
+    const saveBtn = card.querySelector("#__padSave");
+    if (saveBtn) saveBtn.onclick = saveAdmitDraftFromModal;
+
+    // draggable + centered
+    makeDraggable(card, card.querySelector("#__padHeader"));
+    centerCard(card);
+
+    __preAdmitModal = { overlay, card };
   }
 
   function saveAdmitDraftFromModal() {
@@ -556,33 +720,39 @@
     ensurePreAdmitShape(item);
     const d = item.preAdmit;
 
-    const genderSel = byId("admitDraftGender");
-    d.gender = (genderSel && typeof genderSel.value === "string") ? genderSel.value : "";
+    const card = __preAdmitModal?.card || document;
 
-    const get = (id) => !!(byId(id) && byId(id).checked);
+    const gSel = card.querySelector("#__padGender");
+    d.gender = gSel ? (gSel.value || "") : "";
 
-    // RN pre tags
-    d.tele = get("adTele");
-    d.drip = get("adDrip");
-    d.nih = get("adNih");
-    d.bg = get("adBg");
-    d.ciwa = get("adCiwa");
-    d.restraint = get("adRestraint");
-    d.sitter = get("adSitter");
-    d.vpo = get("adVpo");
-    d.isolation = get("adIso");
-    d.lateDc = get("adLateDc");
+    const getCheck = (sel) => !!card.querySelector(sel)?.checked;
 
-    // PCA pre tags
-    d.chg = get("adChg");
-    d.foley = get("adFoley");
-    d.q2turns = get("adQ2");
-    d.heavy = get("adHeavy");
-    d.feeder = get("adFeeder");
+    // Shared (Tele/ISO/LateDC mirrored so either side works)
+    d.tele = getCheck("#__padTele") || getCheck("#__padTelePca");
+    d.isolation = getCheck("#__padIso") || getCheck("#__padIsoPca");
+    d.lateDc = getCheck("#__padLateDc") || getCheck("#__padLateDcPca");
+
+    // RN-only
+    d.drip = getCheck("#__padDrip");
+    d.nih = getCheck("#__padNih");
+    d.bg = getCheck("#__padBg");
+    d.ciwa = getCheck("#__padCiwa");
+    d.restraint = getCheck("#__padRestraint");
+    d.sitter = getCheck("#__padSitter");
+    d.vpo = getCheck("#__padVpo");
+
+    // PCA-only
+    d.chg = getCheck("#__padChg");
+    d.foley = getCheck("#__padFoley");
+    d.q2turns = getCheck("#__padQ2");
+    d.heavy = getCheck("#__padHeavy");
+    d.feeder = getCheck("#__padFeeder");
+
+    // informational (auto on placement)
+    d.admit = false;
 
     item.preAdmitTagsText = buildPreAdmitTagsText(d);
 
-    // ✅ Event: pre-admit tags updated (useful context for later placement)
     appendEventCompat("PRE_ADMIT_TAGS_UPDATED", {
       queue_id: Number(queueId),
       name: item.name || item.label || "Admit",
@@ -597,16 +767,14 @@
   }
 
   // --------------------------
-  // Expose (single source of truth + compatibility)
+  // Expose
   // --------------------------
   window.renderQueueList = renderQueueList;
   window.promptAddAdmit = promptAddAdmit;
 
-  // preferred names
   window.removeQueuedAdmit = removeQueuedAdmit;
   window.editQueuedAdmitName = editQueuedAdmitName;
 
-  // legacy names (do not remove)
   window.removeAdmit = removeAdmit;
   window.renameAdmit = renameAdmit;
 

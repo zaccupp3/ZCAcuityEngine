@@ -7,6 +7,11 @@
 // - Enforce "Locked to RN" continuity on ONCOMING RN drag/drop.
 //   If a patient is locked to an incoming RN, dropping onto a different RN
 //   will prompt to unlock + move, or cancel.
+//
+// UPDATED (Jan 2026 - Event payload tolerance):
+// - ASSIGNMENT_MOVED now includes BOTH camelCase + snake_case staff id fields
+// - Adds patientId at top-level for easier joins/filters
+// - Discharge/Reinstate events include staff id fields for RN/PCA when available
 // ---------------------------------------------------------
 
 let dragCtx = null; // { context: 'live'|'incoming', role: 'nurse'|'pca', ownerId, patientId }
@@ -113,6 +118,15 @@ function safePatientSummary(patientId) {
   } catch {
     return { patientId };
   }
+}
+
+function safeOwnerSummary(owner) {
+  if (!owner) return null;
+  return {
+    id: owner.id ?? null,
+    name: owner.name || "",
+    staffId: stableStaffId(owner)
+  };
 }
 
 // -----------------------------
@@ -228,19 +242,33 @@ function onRowDrop(event, context, role, newOwnerId) {
   // ✅ LIVE-only event log (oncoming intentionally excluded for Phase 1 scope)
   if (context === "live" && canLogEvents()) {
     try {
+      const fromSid = stableStaffId(fromOwner);
+      const toSid = stableStaffId(toOwner);
+
       window.appendEvent("ASSIGNMENT_MOVED", {
         context: "live",
-        role: role,                 // 'nurse'|'pca' (keep original)
-        roleLabel: eventRoleLabel(role), // 'RN'|'PCA' (analytics-friendly)
+
+        // Role labels
+        role: role,                       // 'nurse'|'pca'
+        roleLabel: eventRoleLabel(role),  // 'RN'|'PCA'
+
+        // Patient (keep existing + add top-level patientId for easy joins)
+        patientId: pid,
         patient: safePatientSummary(pid),
 
-        // Old fields preserved (backwards compatible)
+        // Owner summaries (keep backwards compatible)
         fromOwner: { id: fromOwner.id, name: fromOwner.name || "" },
         toOwner: { id: toOwner.id, name: toOwner.name || "" },
 
-        // ✅ NEW: staff attribution
-        fromStaffId: stableStaffId(fromOwner),
-        toStaffId: stableStaffId(toOwner)
+        // ✅ Staff attribution (camelCase + snake_case for schema tolerance)
+        fromStaffId: fromSid,
+        toStaffId: toSid,
+        from_staff_id: fromSid,
+        to_staff_id: toSid,
+
+        // Additional explicit aliases (harmless, but helps mixed readers)
+        fromOwnerStaffId: fromSid,
+        toOwnerStaffId: toSid
       }, { v: 2, source: "app.assignmentsDrag.js" });
     } catch (e) {
       console.warn("[eventLog] ASSIGNMENT_MOVED failed", e);
@@ -333,12 +361,25 @@ function onDischargeDrop(event) {
   // ✅ LIVE-only event log
   if (canLogEvents()) {
     try {
+      const rnSid = stableStaffId(rnOwner);
+      const pcaSid = stableStaffId(pcOwner);
+
       window.appendEvent("PATIENT_DISCHARGED", {
         context: "live",
         dischargeId,
+
+        patientId: patientId,
         patient: patientSummaryBefore,
+
         nurse: rnOwner ? { id: rnOwner.id, name: rnOwner.name || "" } : null,
         pca: pcOwner ? { id: pcOwner.id, name: pcOwner.name || "" } : null,
+
+        // ✅ staff attribution (tolerant aliases)
+        rnStaffId: rnSid,
+        pcaStaffId: pcaSid,
+        rn_staff_id: rnSid,
+        pca_staff_id: pcaSid,
+
         timestamp: Date.now()
       }, { v: 1, source: "app.assignmentsDrag.js" });
     } catch (e) {
@@ -435,12 +476,31 @@ function reinstateDischargedPatient(index) {
   // ✅ LIVE-only event log (this modal is LIVE discharge history)
   if (canLogEvents()) {
     try {
+      // attempt to resolve current owners (post-reinstate)
+      const rnOwner =
+        currentNurses.find((n) => Array.isArray(n.patients) && n.patients.includes(entry.patientId)) || null;
+      const pcOwner =
+        currentPcas.find((p) => Array.isArray(p.patients) && p.patients.includes(entry.patientId)) || null;
+
+      const rnSid = stableStaffId(rnOwner) || (entry.nurseId ?? null);
+      const pcaSid = stableStaffId(pcOwner) || (entry.pcaId ?? null);
+
       window.appendEvent("PATIENT_REINSTATED", {
         context: "live",
         dischargeId: entry.id ?? null,
+
+        patientId: entry.patientId,
         patient: safePatientSummary(entry.patientId),
+
         nurseId: entry.nurseId ?? null,
         pcaId: entry.pcaId ?? null,
+
+        // ✅ staff attribution (tolerant aliases)
+        rnStaffId: rnSid,
+        pcaStaffId: pcaSid,
+        rn_staff_id: rnSid,
+        pca_staff_id: pcaSid,
+
         timestamp: Date.now()
       }, { v: 1, source: "app.assignmentsDrag.js" });
     } catch (e) {

@@ -27,7 +27,18 @@
 // ✅ NEW (UI RELIABILITY):
 // - Bind "Clear recently discharged" button click in JS (no reliance on inline onclick)
 //
-// NOTE: eventLog is local-only for now (NOT included in cloud unit_state snapshot).
+// ✅ NEW (Jan 2026 - Unit Pulse / UI sync):
+// - Emit a CustomEvent whenever appendEvent creates an event:
+//   window.dispatchEvent(new CustomEvent("cupp:audit_event", { detail: evt }))
+//   This lets Unit Pulse auto-refresh immediately without polling.
+//
+// ✅ COMPAT (Jan 2026 hotfix):
+// - Maintain BOTH names for the local audit array:
+//     window.eventLog  (newer)
+//     window.auditEvents (older)
+//   Some modules still read auditEvents; without this, console checks + Unit Pulse may show undefined.
+//
+// NOTE: eventLog/auditEvents are local-only for now (NOT included in cloud unit_state snapshot).
 
 window.addEventListener("DOMContentLoaded", async () => {
   console.log("APP INIT: Starting initialization…");
@@ -35,7 +46,45 @@ window.addEventListener("DOMContentLoaded", async () => {
   // -----------------------------
   // ✅ Event Log (LIVE only) bootstrap (helper + session key)
   // -----------------------------
-  window.eventLog = Array.isArray(window.eventLog) ? window.eventLog : [];
+  // Ensure local audit array exists under BOTH names (back-compat).
+  // IMPORTANT: keep them pointing to the SAME array instance.
+  const __seedArray = (arr) => (Array.isArray(arr) ? arr : []);
+  const __initial = __seedArray(window.eventLog || window.auditEvents);
+
+  window.eventLog = __initial;
+  window.auditEvents = window.eventLog; // alias (same reference)
+
+  // Helper to repair alias if any other file overwrites one of these
+  function __syncAuditArrays() {
+    // If one was replaced, prefer the one that is actually an array and has more items.
+    const a = Array.isArray(window.auditEvents) ? window.auditEvents : null;
+    const e = Array.isArray(window.eventLog) ? window.eventLog : null;
+
+    if (a && e && a !== e) {
+      // Choose longer as source of truth
+      const src = (a.length >= e.length) ? a : e;
+      window.eventLog = src;
+      window.auditEvents = src;
+      return;
+    }
+
+    if (a && !e) {
+      window.eventLog = a;
+      window.auditEvents = a;
+      return;
+    }
+
+    if (e && !a) {
+      window.eventLog = e;
+      window.auditEvents = e;
+      return;
+    }
+
+    if (!a && !e) {
+      window.eventLog = [];
+      window.auditEvents = window.eventLog;
+    }
+  }
 
   function __evtId() {
     try {
@@ -63,10 +112,21 @@ window.addEventListener("DOMContentLoaded", async () => {
     return `live_${t}_${r}`;
   }
 
+  // ✅ Small event-bus helper so other modules can instantly react to new audit events.
+  window.__emitAuditEvent = window.__emitAuditEvent || function __emitAuditEvent(evt) {
+    try {
+      // Primary: specific event stream for analytics/unit pulse
+      window.dispatchEvent(new CustomEvent("cupp:audit_event", { detail: evt }));
+
+      // Optional: generic "something changed" hook
+      window.dispatchEvent(new CustomEvent("cupp:state_dirty", { detail: { ts: Date.now() } }));
+    } catch (_) {}
+  };
+
   // Canonical append-only helper (other files will call this)
   window.appendEvent = window.appendEvent || function appendEvent(type, payload = {}, meta = {}) {
     try {
-      window.eventLog = Array.isArray(window.eventLog) ? window.eventLog : [];
+      __syncAuditArrays();
 
       const evt = {
         id: __evtId(),
@@ -79,7 +139,14 @@ window.addEventListener("DOMContentLoaded", async () => {
         meta: meta && typeof meta === "object" ? meta : {}
       };
 
+      // Push to the shared array reference
       window.eventLog.push(evt);
+
+      // Re-assert alias (defensive)
+      window.auditEvents = window.eventLog;
+
+      // ✅ Notify listeners immediately (Unit Pulse, analytics, etc.)
+      try { if (typeof window.__emitAuditEvent === "function") window.__emitAuditEvent(evt); } catch {}
 
       // Persist using existing pattern (debounced)
       try { if (typeof window.markDirty === "function") window.markDirty(); } catch {}
@@ -99,7 +166,7 @@ window.addEventListener("DOMContentLoaded", async () => {
   // Append SHIFT_LIVE_STARTED once, but ONLY when unitId/pcaShift are settled (called later)
   function appendLiveShiftStartedOnce(context = {}) {
     try {
-      window.eventLog = Array.isArray(window.eventLog) ? window.eventLog : [];
+      __syncAuditArrays();
 
       // Dedupe per shiftKey
       const already = window.eventLog.some(e =>
@@ -335,6 +402,9 @@ window.addEventListener("DOMContentLoaded", async () => {
     try { if (typeof window.renderQueueList === "function") window.renderQueueList(); } catch {}
     try { if (typeof window.updateDischargeCount === "function") window.updateDischargeCount(); } catch {}
   }
+
+  // ✅ Give other modules a single “refresh everything” entrypoint.
+  window.refreshUI = window.refreshUI || refreshAllUI;
 
   // -----------------------------
   // ✅ Sync status pill UI

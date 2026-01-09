@@ -1,9 +1,9 @@
-<!-- CHECKPOINT: Dec 4, 2025 - Work Saved -->
+<!-- CHECKPOINT: Jan 7, 2026 - Work Saved -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>Cupp Health Solutions – Assignment Engine</title>
+  <title> Zac Cupp - Acuity Engine </title>
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
@@ -94,7 +94,7 @@
       <div class="brand">
         <span class="brand-dot" aria-hidden="true"></span>
         <span class="brand-text">
-          <span class="brand-title">Cupp Health Solutions: Assignment Engine</span>
+          <span class="brand-title">Acuity Engine & Workforce Optimizer</span>
           <span class="brand-subtitle">Created by Zachary Cupp, BSN, RN</span>
         </span>
       </div>
@@ -104,7 +104,7 @@
       Assignment Quality Index
     </button>
 
-    <!-- Middle: Tabs (UPDATED ORDER) -->
+    <!-- Middle: Tabs -->
     <nav class="header-nav top-tabs" aria-label="Primary">
       <button class="tabButton header-tab" data-target="environmentTab">Environment</button>
       <button class="tabButton active header-tab" data-target="staffingTab">Staffing Details</button>
@@ -112,7 +112,10 @@
       <button class="tabButton header-tab" data-target="highRiskTab">High Risk Report</button>
       <button class="tabButton header-tab" data-target="liveAssignmentTab">LIVE Assignment</button>
       <button class="tabButton header-tab" data-target="oncomingAssignmentTab">Oncoming Assignment</button>
+
+      <!-- ✅ BOTH tabs exist now -->
       <button class="tabButton header-tab" data-target="unitPulseTab">Unit Pulse</button>
+      <button class="tabButton header-tab" data-target="unitMetricsTab">Unit Metrics</button>
     </nav>
 
     <!-- Right: Unit Switch + Compact Auth Menu -->
@@ -498,11 +501,22 @@
       <div id="pcaAssignmentOutput" class="assignment-grid two-column-grid"></div>
     </section>
 
-    <!-- UNIT PULSE TAB -->
+    <!-- ✅ UNIT PULSE TAB (NEW / CURRENT SHIFT) -->
     <section id="unitPulseTab" class="tab-section" style="display: none;">
       <h1>Unit Pulse</h1>
       <p>
-        Pulls unit-scoped shift metrics from Supabase and displays trends.
+        Live, shift-specific workload pulse (time-windowed). Staff list is driven by current RN/PCA assignments.
+      </p>
+
+      <!-- The new JS renders into this root -->
+      <div id="unitPulseRoot"></div>
+    </section>
+
+    <!-- ✅ UNIT METRICS TAB (HISTORIC / CHART-FIRST) -->
+    <section id="unitMetricsTab" class="tab-section" style="display: none;">
+      <h1>Unit Metrics</h1>
+      <p>
+        Pulls unit-scoped shift metrics from Supabase and displays trends (historic).
       </p>
 
       <div class="staff-card">
@@ -522,14 +536,14 @@
             <option value="night">Night</option>
           </select>
 
-          <button id="btnLoadPulse" type="button">Load Pulse</button>
+          <button id="btnLoadPulse" type="button">Load Metrics</button>
         </div>
 
         <div id="pulseStatusMsg" style="margin-top:10px; font-size:12px; opacity:0.85;"></div>
       </div>
 
       <div class="staff-card">
-        <div class="staff-card-header">Pulse Summary</div>
+        <div class="staff-card-header">Metrics Summary</div>
         <div id="pulseSummary" style="font-size:14px; color:#475569; line-height:1.4;">
           No data loaded yet.
         </div>
@@ -732,11 +746,6 @@
 
   <!-- =====================================================
        ✅ SCRIPT ORDER FIX
-       - Supabase CDN FIRST
-       - then config/wrapper/auth UI
-       - then app modules
-       - then init
-       - script.js LAST
   ===================================================== -->
 
   <!-- ✅ Supabase library FIRST -->
@@ -776,6 +785,11 @@
   <script src="app/app.staffTypeahead.js"></script>
 
   <script src="app/app.shiftChange.js"></script>
+
+  <!-- ✅ Unit Metrics (historic) -->
+  <script src="app/app.unitMetrics.js"></script>
+
+  <!-- ✅ Unit Pulse (current shift) -->
   <script src="app/app.unitPulse.js"></script>
 
   <!-- ✅ PRINT MODULE -->
