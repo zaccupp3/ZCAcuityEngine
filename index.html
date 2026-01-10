@@ -309,6 +309,7 @@
               <select id="currentNurseCount">
                 <option>1</option><option>2</option><option>3</option><option>4</option>
                 <option>5</option><option>6</option><option>7</option><option>8</option>
+                <option>9</option><option>10</option>
               </select>
               <button onclick="setupCurrentNurses()">Update Current RNs</button>
             </div>
@@ -328,7 +329,7 @@
               <span>Current PCAs:</span>
               <select id="currentPcaCount">
                 <option>1</option><option>2</option><option>3</option>
-                <option>4</option><option>5</option><option>6</option>
+                <option>4</option><option>5</option><option>6</option><option>7</option>
               </select>
               <button onclick="setupCurrentPcas()">Update Current PCAs</button>
             </div>
@@ -348,6 +349,7 @@
               <select id="incomingNurseCount">
                 <option>1</option><option>2</option><option>3</option><option>4</option>
                 <option>5</option><option>6</option><option>7</option><option>8</option>
+                 <option>9</option><option>10</option>
               </select>
               <button onclick="setupIncomingNurses()">Update Oncoming RNs</button>
             </div>
@@ -361,7 +363,7 @@
               <label for="incomingPcaCount">Oncoming PCAs:</label>
               <select id="incomingPcaCount">
                 <option>1</option><option>2</option><option>3</option>
-                <option>4</option><option>5</option><option>6</option>
+                <option>4</option><option>5</option><option>6</option><option>7</option>
               </select>
               <button onclick="setupIncomingPcas()">Update Oncoming PCAs</button>
             </div>
@@ -410,6 +412,11 @@
 
       <div class="actions-row">
         <button onclick="window.populateLiveAssignment(false)">Populate Live Assignment</button>
+
+        <!-- ✅ NEW: Import paper assignment via phone photo -->
+        <button type="button" onclick="window.openImportAssignmentScan && window.openImportAssignmentScan()">
+          Import Assignment to LIVE (Photo)
+        </button>
       </div>
 
       <div class="live-layout live-layout--rn-with-queue">
@@ -792,10 +799,43 @@
   <!-- ✅ Unit Pulse (current shift) -->
   <script src="app/app.unitPulse.js"></script>
 
-  <!-- ✅ PRINT MODULE -->
-  <script src="app/app.printOncoming.js"></script>
+    <!-- ✅ PRINT MODULE -->
+    <script src="app/app.printOncoming.js"></script>
+
+    <!-- OCR -->
+    <script src="https://unpkg.com/tesseract.js@5/dist/tesseract.min.js"></script>
+
+  <!-- =====================================================
+       PDF.js (LOCAL, ES MODULE BUILD)
+  ===================================================== -->
+
+  <script type="module">
+    import * as pdfjsLib from "./vendor/pdfjs/pdf.min.mjs";
+
+    // Expose globally so existing code continues to work
+    window.pdfjsLib = pdfjsLib;
+
+    // REQUIRED: worker path
+    pdfjsLib.GlobalWorkerOptions.workerSrc =
+      "./vendor/pdfjs/pdf.worker.min.mjs";
+
+    console.log("[PDF] pdfjsLib loaded (local ES module)", pdfjsLib.version);
+  </script>
+
+  <!-- PDF helper (depends on window.pdfjsLib) -->
+  <script src="app/app.scanPdf.js?v=9"></script>
+
+  <!-- CSV import (structured) -->
+  <script src="app/app.csvNormalizer.js?v=2"></script>
+  <script src="app/app.importCsv.js?v=2"></script>
+
+  <!-- Scan pipeline -->
+  <script src="app/app.scanOcr.js?v=99"></script>
+  <script src="app/app.scanParserTemplateV2.js?v=102"></script>
+  <script src="app/app.scanReviewApply.js?v=104"></script>
+  <script src="app/app.importScan.js?v=100"></script>
 
   <!-- Keep LAST -->
   <script src="script.js"></script>
-</body>
-</html>
+  </body>
+  </html>

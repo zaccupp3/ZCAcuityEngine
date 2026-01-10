@@ -1,0 +1,258 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Import Assignment — Upload Photo</title>
+  <style>
+    :root {
+      --bg: #0b0b0c;
+      --card: #141416;
+      --muted: rgba(255,255,255,.68);
+      --text: rgba(255,255,255,.92);
+      --line: rgba(255,255,255,.10);
+      --btn: #22c55e;
+      --btnText: #06130b;
+      --btn2: rgba(255,255,255,.10);
+      --btn2Text: rgba(255,255,255,.9);
+    }
+    body {
+      margin: 0;
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      background: radial-gradient(1200px 600px at 20% 0%, #1b1b20 0%, #0b0b0c 60%);
+      color: var(--text);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 18px;
+    }
+    .wrap { width: min(560px, 96vw); }
+    .card {
+      background: rgba(20,20,22,.92);
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      padding: 16px;
+      box-shadow: 0 16px 60px rgba(0,0,0,.45);
+      backdrop-filter: blur(10px);
+    }
+    .title { font-weight: 800; font-size: 18px; margin-bottom: 4px; }
+    .sub { color: var(--muted); font-size: 13px; line-height: 1.35; margin-bottom: 14px; }
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 12px;
+      border-radius: 14px;
+      border: 1px solid var(--line);
+      background: rgba(255,255,255,.04);
+      font-size: 12px;
+      color: var(--muted);
+      width: fit-content;
+      margin-bottom: 10px;
+    }
+    .row { display:flex; gap:10px; flex-wrap:wrap; align-items:center; margin-top:10px; }
+    .btn {
+      border: 0;
+      background: var(--btn);
+      color: var(--btnText);
+      padding: 12px 14px;
+      border-radius: 14px;
+      font-weight: 800;
+      cursor: pointer;
+      flex: 1;
+      min-width: 160px;
+    }
+    .btn.secondary {
+      background: var(--btn2);
+      color: var(--btn2Text);
+      border: 1px solid var(--line);
+      font-weight: 700;
+    }
+    input[type="file"] {
+      width: 100%;
+      padding: 12px;
+      border-radius: 14px;
+      border: 1px dashed rgba(255,255,255,.22);
+      background: rgba(0,0,0,.2);
+      color: var(--muted);
+      margin-top: 6px;
+    }
+    .status { margin-top: 10px; font-size: 13px; color: var(--muted); min-height: 18px; }
+    .ok { color: rgba(34,197,94,.92); }
+    .bad { color: rgba(244,63,94,.92); }
+    .hint {
+      margin-top: 12px;
+      padding: 10px 12px;
+      border-radius: 14px;
+      border: 1px solid var(--line);
+      background: rgba(255,255,255,.03);
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.35;
+    }
+    code { color: rgba(255,255,255,.86); }
+
+    .preview {
+      margin-top: 10px;
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      overflow: hidden;
+      display: none;
+      background: rgba(255,255,255,.03);
+    }
+    .preview img {
+      width: 100%;
+      display: block;
+    }
+  </style>
+
+  <!-- Use the same UMD supabase build as index.html -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+
+  <!-- Load your config so SUPABASE_URL / SUPABASE_ANON_KEY are available -->
+  <script src="app/app.supabaseConfig.js"></script>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card">
+      <div class="title">Import Assignment — Upload Photo</div>
+      <div class="sub">
+        Take a photo of your printed assignment sheet and submit it.
+        The desktop app will receive it instantly and let you review before applying to LIVE.
+      </div>
+
+      <div class="pill" id="pillSession">Session: <code>(loading…)</code></div>
+      <div class="pill" id="pillToken">Token: <code>(loading…)</code></div>
+
+      <input id="fileInput" type="file" accept="image/*" capture="environment" />
+
+      <div class="preview" id="previewWrap">
+        <img id="previewImg" alt="Preview">
+      </div>
+
+      <div class="row">
+        <button class="btn" id="btnUpload">Submit Upload</button>
+        <button class="btn secondary" id="btnOpenApp">Open Desktop App</button>
+      </div>
+
+      <div class="status" id="status"></div>
+
+      <div class="hint">
+        Tips for best results:
+        <ul style="margin: 8px 0 0 18px; padding: 0;">
+          <li>Lay the paper flat</li>
+          <li>Bright lighting (avoid shadows)</li>
+          <li>Get the whole page in frame</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    (function () {
+      const qs = new URLSearchParams(location.search);
+      const sessionId = qs.get("session");
+      const token = qs.get("token") || qs.get("upload_token") || qs.get("t");
+
+      const $ = (id) => document.getElementById(id);
+
+      const setStatus = (msg, cls) => {
+        const el = $("status");
+        el.className = "status" + (cls ? " " + cls : "");
+        el.textContent = msg || "";
+      };
+
+      $("pillSession").innerHTML = `Session: <code>${sessionId || "(missing)"}</code>`;
+      $("pillToken").innerHTML = `Token: <code>${token ? token.slice(0, 6) + "…" : "(missing)"}</code>`;
+
+      $("btnOpenApp").addEventListener("click", () => location.href = "index.html");
+
+      if (!sessionId || !token) {
+        setStatus("Missing session/token. Please rescan the QR code from the desktop app.", "bad");
+        $("btnUpload").disabled = true;
+        return;
+      }
+
+      // Create anon Supabase client (no login required for this flow)
+      const url =
+        window.SUPABASE_URL || window.supabaseUrl || window.supabase_url || window.__supabaseUrl;
+
+      const key =
+        window.SUPABASE_ANON_KEY || window.supabaseAnonKey || window.supabase_anon_key || window.__supabaseAnonKey;
+
+      if (!url || !key || !window.supabase?.createClient) {
+        setStatus("Supabase config missing on this page. Check app/app.supabaseConfig.js", "bad");
+        $("btnUpload").disabled = true;
+        return;
+      }
+
+      const sb = window.supabase.createClient(url, key);
+
+      // Preview image
+      $("fileInput").addEventListener("change", () => {
+        const file = $("fileInput").files?.[0];
+        const wrap = $("previewWrap");
+        const img = $("previewImg");
+        if (!file) {
+          wrap.style.display = "none";
+          img.src = "";
+          return;
+        }
+        const url = URL.createObjectURL(file);
+        img.src = url;
+        wrap.style.display = "block";
+      });
+
+      let isUploading = false;
+
+      async function upload() {
+        if (isUploading) return;
+        setStatus("");
+
+        const file = $("fileInput").files?.[0];
+        if (!file) {
+          setStatus("Please take/select a photo first.", "bad");
+          return;
+        }
+
+        try {
+          isUploading = true;
+          $("btnUpload").disabled = true;
+
+          setStatus("Uploading photo…");
+
+          const ext = (file.name.split(".").pop() || "jpg").toLowerCase();
+          const imagePath = `${sessionId}__${token}.${ext}`; // IMPORTANT: token baked into filename
+
+          const up = await sb.storage.from("scan_uploads").upload(imagePath, file, { upsert: true });
+          if (up.error) throw up.error;
+
+          setStatus("Finalizing…");
+
+          const upd = await sb
+            .from("scan_sessions")
+            .update({
+              status: "uploaded",
+              image_path: imagePath,
+              updated_at: new Date().toISOString()
+            })
+            .eq("id", sessionId);
+
+          if (upd.error) throw upd.error;
+
+          setStatus("Uploaded successfully. Return to the desktop app.", "ok");
+        } catch (e) {
+          console.error(e);
+          setStatus("Upload failed: " + (e?.message || e), "bad");
+        } finally {
+          isUploading = false;
+          $("btnUpload").disabled = false;
+        }
+      }
+
+      $("btnUpload").addEventListener("click", upload);
+    })();
+  </script>
+</body>
+</html>

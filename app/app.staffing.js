@@ -47,7 +47,10 @@
     const sel = document.getElementById("currentNurseCount");
     let count = parseInt(sel && sel.value, 10);
     if (isNaN(count) || count < 1) count = 1;
-    if (count > 8) count = 8;
+
+    // ✅ UPDATED: max RNs 8 -> 10
+    if (count > 10) count = 10;
+
     if (sel) sel.value = count;
 
     const old = Array.isArray(currentNurses) ? currentNurses : [];
@@ -83,7 +86,10 @@
     const sel = document.getElementById("incomingNurseCount");
     let count = parseInt(sel && sel.value, 10);
     if (isNaN(count) || count < 1) count = 1;
-    if (count > 8) count = 8;
+
+    // ✅ UPDATED: max RNs 8 -> 10
+    if (count > 10) count = 10;
+
     if (sel) sel.value = count;
 
     const old = Array.isArray(incomingNurses) ? incomingNurses : [];
@@ -303,7 +309,10 @@
     const sel = document.getElementById("currentPcaCount");
     let count = parseInt(sel && sel.value, 10);
     if (isNaN(count) || count < 1) count = 1;
-    if (count > 6) count = 6;
+
+    // ✅ UPDATED: max PCAs 6 -> 7
+    if (count > 7) count = 7;
+
     if (sel) sel.value = count;
 
     const old = Array.isArray(currentPcas) ? currentPcas : [];
@@ -334,7 +343,10 @@
     const sel = document.getElementById("incomingPcaCount");
     let count = parseInt(sel && sel.value, 10);
     if (isNaN(count) || count < 1) count = 1;
-    if (count > 6) count = 6;
+
+    // ✅ UPDATED: max PCAs 6 -> 7
+    if (count > 7) count = 7;
+
     if (sel) sel.value = count;
 
     const old = Array.isArray(incomingPcas) ? incomingPcas : [];
