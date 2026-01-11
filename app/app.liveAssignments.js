@@ -5,17 +5,9 @@
 // Adds:
 // - ! rule flag icon (yellow warning vs red violation) based on hard-rule checks
 //   Hover shows EXACT rule(s) that are stacked + counts.
-// - ✅ Empty-owner drop zones (RN + PCA):
-//   If an owner has 0 patients, show a visible "Drop here" zone
-//   so the owner can receive patients again.
+// - ✅ Empty-owner drop zones (RN + PCA)
 // - ✅ Discharge Bin restored (slot 9 fallback injection)
-//
-// Depends on:
-// - window.evaluateAssignmentHardRules (app.assignmentRules.js)
-// - Drag handlers in app/app.assignmentsDrag.js:
-//   onRowDragStart / onRowDragEnd / onRowDragOver / onRowDrop
-// - Discharge handlers (wherever you defined them):
-//   onDischargeDragOver / onDischargeDrop / clearRecentlyDischargedFlags / openDischargeHistoryModal
+// - ✅ Print LIVE button (top-right overlay; does NOT consume grid space)
 // ---------------------------------------------------------
 
 (function () {
@@ -53,6 +45,73 @@
   function getActivePatientsForLive() {
     try { if (typeof window.ensureDefaultPatients === "function") window.ensureDefaultPatients(); } catch {}
     return safeArray(window.patients).filter(p => p && !p.isEmpty);
+  }
+
+  // -----------------------------
+  // Print button helpers
+  // -----------------------------
+  function openPrintLiveSafe() {
+    try {
+      if (window.printLive && typeof window.printLive.open === "function") {
+        window.printLive.open();
+        return;
+      }
+      alert("Print LIVE is not ready. Ensure app.printLive.js is loaded (script order + refresh).");
+    } catch (e) {
+      console.error("[live print] open failed:", e);
+      alert("Print LIVE failed. See console for details.");
+    }
+  }
+  window.openPrintLive = openPrintLiveSafe;
+
+  function ensureLivePrintButtonHost(nurseContainer) {
+    if (!nurseContainer) return;
+
+    // Make RN container an anchor for absolute positioning (without changing its layout)
+    const cs = window.getComputedStyle ? window.getComputedStyle(nurseContainer) : null;
+    if (!cs || cs.position === "static") {
+      nurseContainer.style.position = "relative";
+    }
+
+    let host = document.getElementById("livePrintBtnHost");
+    if (!host) {
+      host = document.createElement("div");
+      host.id = "livePrintBtnHost";
+      host.style.cssText = `
+        position:absolute;
+        top:-44px;
+        right:0;
+        z-index: 50;
+        display:flex;
+        gap:10px;
+        align-items:center;
+        justify-content:flex-end;
+        pointer-events:none;
+      `;
+      nurseContainer.appendChild(host);
+    }
+
+    host.innerHTML = `
+      <button
+        type="button"
+        onclick="openPrintLive()"
+        style="
+          pointer-events:auto;
+          border:0;
+          background:#111;
+          color:#fff;
+          padding:10px 12px;
+          border-radius:12px;
+          cursor:pointer;
+          font-weight:800;
+          letter-spacing:.01em;
+          box-shadow: 0 6px 18px rgba(0,0,0,.14);
+        "
+        title="Print LIVE assignments"
+      >
+        Print LIVE
+      </button>
+    `;
   }
 
   // -----------------------------
@@ -249,6 +308,9 @@
     nurseContainer.innerHTML = "";
     pcaContainer.innerHTML = "";
 
+    // ✅ Add floating Print LIVE button without consuming grid space
+    ensureLivePrintButtonHost(nurseContainer);
+
     const rnEvalMap = getRuleEvalMap(currentNurses, "nurse");
     const pcaEvalMap = getRuleEvalMap(currentPcas, "pca");
 
@@ -332,7 +394,6 @@
         injectDischargeBinFallback();
       }
     } else {
-      // ✅ Fallback injection (restores your old behavior)
       injectDischargeBinFallback();
     }
 
@@ -431,5 +492,5 @@
   window.renderLiveAssignments = renderLiveAssignments;
 
   // Signature to verify the correct file is loaded
-  window.__liveAssignmentsBuild = "emptyDropZone+dischargeBinFallback-v2";
+  window.__liveAssignmentsBuild = "emptyDropZone+dischargeBinFallback+printLiveOverlay-v4";
 })();

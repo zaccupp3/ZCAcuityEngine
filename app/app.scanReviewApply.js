@@ -17,6 +17,18 @@
 //
 // Requires (CSV mode):
 // - window.csvNormalizer.normalizeCsvText(text, opts)
+//
+// Notes / Fixes:
+// ✅ PCA parsing robustness: accepts pca.rooms as strings OR objects ({room})
+// ✅ Leadership persistence + UI injection:
+//    - stores on window.unitLeadership + window.currentLeadership
+//    - best-effort writes to common leadership input IDs (current + incoming)
+// ✅ Leadership apply is "do no harm":
+//    - applies only if confident (≥2 roles OR leadershipMeta.confident)
+//    - never overwrites existing roles with blanks
+// ✅ Apply never calls setupCurrentNurses/setupCurrentPcas (prevents overwrite)
+// ✅ Review panel renders PCA rooms robustly (no more “[object Object]”)
+// ✅ PERFORMANCE: batch import mode prevents per-flag re-render storms
 // ---------------------------------------------------------
 
 (function () {
@@ -43,13 +55,6 @@
     return s.startsWith("blob:");
   }
 
-  function normalizeName(s) {
-    return String(s || "")
-      .trim()
-      .toLowerCase()
-      .replace(/\s+/g, " ");
-  }
-
   function normalizeRoom(s) {
     const r = String(s || "").trim().toUpperCase();
     if (!r) return "";
@@ -69,8 +74,6 @@
     const joined = raw.map(x => String(x || "").trim()).filter(Boolean).join(", ").toUpperCase();
 
     const tags = new Set();
-
-    // Supported mapping → patient flags
     if (/\bISO\b/.test(joined) || /\bISOL\b/.test(joined)) tags.add("ISO");
     if (/\bSITTER\b/.test(joined) || /\bSIT\b/.test(joined)) tags.add("SITTER");
     if (/\bBG\b/.test(joined)) tags.add("BG");
@@ -78,11 +81,47 @@
     if (/\bADMIT\b/.test(joined) || /\bADM\b/.test(joined)) tags.add("ADMIT");
     if (/\bCIWA\b/.test(joined)) tags.add("CIWA");
     if (/\bGTT\b/.test(joined)) tags.add("GTT");
-
-    // Empty-room support (CSV workflows)
     if (/\bEMPTY\b/.test(joined) || /\bOPEN\b/.test(joined) || /\bVACANT\b/.test(joined)) tags.add("EMPTY");
 
     return Array.from(tags);
+  }
+
+  function uniqNumbers(arr) {
+    const out = [];
+    const seen = new Set();
+    (Array.isArray(arr) ? arr : []).forEach((x) => {
+      const n = Number(x);
+      if (!Number.isFinite(n)) return;
+      if (seen.has(n)) return;
+      seen.add(n);
+      out.push(n);
+    });
+    return out;
+  }
+
+  function normalizeRoomTokenForPreview(roomLike) {
+    // for UI preview only
+    if (roomLike == null) return "";
+    if (typeof roomLike === "string" || typeof roomLike === "number") return normalizeRoom(String(roomLike));
+    if (typeof roomLike === "object") {
+      const rr = roomLike.room || roomLike.bed || roomLike.roomNumber || roomLike.id || "";
+      return normalizeRoom(String(rr));
+    }
+    return "";
+  }
+
+  function coercePcaRoomsList(pca) {
+    // Accept:
+    // - { rooms:["201A","202B"] }
+    // - { rooms:[{room:"201A"},{room:"202B"}] }
+    // - { patients:["201A",...]} (rare parser variants)
+    const rooms = Array.isArray(pca?.rooms) ? pca.rooms : (Array.isArray(pca?.patients) ? pca.patients : []);
+    const list = [];
+    for (const x of rooms) {
+      const tok = normalizeRoomTokenForPreview(x);
+      if (tok) list.push(tok);
+    }
+    return list;
   }
 
   function isCsvPayload(payload) {
@@ -100,7 +139,6 @@
     return false;
   }
 
-  // Robust PDF detection
   function isPdfPayload(payload) {
     const ft = String(payload?.fileType || "").toLowerCase();
     if (ft === "pdf") return true;
@@ -124,6 +162,73 @@
     }
 
     return false;
+  }
+
+  function getParsedLeadership(parsed) {
+    const lead = parsed?.leadership || parsed?.leaders || parsed?.lead || null;
+    if (!lead || typeof lead !== "object") return null;
+
+    const charge = lead.charge || lead.chargeNurse || lead.charge_nurse || lead.Charge || lead["Charge Nurse"] || "";
+    const mentor = lead.mentor || lead.clinicalMentor || lead.clinical_mentor || lead.Mentor || lead["Clinical Mentor"] || "";
+    const cta = lead.cta || lead.CTA || lead["CTA"] || "";
+
+    const out = {
+      charge: String(charge || "").trim(),
+      mentor: String(mentor || "").trim(),
+      cta: String(cta || "").trim(),
+    };
+
+    if (!out.charge && !out.mentor && !out.cta) return null;
+    return out;
+  }
+
+  function getLeadershipConfidence(parsed, leadershipObj) {
+    const meta = parsed?.leadershipMeta || null;
+    if (meta && typeof meta === "object") {
+      if (meta.confident === true) return true;
+    }
+    const l = leadershipObj || null;
+    if (!l) return false;
+    const found = [l.charge, l.mentor, l.cta].filter(Boolean).length;
+    return found >= 2;
+  }
+
+  function setValueIfExists(ids, value) {
+    for (const id of (ids || [])) {
+      const el = document.getElementById(id);
+      if (!el) continue;
+      try {
+        if ("value" in el) el.value = String(value || "");
+        else el.textContent = String(value || "");
+        return true;
+      } catch (_) {}
+    }
+    return false;
+  }
+
+  function applyLeadershipToUi(leadership) {
+    if (!leadership) return false;
+
+    // Best-effort: support both Current + Incoming ids (so print/live/oncoming can read consistently)
+    const ok1 = setValueIfExists(
+      ["currentChargeName", "chargeName", "liveChargeName", "chargeNurseName", "currentChargeNurseName"],
+      leadership.charge
+    );
+    const ok2 = setValueIfExists(
+      ["currentMentorName", "mentorName", "liveMentorName", "clinicalMentorName", "currentClinicalMentorName"],
+      leadership.mentor
+    );
+    const ok3 = setValueIfExists(
+      ["currentCtaName", "ctaName", "liveCtaName"],
+      leadership.cta
+    );
+
+    // Also write incoming equivalents if present (harmless; keeps parity)
+    setValueIfExists(["incomingChargeName"], leadership.charge);
+    setValueIfExists(["incomingMentorName"], leadership.mentor);
+    setValueIfExists(["incomingCtaName"], leadership.cta);
+
+    return !!(ok1 || ok2 || ok3);
   }
 
   // ---------------------------------------------------------
@@ -225,13 +330,13 @@
     $("scanReviewRotateLeft").addEventListener("click", () => {
       window.__scanRotateDeg = ((window.__scanRotateDeg || 0) + 270) % 360;
       updateRotationUi();
-      setStatus('Rotation updated. Click "Run OCR Now" again.');
+      setStatus('Rotation updated. Click "Run/Parse" again.');
     });
 
     $("scanReviewRotateRight").addEventListener("click", () => {
       window.__scanRotateDeg = ((window.__scanRotateDeg || 0) + 90) % 360;
       updateRotationUi();
-      setStatus('Rotation updated. Click "Run OCR Now" again.');
+      setStatus('Rotation updated. Click "Run/Parse" again.');
     });
 
     $("scanReviewDebugBtn").addEventListener("click", () => {
@@ -259,9 +364,9 @@
     if (el) el.textContent = msg || "";
   }
 
-  function setCounts({ rns = 0, pcas = 0, rnRooms = 0 } = {}) {
+  function setCounts({ rns = 0, pcas = 0, rnRooms = 0, leadership = 0 } = {}) {
     const el = $("scanReviewCounts");
-    if (el) el.textContent = `RNs: ${rns} • PCAs: ${pcas} • RN room rows: ${rnRooms}`;
+    if (el) el.textContent = `RNs: ${rns} • PCAs: ${pcas} • RN room rows: ${rnRooms}${leadership ? " • Leadership: ✓" : ""}`;
   }
 
   function updateRotationUi() {
@@ -274,26 +379,42 @@
     const box = $("scanReviewParsed");
     if (!box) return;
 
-    const pcas = Array.isArray(parsed?.pcas) ? parsed.pcas : [];
     const rns = Array.isArray(parsed?.rns) ? parsed.rns : [];
+    const pcas = Array.isArray(parsed?.pcas) ? parsed.pcas : [];
+    const leadership = getParsedLeadership(parsed);
+    const leadershipConf = getLeadershipConfidence(parsed, leadership);
+
     const rnRoomRows = rns.reduce((sum, rn) => sum + (Array.isArray(rn.rooms) ? rn.rooms.length : 0), 0);
+    setCounts({ rns: rns.length, pcas: pcas.length, rnRooms: rnRoomRows, leadership: leadershipConf ? 1 : 0 });
 
-    setCounts({ rns: rns.length, pcas: pcas.length, rnRooms: rnRoomRows });
-
-    if (!pcas.length && !rns.length) {
-      box.innerHTML = `<div style="font-size:12px; opacity:.7;">No PCAs detected.<br>No RNs detected.</div>`;
+    if (!pcas.length && !rns.length && !leadership) {
+      box.innerHTML = `<div style="font-size:12px; opacity:.7;">No PCAs detected.<br>No RNs detected.<br>No leadership detected.</div>`;
       return;
     }
 
     let html = "";
 
+    if (leadership) {
+      const confNote = leadershipConf ? "" : `<div style="margin-top:6px; opacity:.7;">(Not confident — will not apply automatically)</div>`;
+      html += `<div style="font-weight:800; margin-bottom:8px;">Leadership</div>`;
+      html += `
+        <div style="border:1px solid #eee; border-radius:12px; padding:10px; margin-bottom:12px; font-size:12px;">
+          <div><b>Charge:</b> ${esc(leadership.charge || "—")}</div>
+          <div><b>Clinical Mentor:</b> ${esc(leadership.mentor || "—")}</div>
+          <div><b>CTA:</b> ${esc(leadership.cta || "—")}</div>
+          ${confNote}
+        </div>
+      `;
+    }
+
     if (pcas.length) {
       html += `<div style="font-weight:800; margin-bottom:8px;">PCAs</div>`;
       for (const p of pcas) {
+        const rooms = coercePcaRoomsList(p);
         html += `
           <div style="border:1px solid #eee; border-radius:12px; padding:10px; margin-bottom:10px;">
             <div style="font-weight:700;">${esc(p.name || "PCA")}${p.count != null ? ` <span style="opacity:.6; font-weight:600;">(${esc(p.count)})</span>` : ""}</div>
-            <div style="font-size:12px; opacity:.8; margin-top:6px;">${esc((p.rooms || []).join(", "))}</div>
+            <div style="font-size:12px; opacity:.8; margin-top:6px;">${esc(rooms.join(", "))}</div>
           </div>
         `;
       }
@@ -330,6 +451,17 @@
       }
     } else {
       html += `<div style="font-size:12px; opacity:.7;">No RNs detected.</div>`;
+    }
+
+    if (Array.isArray(parsed?.warnings) && parsed.warnings.length) {
+      html += `
+        <div style="margin-top:10px; border:1px dashed #ddd; border-radius:12px; padding:10px; font-size:12px;">
+          <div style="font-weight:800; margin-bottom:6px;">Warnings</div>
+          <ul style="margin:0; padding-left:18px;">
+            ${parsed.warnings.map(w => `<li style="opacity:.8;">${esc(w)}</li>`).join("")}
+          </ul>
+        </div>
+      `;
     }
 
     box.innerHTML = html;
@@ -410,7 +542,6 @@
     const noteEl = $("scanReviewPreviewNote");
     if (!imgEl) return;
 
-    // CSV: hide image preview, show filename note
     if (isCsvPayload(payload)) {
       imgEl.style.display = "none";
       if (noteEl) {
@@ -420,7 +551,6 @@
       return;
     }
 
-    // Non-CSV: show image preview
     imgEl.style.display = "block";
     if (noteEl) noteEl.style.display = "none";
 
@@ -480,7 +610,7 @@
         filename: payload.imagePath || f.name || "import.csv",
       });
 
-      window.__lastScanOcr = { text }; // for debug parity
+      window.__lastScanOcr = { text };
       window.__lastScanParsed = parsed;
 
       renderParsed(parsed);
@@ -495,7 +625,7 @@
   }
 
   // ---------------------------------------------------------
-  // OCR → Parse (existing)
+  // OCR → Parse
   // ---------------------------------------------------------
   async function runOcrAndParse() {
     setError(null);
@@ -527,7 +657,6 @@
       const o = await window.scanOcr.runOcr(source, { minWidth: 3200 });
 
       window.__lastScanOcr = o;
-
       setStatus(`OCR done. textLen=${o.text?.length || 0}, words=${o.words?.length || 0}`);
 
       const parsed = window.scanParserTemplateV2.parse(o);
@@ -545,7 +674,7 @@
   }
 
   // ---------------------------------------------------------
-  // APPLY TO LIVE (existing + EMPTY support)
+  // APPLY TO LIVE
   // ---------------------------------------------------------
   function getPatientsArray() {
     if (Array.isArray(window.patients)) return window.patients;
@@ -555,6 +684,13 @@
   }
 
   function findPatientByRoom(room) {
+    if (typeof window.getPatientByRoom === "function") {
+      try {
+        const p = window.getPatientByRoom(room);
+        if (p) return p;
+      } catch (_) {}
+    }
+
     const patients = getPatientsArray();
     if (!patients) return null;
 
@@ -596,13 +732,30 @@
     if (typeof p.reviewed === "boolean") p.reviewed = false;
   }
 
+  function setFlagViaUiHandler(p, key, checked) {
+    if (!p || typeof p.id !== "number") return;
+
+    // ✅ Batch-import mode: avoid re-render storms from togglePatientFlag
+    if (window.__importBatching === true) {
+      if (typeof p[key] === "boolean") p[key] = !!checked;
+      return;
+    }
+
+    if (typeof window.togglePatientFlag === "function") {
+      try {
+        window.togglePatientFlag(p.id, key, !!checked);
+        return;
+      } catch (e) {
+        console.warn("[import] togglePatientFlag failed, falling back to direct set:", key, e);
+      }
+    }
+
+    if (typeof p[key] === "boolean") p[key] = !!checked;
+  }
+
   function applyLevelAndTagsToPatient(p, level, tags) {
     const tagSet = new Set((tags || []).map(t => String(t).toUpperCase()));
 
-    // EMPTY room semantics:
-    // - mark room empty
-    // - clear flags + notes
-    // - optional clear name
     if (tagSet.has("EMPTY")) {
       clearSupportedFlags(p);
 
@@ -616,33 +769,26 @@
       return;
     }
 
-    // Not empty → ensure occupied
     if (typeof p.isEmpty === "boolean") p.isEmpty = false;
 
-    // Level mapping
-    if (level === "Tele") {
-      if (typeof p.tele === "boolean") p.tele = true;
-    } else if (level === "MS") {
-      if (typeof p.tele === "boolean") p.tele = false;
-    }
+    if (level === "Tele") setFlagViaUiHandler(p, "tele", true);
+    else if (level === "MS") setFlagViaUiHandler(p, "tele", false);
 
-    // Tags mapping
-    if (typeof p.isolation === "boolean") p.isolation = tagSet.has("ISO");
-    if (typeof p.sitter === "boolean") p.sitter = tagSet.has("SITTER");
-    if (typeof p.bg === "boolean") p.bg = tagSet.has("BG");
-    if (typeof p.nih === "boolean") p.nih = tagSet.has("NIH");
-    if (typeof p.admit === "boolean") p.admit = tagSet.has("ADMIT");
-    if (typeof p.ciwa === "boolean") p.ciwa = tagSet.has("CIWA");
-    if (typeof p.drip === "boolean") p.drip = tagSet.has("GTT");
+    setFlagViaUiHandler(p, "isolation", tagSet.has("ISO"));
+    setFlagViaUiHandler(p, "sitter", tagSet.has("SITTER"));
+    setFlagViaUiHandler(p, "bg", tagSet.has("BG"));
+    setFlagViaUiHandler(p, "nih", tagSet.has("NIH"));
+    setFlagViaUiHandler(p, "admit", tagSet.has("ADMIT"));
+    setFlagViaUiHandler(p, "ciwa", tagSet.has("CIWA"));
+    setFlagViaUiHandler(p, "drip", tagSet.has("GTT"));
 
-    // Friendly display list
     const notes = [];
-    if (p.isolation) notes.push("ISO");
-    if (p.sitter) notes.push("SITTER");
-    if (p.bg) notes.push("BG");
-    if (p.nih) notes.push("NIH");
-    if (p.admit) notes.push("ADMIT");
-    if (p.ciwa) notes.push("CIWA");
+    if (tagSet.has("ISO")) notes.push("ISO");
+    if (tagSet.has("SITTER")) notes.push("SITTER");
+    if (tagSet.has("BG")) notes.push("BG");
+    if (tagSet.has("NIH")) notes.push("NIH");
+    if (tagSet.has("ADMIT")) notes.push("ADMIT");
+    if (tagSet.has("CIWA")) notes.push("CIWA");
     if (tagSet.has("GTT")) notes.push("GTT");
 
     p.acuityNotes = notes;
@@ -651,134 +797,218 @@
     if (typeof p.reviewed === "boolean") p.reviewed = true;
   }
 
-  function findStaffByName(list, name) {
-    const target = normalizeName(name);
-    if (!target) return null;
-    const arr = Array.isArray(list) ? list : [];
-    for (const s of arr) {
-      const sn = normalizeName(s?.name);
-      if (!sn) continue;
-      if (sn === target) return s;
+  function buildRosterFromParsed(parsed) {
+    const rns = Array.isArray(parsed?.rns) ? parsed.rns : [];
+    const pcas = Array.isArray(parsed?.pcas) ? parsed.pcas : [];
+
+    const roomToPid = buildRoomToPatientIdMap();
+
+    const newNurses = rns.map((rn, idx) => {
+      const ids = [];
+      for (const rr of (rn.rooms || [])) {
+        const room = normalizeRoom(rr?.room);
+        const pid = roomToPid.get(room);
+        if (typeof pid === "number") ids.push(pid);
+      }
+      return {
+        id: idx + 1,
+        name: String(rn?.name || "").trim(),
+        patients: uniqNumbers(ids),
+        max: 10,
+        type: rn?.type || "RN",
+        staff_id: null,
+        restrictions: rn?.restrictions || undefined,
+      };
+    });
+
+    const newPcas = pcas.map((pca, idx) => {
+      const ids = [];
+      const rooms = coercePcaRoomsList(pca);
+      for (const roomRaw of rooms) {
+        const room = normalizeRoom(roomRaw);
+        const pid = roomToPid.get(room);
+        if (typeof pid === "number") ids.push(pid);
+      }
+      return {
+        id: idx + 1,
+        name: String(pca?.name || "").trim(),
+        patients: uniqNumbers(ids),
+        max: 7,
+        type: "PCA",
+        staff_id: null,
+        restrictions: (pca?.restrictions && typeof pca.restrictions === "object") ? pca.restrictions : { noIso: false },
+      };
+    });
+
+    return { newNurses, newPcas };
+  }
+
+  function applyLeadershipToState(leadership, parsed) {
+    if (!leadership) return { applied: false, reason: "missing" };
+
+    const confident = getLeadershipConfidence(parsed, leadership);
+    if (!confident) return { applied: false, reason: "not_confident" };
+
+    const incoming = {
+      charge: String(leadership.charge || "").trim(),
+      mentor: String(leadership.mentor || "").trim(),
+      cta: String(leadership.cta || "").trim(),
+    };
+
+    // Merge (do-no-harm): never overwrite existing roles with blanks
+    const existing = window.unitLeadership || window.currentLeadership || window.unitState?.leadership || {};
+    const merged = {
+      charge: incoming.charge || existing.charge || "",
+      mentor: incoming.mentor || existing.mentor || "",
+      cta: incoming.cta || existing.cta || "",
+    };
+
+    const foundAfter = [merged.charge, merged.mentor, merged.cta].filter(Boolean).length;
+    if (foundAfter < 2) return { applied: false, reason: "too_empty_after_merge" };
+
+    // Canonical-ish locations for other modules to read:
+    window.unitLeadership = merged;
+    window.currentLeadership = merged;
+    window.__currentLeadership = merged;
+
+    // If a unitState object exists, tuck it there too (non-destructive):
+    if (window.unitState && typeof window.unitState === "object") {
+      window.unitState.leadership = merged;
+      window.unitState.currentLeadership = merged;
     }
-    return null;
+
+    // Best-effort: also push into UI inputs so Staffing Details + print modules can read values.
+    applyLeadershipToUi(merged);
+
+    return { applied: true };
+  }
+
+  // IMPORTANT: DO NOT call setupCurrentNurses/setupCurrentPcas during import,
+  // because those functions can rehydrate from saved state and overwrite the imported roster.
+  function syncStaffingUiAfterRosterReplace({ rnCount, pcaCount }) {
+    // best-effort: set the count selects if they exist, then render lists
+    try {
+      const pcaCountIds = ["currentPcasCount", "currentPcaCount", "currentPcaSelect", "pcaCount", "pcaCountSelect", "currentPcas"];
+      for (const id of pcaCountIds) {
+        const el = document.getElementById(id);
+        if (el && ("value" in el)) { el.value = String(pcaCount || 0); break; }
+      }
+    } catch (_) {}
+
+    try {
+      const rnCountIds = ["currentNursesCount", "currentRnCount", "currentRnSelect", "rnCount", "rnCountSelect", "currentRnsCount", "currentRns"];
+      for (const id of rnCountIds) {
+        const el = document.getElementById(id);
+        if (el && ("value" in el)) { el.value = String(rnCount || 0); break; }
+      }
+    } catch (_) {}
+
+    // Render only (never setup)
+    try { if (typeof window.renderCurrentNurseList === "function") window.renderCurrentNurseList(); } catch (_) {}
+    try { if (typeof window.renderCurrentPcaList === "function") window.renderCurrentPcaList(); } catch (_) {}
   }
 
   async function safeApplyParsedToLive({ parsed, unitId, sessionId, opts }) {
+    // PERF: batch import mode (avoid per-toggle re-render storms)
+    window.__importBatching = true;
+
     try {
       const rns = Array.isArray(parsed?.rns) ? parsed.rns : [];
       const pcas = Array.isArray(parsed?.pcas) ? parsed.pcas : [];
+      const leadership = getParsedLeadership(parsed);
 
-      if (!rns.length && !pcas.length) {
-        return { ok: false, error: "No RN or PCA rows detected in parsed data." };
+      if (!rns.length && !pcas.length && !leadership) {
+        return { ok: false, error: "No RN, PCA, or leadership rows detected in parsed data." };
       }
 
       const options = opts && typeof opts === "object" ? opts : {};
-      const assignIfNamesMatch = options.assignIfNamesMatch !== false;
       const overwritePerRoom = options.overwritePerRoom !== false;
+      const replaceRoster = options.replaceRoster !== false;
 
+      // Build room-level updates from RN rooms
       const updates = [];
       for (const rn of rns) {
         for (const rr of (rn.rooms || [])) {
-          const room = normalizeRoom(rr.room);
+          const room = normalizeRoom(rr?.room);
           if (!room) continue;
-
-          const level = normalizeLevel(rr.levelOfCare);
-          const tags = normalizeTags(rr.notes);
-
-          // allow EMPTY-only updates even if no level/tags otherwise
+          const level = normalizeLevel(rr?.levelOfCare);
+          const tags = normalizeTags(rr?.notes);
           if (!level && !tags.length) continue;
-          updates.push({ room, level, tags, rnName: String(rn.name || "").trim() });
+          updates.push({ room, level, tags });
         }
       }
 
-      if (!updates.length) {
-        return { ok: false, error: "Parsed data produced no room-level updates." };
-      }
-
-      const hooks = [
-        window.applyImportRoomUpdatesToLive,
-        window.applyRoomUpdatesToLive,
-        window.applyScanRoomUpdatesToLive,
-      ].filter(fn => typeof fn === "function");
-
-      if (hooks.length) {
-        const res = await hooks[0]({ updates, unitId, sessionId, opts: options });
-        return res?.ok ? res : { ok: false, error: res?.error || "Apply hook failed." };
-      }
-
-      const patients = getPatientsArray();
-      if (!patients) {
-        return {
-          ok: false,
-          error:
-            "No patient collection located. Expected window.patients (array). " +
-            "Confirm app.state.js defines window.patients and script order is correct.",
-        };
+      // Apply per-room updates (patient flags)
+      for (const u of updates) {
+        const p = findPatientByRoom(u.room);
+        if (!p) continue;
+        if (overwritePerRoom) clearSupportedFlags(p);
+        applyLevelAndTagsToPatient(p, u.level, u.tags);
       }
 
       let appliedRooms = 0;
       for (const u of updates) {
         const p = findPatientByRoom(u.room);
-        if (!p) continue;
-
-        if (overwritePerRoom) clearSupportedFlags(p);
-        applyLevelAndTagsToPatient(p, u.level, u.tags);
-
-        appliedRooms++;
+        if (p) appliedRooms++;
       }
+
+      // Leadership (do-no-harm + confidence gating)
+      let leadershipApplied = 0;
+      let leadershipReason = "";
+      if (leadership) {
+        const res = applyLeadershipToState(leadership, parsed);
+        leadershipApplied = res.applied ? 1 : 0;
+        leadershipReason = res.reason || "";
+      }
+
+      // Debug flags
+      try {
+        parsed.leadershipApplied = !!leadershipApplied;
+        parsed.leadershipAppliedReason = leadershipReason || "";
+        window.__lastScanParsed = window.__lastScanParsed || {};
+        window.__lastScanParsed.leadershipApplied = parsed.leadershipApplied;
+        window.__lastScanParsed.leadershipAppliedReason = parsed.leadershipAppliedReason;
+      } catch (_) {}
 
       let rnAssigned = 0;
       let pcaAssigned = 0;
 
-      if (assignIfNamesMatch) {
-        const roomToPid = buildRoomToPatientIdMap();
+      if (replaceRoster) {
+        const { newNurses, newPcas } = buildRosterFromParsed(parsed);
 
-        if (Array.isArray(window.currentNurses) && window.currentNurses.length) {
-          for (const rn of rns) {
-            const staff = findStaffByName(window.currentNurses, rn?.name);
-            if (!staff) continue;
+        // Replace canonical arrays
+        window.currentNurses = Array.isArray(newNurses) ? newNurses : [];
+        window.currentPcas = Array.isArray(newPcas) ? newPcas : [];
 
-            const ids = [];
-            for (const rr of (rn.rooms || [])) {
-              const room = normalizeRoom(rr.room);
-              const pid = roomToPid.get(room);
-              if (typeof pid === "number") ids.push(pid);
-            }
+        rnAssigned = window.currentNurses.length;
+        pcaAssigned = window.currentPcas.length;
 
-            staff.patients = ids;
-            rnAssigned++;
-          }
-        }
+        // Persist immediately so any wrappers don’t “snap back”
+        try { if (typeof window.saveState === "function") window.saveState(); } catch (_) {}
 
-        if (Array.isArray(window.currentPcas) && window.currentPcas.length) {
-          for (const pca of pcas) {
-            const staff = findStaffByName(window.currentPcas, pca?.name);
-            if (!staff) continue;
-
-            const ids = [];
-            for (const roomRaw of (pca.rooms || [])) {
-              const room = normalizeRoom(roomRaw);
-              const pid = roomToPid.get(room);
-              if (typeof pid === "number") ids.push(pid);
-            }
-
-            staff.patients = ids;
-            pcaAssigned++;
-          }
-        }
+        // Update staffing UI without calling setup
+        syncStaffingUiAfterRosterReplace({ rnCount: rnAssigned, pcaCount: pcaAssigned });
       }
 
-      // Persist + refresh
-      try { if (typeof window.saveState === "function") window.saveState(); } catch (_) {}
+      // Turn off batching BEFORE render calls (so normal UI interactions behave)
+      window.__importBatching = false;
+
+      // Global refresh
       try { if (typeof window.markDirty === "function") window.markDirty(); } catch (_) {}
 
       try { if (typeof window.updateAcuityTiles === "function") window.updateAcuityTiles(); } catch (_) {}
       try { if (typeof window.renderPatientList === "function") window.renderPatientList(); } catch (_) {}
       try { if (typeof window.renderLiveAssignments === "function") window.renderLiveAssignments(); } catch (_) {}
+
+      // Oncoming renderers are harmless if present (keeps other panels consistent)
       try { if (typeof window.renderAssignmentOutput === "function") window.renderAssignmentOutput(); } catch (_) {}
       try { if (typeof window.renderPcaAssignmentOutput === "function") window.renderPcaAssignmentOutput(); } catch (_) {}
+
       try { if (typeof window.renderQueueList === "function") window.renderQueueList(); } catch (_) {}
       try { if (typeof window.unitPulse?.refresh === "function") window.unitPulse.refresh(); } catch (_) {}
+
+      // Let printLive module refresh derived headers if it has a hook
+      try { if (typeof window.printLive?.refreshHeaders === "function") window.printLive.refreshHeaders(); } catch (_) {}
 
       try {
         if (typeof window.appendEvent === "function") {
@@ -792,16 +1022,24 @@
             appliedRooms,
             rnAssigned,
             pcaAssigned,
+            leadershipApplied,
+            leadershipReason: leadershipReason || "",
+            leadership: leadership || null,
+            leadershipMeta: parsed?.leadershipMeta || null,
             totalUpdates: updates.length,
+            rosterReplaced: !!replaceRoster,
             ts: Date.now(),
           });
         }
       } catch (_) {}
 
-      return { ok: true, appliedRooms, totalUpdates: updates.length, rnAssigned, pcaAssigned };
+      return { ok: true, appliedRooms, totalUpdates: updates.length, rnAssigned, pcaAssigned, leadershipApplied, leadershipReason, rosterReplaced: !!replaceRoster };
     } catch (e) {
       console.error(e);
       return { ok: false, error: e?.message || String(e) };
+    } finally {
+      // Always clear batching
+      window.__importBatching = false;
     }
   }
 
@@ -819,12 +1057,18 @@
     }
 
     try {
+      const isCsv = isCsvPayload(payload);
+
       setStatus("Applying to LIVE…");
       const res = await window.applyScanParsedToLive({
         parsed,
         unitId: payload?.unitId || window.activeUnitId,
         sessionId: payload?.sessionId || null,
-        opts: { overwritePerRoom: true, assignIfNamesMatch: true },
+        opts: {
+          overwritePerRoom: true,
+          replaceRoster: true,
+          mode: isCsv ? "csv" : "pdf/ocr",
+        },
       });
 
       if (!res?.ok) {
@@ -833,7 +1077,8 @@
         return;
       }
 
-      setStatus(`Applied ✅ (rooms updated: ${res.appliedRooms ?? "?"}, RN matched: ${res.rnAssigned ?? 0}, PCA matched: ${res.pcaAssigned ?? 0})`);
+      const leadTxt = res.leadershipApplied ? ", leadership: ✓" : (res.leadershipReason ? `, leadership: ✕ (${res.leadershipReason})` : "");
+      setStatus(`Applied ✅ (rooms updated: ${res.appliedRooms ?? "?"}, RN roster: ${res.rnAssigned ?? 0}, PCA roster: ${res.pcaAssigned ?? 0}${leadTxt})`);
     } catch (e) {
       console.error(e);
       setError(`Apply error: ${e?.message || e}`);
@@ -864,7 +1109,6 @@
     $("scanReviewUnit").textContent = payload?.unitId || "—";
     $("scanReviewFileType").textContent = isCsv ? "CSV" : (isPdf ? "PDF" : "Image");
 
-    // Button labeling based on mode
     const runBtn = $("scanReviewRun");
     const subtitle = $("scanReviewSubtitle");
     if (runBtn) runBtn.textContent = isCsv ? "Parse CSV Now" : "Run OCR Now";
@@ -872,7 +1116,6 @@
       ? "CSV import is deterministic. Parse and verify before applying."
       : "Verify rooms, Tele/MS, and acuity notes before applying.";
 
-    // Rotation controls only for image OCR mode
     const rotWrap = $("scanReviewRotateWrap");
     const allowRotate = !isPdf && !isCsv;
     if (rotWrap) rotWrap.style.opacity = allowRotate ? "1" : "0.45";
@@ -883,7 +1126,6 @@
     setStatus(isCsv ? 'No parsed data yet. Click "Parse CSV Now".' : 'No parsed data yet. Click "Run OCR Now".');
 
     $("scanReviewModal").style.display = "flex";
-
     await setPreviewFromPayload(payload);
   }
 
