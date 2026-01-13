@@ -283,6 +283,34 @@
     return "green";
   }
 
+  // ✅ NEW: allow runtime overrides without touching code
+  // window.unitPulseState.thresholds = {
+  //   nurse: { greenMax, yellowMax, redMax },
+  //   pca:   { greenMax, yellowMax, redMax }
+  // }
+  function getThresholds(role) {
+    const st = window.unitPulseState || {};
+    const overrides = st.thresholds || {};
+
+    // 🔥 New defaults (less forgiving):
+    // RN: green up to 8, yellow up to 13, red max 20
+    // PCA: green up to 12, yellow up to 18, red max 26
+    const defaults =
+      role === "pca"
+        ? { greenMax: 12, yellowMax: 18, redMax: 26 }
+        : { greenMax: 8, yellowMax: 13, redMax: 20 };
+
+    const o = (role === "pca" ? overrides.pca : overrides.nurse) || null;
+    const merged = { ...defaults, ...(o && typeof o === "object" ? o : {}) };
+
+    // Defensive: enforce ordering
+    const g = Math.max(0, Number(merged.greenMax) || defaults.greenMax);
+    const y = Math.max(g + 0.1, Number(merged.yellowMax) || defaults.yellowMax);
+    const r = Math.max(y + 0.1, Number(merged.redMax) || defaults.redMax);
+
+    return { greenMax: g, yellowMax: y, redMax: r };
+  }
+
   function getCategoryForScore(loadScore, role) {
     try {
       if (typeof window.getLoadCategory === "function") {
@@ -296,20 +324,11 @@
     } catch {}
 
     const s = Number(loadScore) || 0;
-    if (role === "pca") {
-      if (s <= 14) return "green";
-      if (s <= 24) return "yellow";
-      return "red";
-    } else {
-      if (s <= 10) return "green";
-      if (s <= 18) return "yellow";
-      return "red";
-    }
-  }
+    const t = getThresholds(role === "pca" ? "pca" : "nurse");
 
-  function getThresholds(role) {
-    if (role === "pca") return { greenMax: 14, yellowMax: 24, redMax: 34 };
-    return { greenMax: 10, yellowMax: 18, redMax: 26 };
+    if (s <= t.greenMax) return "green";
+    if (s <= t.yellowMax) return "yellow";
+    return "red";
   }
 
   // Map a "score" into tier Y (0..3) where:
@@ -487,6 +506,22 @@
   function isBgRelatedAcuity(ev) {
     const t = getTagTextFromEvent(ev);
     return t.includes("bg") || t.includes("blood glucose") || t.includes("accucheck") || t.includes("fsbs");
+  }
+
+  // ✅ NEW: detect “shift-killers” from tag text (best-effort, parser-safe)
+  function shiftKillerFlagsFromEvent(ev) {
+    const t = getTagTextFromEvent(ev);
+
+    const flags = {
+      sitter: t.includes("sitter"),
+      drip: t.includes("drip") || t.includes("gtt") || t.includes("infus"),
+      nih: t.includes("nih"),
+      ciwa: t.includes("ciwa") || t.includes("cows"),
+      bg: isBgRelatedAcuity(ev),
+      iso: t.includes("iso") || t.includes("isolation"),
+    };
+
+    return flags;
   }
 
   function buildChangeLine(ev, nowTs) {
@@ -695,20 +730,58 @@
   // -----------------------------
   // NEW: Event-driven series builder (tiered line over time)
   // -----------------------------
+  function getShiftKillerWeights() {
+    // Allow overrides:
+    // window.unitPulseState.shiftKillerWeights = { sitter, drip, nih, ciwa, bg, iso }
+    const st = window.unitPulseState || {};
+    const o = (st.shiftKillerWeights && typeof st.shiftKillerWeights === "object") ? st.shiftKillerWeights : {};
+
+    // Defaults tuned “harsher” so the trend line reacts when shift-killers appear
+    return {
+      sitter: Number(o.sitter ?? 1.6),
+      drip: Number(o.drip ?? 1.4),
+      nih: Number(o.nih ?? 1.2),
+      ciwa: Number(o.ciwa ?? 1.3),
+      bg: Number(o.bg ?? 1.15),
+      iso: Number(o.iso ?? 1.05),
+    };
+  }
+
   function weightForEvent(ev, role) {
     const kind = getEventKind(ev);
     const acuity = isAcuityChangeEvent(ev);
     const reassign = isReassignEvent(ev);
 
-    if (kind === "admit") return role === "pca" ? 2.0 : 3.0;
-    if (kind === "discharge") return role === "pca" ? -1.0 : -2.0;
+    // Base deltas (slightly stronger than before)
+    if (kind === "admit") return role === "pca" ? 2.3 : 3.4;
+    if (kind === "discharge") return role === "pca" ? -1.2 : -2.2;
 
     if (acuity) {
-      if (isBgRelatedAcuity(ev)) return role === "pca" ? 0 : 1.2;
-      return role === "pca" ? 0.6 : 1.0;
+      // RN-only BG (already enforced at attribution); keep PCA at 0 for BG
+      const flags = shiftKillerFlagsFromEvent(ev);
+      const k = getShiftKillerWeights();
+
+      // Base acuity bump (a little stronger)
+      let base = role === "pca" ? 0.7 : 1.15;
+
+      // Apply multipliers for “shift-killers” (RN only unless explicitly PCA-tagged upstream)
+      // (Trend line doesn’t change assignment; it just makes impact visible.)
+      if (flags.sitter) base *= k.sitter;
+      if (flags.drip) base *= k.drip;
+      if (flags.nih) base *= k.nih;
+      if (flags.ciwa) base *= k.ciwa;
+      if (flags.iso) base *= k.iso;
+
+      if (flags.bg) {
+        if (role === "pca") return 0;
+        base *= k.bg;
+      }
+
+      // Clamp to prevent extreme spikes from noisy text
+      return clamp(base, -4, 6);
     }
 
-    if (reassign) return 0.4;
+    if (reassign) return 0.5;
 
     return 0;
   }
@@ -1267,7 +1340,11 @@
     sourceMode: "auto",
     pollMs: 10000,
     seriesSamples: 28,
-    _summaryOpen: {}
+    _summaryOpen: {},
+
+    // ✅ Optional: tune without code changes
+    // thresholds: { nurse:{greenMax:8,yellowMax:13,redMax:20}, pca:{greenMax:12,yellowMax:18,redMax:26} },
+    // shiftKillerWeights: { sitter:1.6, drip:1.4, nih:1.2, ciwa:1.3, bg:1.15, iso:1.05 },
   };
 
   window.unitPulse = window.unitPulse || {};
@@ -1282,5 +1359,5 @@
     try { refresh(); } catch (e) { console.warn("[Unit Pulse] initial refresh failed", e); }
   }, 60);
 
-  window.__unitPulseBuild = "tieredTrendLines+dropdownShiftSummary+eventBus-v2";
+  window.__unitPulseBuild = "tieredTrendLines+dropdownShiftSummary+eventBus-v3-harsherTiers+shiftKillerWeights";
 })();

@@ -8,11 +8,16 @@
 //   - incomingNurses / incomingPcas
 //   - getPatientById / getRoomLabelForPatient / getRoomNumber (optional)
 //   - currentNurses/currentPcas for report sources
+//
+// NEW (Jan 2026):
+// ✅ Strong report-source constraints for ONCOMING (RN):
+//    - 4 patients => max 3 report sources
+//    - 3 patients => max 2 report sources
+//    Implemented as a steep penalty + surfaced in UI.
 // ---------------------------------------------------------
 
 (function () {
   function safeArray(v) { return Array.isArray(v) ? v : []; }
-
   function $(id) { return document.getElementById(id); }
 
   function getPatient(pid) {
@@ -27,13 +32,10 @@
   }
 
   function getRoomNumberFromPatient(p) {
-    // Prefer your helper if present
     if (typeof window.getRoomNumber === "function") {
       const n = window.getRoomNumber(p);
       if (typeof n === "number" && isFinite(n)) return n;
     }
-
-    // Fallback: parse digits from bed label
     const label = getBedLabel(p);
     const m = String(label).match(/\d+/);
     return m ? Number(m[0]) : null;
@@ -59,6 +61,35 @@
       if (name) set.add(name);
     });
     return set.size;
+  }
+
+  // ✅ NEW: allowed report sources (strong constraint for RN oncoming)
+  function allowedReportSources(patientCount, role) {
+    const n = Number(patientCount) || 0;
+
+    // RN constraints (your rule)
+    if (role === "nurse") {
+      if (n >= 4) return 3;
+      if (n === 3) return 2;
+      // 1–2 patients: keep it tight but not punitive
+      if (n === 2) return 2;
+      if (n === 1) return 1;
+      return 2;
+    }
+
+    // PCA: keep prior gentle behavior (can tune later)
+    // (PCA report source concept is less clinically critical than RN handoff)
+    if (role === "pca") {
+      if (n >= 8) return 4;
+      if (n >= 6) return 3;
+      if (n >= 4) return 3;
+      if (n === 3) return 2;
+      if (n === 2) return 2;
+      if (n === 1) return 1;
+      return 2;
+    }
+
+    return 2;
   }
 
   // -------------------------
@@ -87,25 +118,21 @@
       if (gap > largestGap) largestGap = gap;
     }
 
-    // Cluster heuristic:
-    // Treat a “big gap” as splitting clusters. (tune threshold as needed)
-    const GAP_SPLIT = 7; // feels like “different hallway section”
+    const GAP_SPLIT = 7;
     let clusters = 1;
     for (let i = 1; i < rooms.length; i++) {
       if ((rooms[i] - rooms[i - 1]) >= GAP_SPLIT) clusters++;
     }
 
     return { hasData: true, range, largestGap, clusters, rooms };
-  }
+    }
 
   function hallwayPenalty(stats) {
     if (!stats?.hasData) return 0;
 
-    // Soft penalty: range + largestGap, plus cluster bump
-    // Tuned to be “noticeable” but not dominant.
-    const rangePenalty = Math.min(30, Math.max(0, stats.range));      // cap
-    const gapPenalty = Math.min(25, Math.max(0, stats.largestGap));   // cap
-    const clusterPenalty = Math.max(0, (stats.clusters - 1) * 8);     // extra cluster hurts
+    const rangePenalty = Math.min(30, Math.max(0, stats.range));
+    const gapPenalty = Math.min(25, Math.max(0, stats.largestGap));
+    const clusterPenalty = Math.max(0, (stats.clusters - 1) * 8);
 
     return rangePenalty * 0.8 + gapPenalty * 1.2 + clusterPenalty;
   }
@@ -123,26 +150,32 @@
   function hardRuleScoreForOwner(evalObj) {
     const v = safeArray(evalObj?.violations).length;
     const w = safeArray(evalObj?.warnings).length;
-
-    // violations are “preventable” => bigger hit
-    // warnings are “unavoidable-ish” => smaller hit
     return (v * 18) + (w * 6);
   }
 
   function buildOwnerRow(owner, evalObj, role) {
     const name = owner?.name || (role === "pca" ? "PCA" : "RN");
     const patientIds = safeArray(owner?.patients);
+    const patientCount = patientIds.length;
 
     const v = safeArray(evalObj?.violations);
     const w = safeArray(evalObj?.warnings);
 
     const reportSources = uniqueReportSourcesCount(patientIds, role);
+    const allowed = allowedReportSources(patientCount, role);
+    const over = Math.max(0, reportSources - allowed);
+
     const hall = hallwayStatsForOwner(owner);
     const hallRating = hallwayLabel(hall);
 
     const hardPenalty = hardRuleScoreForOwner(evalObj);
-    const reportPenalty = Math.max(0, (reportSources - 2)) * 10; // push away from 4+
-    const hallPenalty = hallwayPenalty(hall) * 0.6;             // small weight overall
+
+    // ✅ NEW: much steeper penalty when over the allowed cap.
+    // This makes it act like a strong constraint in the AQI ranking.
+    const REPORT_OVER_WEIGHT = (role === "nurse") ? 22 : 10;
+    const reportPenalty = over * REPORT_OVER_WEIGHT;
+
+    const hallPenalty = hallwayPenalty(hall) * 0.6;
 
     const totalPenalty = hardPenalty + reportPenalty + hallPenalty;
 
@@ -155,13 +188,22 @@
 
     const roomsText = hall.hasData ? `${hall.rooms.join(", ")}` : "n/a";
 
+    const reportText =
+      over > 0
+        ? `${reportSources}/${allowed} ⚠︎`
+        : `${reportSources}/${allowed}`;
+
     return {
       name,
       reportSources,
+      reportAllowed: allowed,
+      reportOver: over,
+      reportText,
       hallRating,
       totalPenalty,
       flagsText,
       roomsText,
+      patientCount,
       violationCount: v.length,
       warningCount: w.length
     };
@@ -179,7 +221,6 @@
       return buildOwnerRow(o, ev, role);
     });
 
-    // Sort “worst first”
     rows.sort((a, b) => b.totalPenalty - a.totalPenalty);
 
     const preventableBreaks = rows.reduce((s, r) => s + (r.violationCount || 0), 0);
@@ -189,6 +230,8 @@
       ? (rows.reduce((s, r) => s + (r.reportSources || 0), 0) / rows.length)
       : 0;
 
+    const overCapCount = rows.reduce((s, r) => s + ((r.reportOver || 0) > 0 ? 1 : 0), 0);
+
     const hallCounts = { Tight: 0, Moderate: 0, Rough: 0, "n/a": 0 };
     rows.forEach(r => { hallCounts[r.hallRating] = (hallCounts[r.hallRating] || 0) + 1; });
 
@@ -197,7 +240,8 @@
       preventableBreaks,
       unavoidableFlags,
       avgReport: Math.round(avgReport * 10) / 10,
-      hallCounts
+      hallCounts,
+      reportOverCapOwners: overCapCount
     };
   }
 
@@ -205,16 +249,17 @@
   // “% of best achievable” (simple v1)
   // -------------------------
   function percentOfBestAchievable(summaryRn, summaryPca) {
-    // V1 approach:
-    // - baseline “best” is zero preventable breaks and average report <= 2.5
-    // - we compute a penalty and map to percent
-    const rnPenalty = (summaryRn.preventableBreaks * 24) + Math.max(0, (summaryRn.avgReport - 2.5)) * 18;
-    const pcaPenalty = (summaryPca.preventableBreaks * 24) + Math.max(0, (summaryPca.avgReport - 2.5)) * 18;
+    const rnPenalty =
+      (summaryRn.preventableBreaks * 24) +
+      Math.max(0, (summaryRn.avgReport - 2.5)) * 18 +
+      (summaryRn.reportOverCapOwners * 10);
 
-    // hallway is intentionally light here; it’s reflected per-row
+    const pcaPenalty =
+      (summaryPca.preventableBreaks * 24) +
+      Math.max(0, (summaryPca.avgReport - 2.5)) * 18 +
+      (summaryPca.reportOverCapOwners * 4);
+
     const total = rnPenalty + pcaPenalty;
-
-    // Convert to percentage (cap)
     const pct = Math.max(0, Math.min(100, Math.round(100 - total)));
     return pct;
   }
@@ -230,7 +275,6 @@
       return;
     }
 
-    // Data sources
     const rnOwners = safeArray(window.incomingNurses);
     const pcaOwners = safeArray(window.incomingPcas);
 
@@ -250,7 +294,6 @@
     const pca = summarizeGroup(pcaOwners, "pca");
     const pct = percentOfBestAchievable(rn, pca);
 
-    // Build HTML
     body.innerHTML = `
       <div class="aqi-grid">
         <div class="aqi-card">
@@ -268,7 +311,11 @@
           <div class="aqi-line">Preventable rule breaks: <strong>${rn.preventableBreaks}</strong></div>
           <div class="aqi-line">Unavoidable flags: <strong>${rn.unavoidableFlags}</strong></div>
           <div class="aqi-line">Avg report sources: <strong>${rn.avgReport}</strong></div>
+          <div class="aqi-line">Owners over cap: <strong>${rn.reportOverCapOwners}</strong></div>
           <div class="aqi-line">Hallway: <strong>Tight ${rn.hallCounts.Tight}</strong> · <strong>Moderate ${rn.hallCounts.Moderate}</strong> · <strong>Rough ${rn.hallCounts.Rough}</strong></div>
+          <div class="aqi-line" style="opacity:.85;font-size:12px;margin-top:6px;">
+            RN caps: 4 pts → ≤3 sources · 3 pts → ≤2 sources
+          </div>
         </div>
 
         <div class="aqi-card">
@@ -276,6 +323,7 @@
           <div class="aqi-line">Preventable rule breaks: <strong>${pca.preventableBreaks}</strong></div>
           <div class="aqi-line">Unavoidable flags: <strong>${pca.unavoidableFlags}</strong></div>
           <div class="aqi-line">Avg report sources: <strong>${pca.avgReport}</strong></div>
+          <div class="aqi-line">Owners over cap: <strong>${pca.reportOverCapOwners}</strong></div>
           <div class="aqi-line">Hallway: <strong>Tight ${pca.hallCounts.Tight}</strong> · <strong>Moderate ${pca.hallCounts.Moderate}</strong> · <strong>Rough ${pca.hallCounts.Rough}</strong></div>
         </div>
       </div>
@@ -305,7 +353,7 @@
       <tr>
         <td><strong>${escapeHtml(r.name)}</strong></td>
         <td style="text-align:center;">${escapeHtml(String(r.flagsText))}</td>
-        <td style="text-align:center;">${escapeHtml(String(r.reportSources))}</td>
+        <td style="text-align:center;">${escapeHtml(String(r.reportText || ""))}</td>
         <td style="text-align:center;">${escapeHtml(String(r.hallRating))}</td>
         <td style="font-size:12px;opacity:.8;">${escapeHtml(String(r.roomsText))}</td>
       </tr>
@@ -338,7 +386,6 @@
       .replace(/'/g, "&#039;");
   }
 
-  // Draggable (simple, gentle)
   function wireDrag() {
     const modal = $("aqiModal");
     const panel = $("aqiPanel");
@@ -378,13 +425,11 @@
     window.addEventListener("mouseup", () => { isDown = false; });
   }
 
-  // Public API
   window.assignmentQuality = {
     open: openModal,
     close: closeModal
   };
 
-  // Wire close + drag once DOM is ready
   window.addEventListener("DOMContentLoaded", () => {
     const x = $("aqiClose");
     const modal = $("aqiModal");

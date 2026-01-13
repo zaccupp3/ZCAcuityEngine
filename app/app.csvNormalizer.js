@@ -32,7 +32,7 @@
   if (window.__csvNormalizerLoaded) return;
   window.__csvNormalizerLoaded = true;
 
-  const BUILD = "csvNormalizer-v12-leadershipStripIds-safe";
+  const BUILD = "csvNormalizer-v13-noteTokenNormalize-vpoSafe";
   console.log("[csvNormalizer] loaded:", BUILD);
 
   const MAX_RNS = 8;
@@ -155,13 +155,54 @@
     return norm(s);
   }
 
+  // -----------------------------
+  // ✅ NEW: normalize note tokens so downstream tag parsing is reliable
+  // -----------------------------
+  function normalizeNoteToken(raw) {
+    let t = norm(raw);
+    if (!t) return "";
+
+    // strip punctuation that often breaks exact-match checks
+    const up = t.toUpperCase().replace(/[().]/g, "").trim();
+    const l = up.toLowerCase();
+
+    // VPO variants
+    if (up === "VPO") return "VPO";
+    if (up === "V P O") return "VPO";
+    if (up === "V-P-O") return "VPO";
+    if (l.includes("vaso")) return "VPO"; // vaso / vasopressor
+
+    // CIWA/COWS variants
+    if (l.includes("ciwa") || l.includes("cows")) return "CIWA/COWS";
+
+    // ISO variants
+    if (l === "ISO" || l.includes("isolation")) return "ISO";
+
+    // NIH variants
+    if (l.includes("nih")) return "NIH";
+
+    // BG variants
+    if (l === "BG" || l.includes("blood glucose") || l.includes("fsbs") || l.includes("accu")) return "BG";
+
+    // DRIP
+    if (l.includes("drip")) return "Drip";
+
+    // SITTER
+    if (l.includes("sitter")) return "Sitter";
+
+    // TELE
+    if (l.includes("tele")) return "Tele";
+
+    return up; // keep uppercased as default to stabilize comparisons
+  }
+
   function splitNotes(s) {
     const raw = norm(s);
     if (!raw) return [];
     return raw
       .split(/[,;|]+/g)
       .flatMap((x) => String(x || "").split("/"))
-      .map((x) => norm(x))
+      .map((x) => normalizeNoteToken(x))
       .filter(Boolean);
   }
 
@@ -425,10 +466,6 @@
     let s = String(raw || "").trim();
     if (!s) return "";
 
-    // Common patterns in your CSV:
-    // "Garret Gooding #1000869"
-    // "Garret Gooding (#1000869)"
-    // "Garret Gooding (1000869)"
     s = s.replace(/\s*\(\s*#?\d+\s*\)\s*$/g, "").trim();
     s = s.replace(/\s*#\d+\s*$/g, "").trim();
     return s;
@@ -445,7 +482,6 @@
     if (!t) return "";
     if (t.length < 2) return "";
 
-    // If digits remain AFTER stripping trailing id, treat as not a person name
     if (/\d/.test(t)) return "";
 
     const l = t.toLowerCase();

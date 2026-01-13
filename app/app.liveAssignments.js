@@ -8,6 +8,12 @@
 // - ✅ Empty-owner drop zones (RN + PCA)
 // - ✅ Discharge Bin restored (slot 9 fallback injection)
 // - ✅ Print LIVE button (top-right overlay; does NOT consume grid space)
+//
+// NEW (Jan 2026):
+// ✅ LIVE card color accent is now robust:
+//    - Preserve upstream CSS class returned by window.getLoadClass() (so existing styles remain)
+//    - ALSO enforce stricter thresholds for a left-border accent (inline style) so “busy greens” show yellow
+//    - This is classification-only (NOT scoring)
 // ---------------------------------------------------------
 
 (function () {
@@ -25,6 +31,96 @@
 
   function safeArray(v) {
     return Array.isArray(v) ? v : [];
+  }
+
+  function clamp(n, a, b) {
+    const x = Number.isFinite(Number(n)) ? Number(n) : 0;
+    return Math.max(a, Math.min(b, x));
+  }
+
+  function normalizeBucketFromClass(cls) {
+    const c = String(cls || "").toLowerCase();
+    if (!c) return "";
+    // common buckets
+    if (c.includes("high") || c.includes("red")) return "red";
+    if (c.includes("medium") || c.includes("yellow")) return "yellow";
+    if (c.includes("good") || c.includes("green") || c.includes("low")) return "green";
+    return "";
+  }
+
+  function getThresholdsForLive(role) {
+    // Priority:
+    // 1) window.liveThresholds (explicit LIVE control)
+    // 2) window.unitPulseState.thresholds (shared config)
+    // 3) defaults
+    const live = (window.liveThresholds && typeof window.liveThresholds === "object") ? window.liveThresholds : null;
+    const ups = (window.unitPulseState?.thresholds && typeof window.unitPulseState.thresholds === "object") ? window.unitPulseState.thresholds : null;
+
+    const def =
+      role === "pca"
+        ? { greenMax: 14, yellowMax: 22, redMax: 32 }
+        : { greenMax: 10, yellowMax: 16, redMax: 26 };
+
+    const pick = (src) => {
+      if (!src) return null;
+      if (role === "pca") return src.pca || src.PCA || src.pcas || null;
+      return src.nurse || src.rn || src.RN || src.nurses || null;
+    };
+
+    const o = pick(live) || pick(ups) || null;
+    const merged = { ...def, ...(o && typeof o === "object" ? o : {}) };
+
+    const g = Math.max(0, Number(merged.greenMax) || def.greenMax);
+    const y = Math.max(g + 0.1, Number(merged.yellowMax) || def.yellowMax);
+    const r = Math.max(y + 0.1, Number(merged.redMax) || def.redMax);
+
+    return { greenMax: g, yellowMax: y, redMax: r };
+  }
+
+  // Determine “strict bucket” from score + thresholds
+  function bucketForScore(score, role) {
+    const s = Number(score) || 0;
+    const t = getThresholdsForLive(role === "pca" ? "pca" : "nurse");
+    const x = clamp(s, 0, t.redMax);
+
+    if (x <= t.greenMax) return "green";
+    if (x <= t.yellowMax) return "yellow";
+    return "red";
+  }
+
+  // Inline accent style so colors render even if CSS classes change
+  function accentStyleForBucket(bucket) {
+    // Use very safe, subtle RGBA tones
+    if (bucket === "red") return "border-left:6px solid rgba(239,68,68,0.85);";
+    if (bucket === "yellow") return "border-left:6px solid rgba(245,158,11,0.90);";
+    return "border-left:6px solid rgba(16,185,129,0.80);";
+  }
+
+  // Preserve upstream CSS class, but enforce stricter bucket for the inline border accent.
+  // If upstream already flags yellow/red, we keep that bucket (don’t downgrade).
+  function resolveLiveVisual(loadScore, role) {
+    let upstreamClass = "";
+    try {
+      if (typeof window.getLoadClass === "function") {
+        upstreamClass = String(window.getLoadClass(loadScore, role) || "").trim();
+      }
+    } catch {}
+
+    const upstreamBucket = normalizeBucketFromClass(upstreamClass);
+    const strictBucket = bucketForScore(loadScore, role);
+
+    // If upstream is already “worse” (yellow/red), honor it for bucket.
+    // Otherwise use strict bucket.
+    const bucket =
+      (upstreamBucket === "red") ? "red"
+      : (upstreamBucket === "yellow" && strictBucket !== "red") ? "yellow"
+      : strictBucket;
+
+    return {
+      upstreamClass,
+      bucket,
+      accentStyle: accentStyleForBucket(bucket)
+    };
   }
 
   function getRoomNumberSafe(p) {
@@ -67,7 +163,6 @@
   function ensureLivePrintButtonHost(nurseContainer) {
     if (!nurseContainer) return;
 
-    // Make RN container an anchor for absolute positioning (without changing its layout)
     const cs = window.getComputedStyle ? window.getComputedStyle(nurseContainer) : null;
     if (!cs || cs.position === "static") {
       nurseContainer.style.position = "relative";
@@ -308,7 +403,6 @@
     nurseContainer.innerHTML = "";
     pcaContainer.innerHTML = "";
 
-    // ✅ Add floating Print LIVE button without consuming grid space
     ensureLivePrintButtonHost(nurseContainer);
 
     const rnEvalMap = getRuleEvalMap(currentNurses, "nurse");
@@ -322,7 +416,11 @@
         .sort((a, b) => getRoomNumberSafe(a) - getRoomNumberSafe(b));
 
       const loadScore = (typeof window.getNurseLoadScore === "function") ? window.getNurseLoadScore(nurse) : 0;
-      const loadClass = (typeof window.getLoadClass === "function") ? window.getLoadClass(loadScore, "nurse") : "";
+
+      // ✅ preserve upstream class + force visible color via inline accent
+      const vis = resolveLiveVisual(loadScore, "nurse");
+      const loadClass = vis.upstreamClass;        // keep whatever your CSS already styles
+      const accentStyle = vis.accentStyle;        // guaranteed stripe color
 
       const ownerEval = getOwnerEval(nurse, rnEvalMap);
       const ruleIcon = buildRuleIconHtml(ownerEval, "RN");
@@ -348,7 +446,7 @@
         : "";
 
       nurseContainer.innerHTML += `
-        <div class="assignment-card ${loadClass}">
+        <div class="assignment-card ${escapeHtml(loadClass)}" style="${accentStyle}">
           <div class="assignment-header">
             <div style="display:flex;align-items:flex-start;gap:10px;">
               <div>
@@ -382,10 +480,8 @@
       `;
     });
 
-    // ✅ Always append the 9th slot placeholder AFTER RN cards render
     nurseContainer.innerHTML += `<div id="rnGridSlot9" class="rn-grid-slot-9"></div>`;
 
-    // ✅ Try the official helper first (if present)
     if (typeof window.ensureDischargeBinInRnGrid === "function") {
       try {
         window.ensureDischargeBinInRnGrid();
@@ -405,7 +501,11 @@
         .sort((a, b) => getRoomNumberSafe(a) - getRoomNumberSafe(b));
 
       const loadScore = (typeof window.getPcaLoadScore === "function") ? window.getPcaLoadScore(pca) : 0;
-      const loadClass = (typeof window.getLoadClass === "function") ? window.getLoadClass(loadScore, "pca") : "";
+
+      // ✅ preserve upstream class + force visible color via inline accent
+      const vis = resolveLiveVisual(loadScore, "pca");
+      const loadClass = vis.upstreamClass;
+      const accentStyle = vis.accentStyle;
 
       const ownerEval = getOwnerEval(pca, pcaEvalMap);
       const ruleIcon = buildRuleIconHtml(ownerEval, "PCA");
@@ -431,7 +531,7 @@
         : "";
 
       pcaContainer.innerHTML += `
-        <div class="assignment-card ${loadClass}">
+        <div class="assignment-card ${escapeHtml(loadClass)}" style="${accentStyle}">
           <div class="assignment-header">
             <div style="display:flex;align-items:flex-start;gap:10px;">
               <div>
@@ -492,5 +592,5 @@
   window.renderLiveAssignments = renderLiveAssignments;
 
   // Signature to verify the correct file is loaded
-  window.__liveAssignmentsBuild = "emptyDropZone+dischargeBinFallback+printLiveOverlay-v4";
+  window.__liveAssignmentsBuild = "emptyDropZone+dischargeBinFallback+printLiveOverlay-v7-preserveGetLoadClass+inlineAccent";
 })();

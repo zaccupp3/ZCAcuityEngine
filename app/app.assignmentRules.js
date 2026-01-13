@@ -9,16 +9,19 @@
 //   rule breaks / stacking (especially BG).
 //
 // NEW (Dec 2025):
-// - "Locked to RN" aware in-place repair:
-//   If patient.lockRnEnabled && patient.lockRnTo is set,
-//   repairAssignmentsInPlace() will NOT swap/move that patient away from its locked RN.
+// - "Locked to RN" aware in-place repair.
 //
 // FIX (Dec 2025):
-// - distributePatientsEvenly() now supports options.preserveExisting:
-//   it will NOT wipe owner.patients, and it will NOT re-assign already-assigned patients.
-//   (This is required so pinned patients pre-placed by assignmentsrender.js survive regenerate.)
-// - repairAssignmentsInPlace() now also prioritizes COUNT BALANCE (spread) so it won't
-//   “fix” rules by creating 7 vs 3 patient distributions when avoidable.
+// - distributePatientsEvenly() supports preserveExisting.
+//
+// ✅ NEW (Jan 2026):
+// - "Safe Rebalance": Rebalance will ONLY APPLY if it improves the assignment.
+// - Report-source constraints as a primary objective:
+//   - 4 patients → max 3 report sources
+//   - 3 patients → max 2 report sources
+//
+// ✅ PERF (Jan 2026):
+// - Build prev-owner maps once per evaluation pass (no repeated .find scans)
 // ---------------------------------------------------------
 
 (function () {
@@ -62,12 +65,14 @@
   // -----------------------------
   function rnPatientScore(p) {
     if (!p || p.isEmpty) return 0;
+    if (typeof window.getRnPatientScore === "function") return window.getRnPatientScore(p);
     if (typeof window.getPatientScore === "function") return window.getPatientScore(p);
     return 0;
   }
 
   function pcaPatientScore(p) {
     if (!p || p.isEmpty) return 0;
+    if (typeof window.getPcaPatientScore === "function") return window.getPcaPatientScore(p);
 
     let score = 0;
     if (p.isolation) score += 3;
@@ -101,7 +106,6 @@
   // =========================================================
   // Phase 1: Hard rule checking + swap suggestions
   // =========================================================
-
   const RN_LIMITS = {
     drip: 1,
     nih: 1,
@@ -186,7 +190,104 @@
     return totalTagCount > (ownerCount * limitPerOwner);
   }
 
-  function evaluateOwnerHardRules(owner, ownersAll, role, limitsOverride) {
+  // =========================================================
+  // ✅ Prev-owner maps (PERF)
+  // =========================================================
+  function buildPrevOwnerMap(role2) {
+    const map = new Map();
+    if (role2 === "pca") {
+      safeArray(window.currentPcas).forEach(o => {
+        const name = o?.name || `PCA ${o?.id ?? ""}`;
+        safeArray(o?.patients).forEach(pid => map.set(Number(pid), name));
+      });
+      return map;
+    }
+
+    safeArray(window.currentNurses).forEach(o => {
+      const name = o?.name || `RN ${o?.id ?? ""}`;
+      safeArray(o?.patients).forEach(pid => map.set(Number(pid), name));
+    });
+    return map;
+  }
+
+  function uniqCount(arr) {
+    return new Set(safeArray(arr).filter(Boolean)).size;
+  }
+
+  function allowedReportSourcesForCount(ptCount) {
+    const n = Number(ptCount) || 0;
+    if (n >= 4) return 3;     // ✅ your rule
+    if (n === 3) return 2;    // ✅ your relaxed rule
+    if (n === 2) return 2;
+    if (n === 1) return 1;
+    return 0;
+  }
+
+  function reportSourcesForOwner(owner, prevMap) {
+    const names = [];
+    for (const pid of safeArray(owner?.patients)) {
+      const nm = prevMap?.get(Number(pid)) || "";
+      if (nm) names.push(nm);
+    }
+    return uniqCount(names);
+  }
+
+  function reportOverflowForOwner(owner, prevMap) {
+    const ptCount = safeArray(owner?.patients).length;
+    const allowed = allowedReportSourcesForCount(ptCount);
+    const sources = reportSourcesForOwner(owner, prevMap);
+    return Math.max(0, sources - allowed);
+  }
+
+  function reportOverflowTotal(owners2, prevMap) {
+    return safeArray(owners2).reduce((s, o) => s + reportOverflowForOwner(o, prevMap), 0);
+  }
+
+  function roomNumberForPatientId(pid) {
+    const p = resolvePatient(pid);
+    if (!p) return null;
+
+    if (typeof window.getRoomNumber === "function") {
+      const n = window.getRoomNumber(p);
+      if (typeof n === "number" && isFinite(n) && n !== 9999) return n;
+    }
+
+    const label =
+      (typeof window.getRoomLabelForPatient === "function" ? window.getRoomLabelForPatient(p) : "") ||
+      String(p.room || "");
+
+    const m = String(label).match(/(\d+)/);
+    return m ? Number(m[1]) : null;
+  }
+
+  function walkingSpreadForOwner(owner) {
+    const nums = safeArray(owner?.patients)
+      .map(roomNumberForPatientId)
+      .filter(n => typeof n === "number" && isFinite(n));
+    if (nums.length < 2) return 0;
+    nums.sort((a, b) => a - b);
+    return nums[nums.length - 1] - nums[0];
+  }
+
+  function ownerLoad(owner, role2) {
+    return ownerProjectedLoad(owner, role2 === "pca" ? "pca" : "nurse", null);
+  }
+
+  function loadImbalance(owners2, role2) {
+    const loads = safeArray(owners2).map(o => ownerLoad(o, role2));
+    if (!loads.length) return 0;
+    const min = Math.min(...loads);
+    const max = Math.max(...loads);
+    return max - min;
+  }
+
+  function countSpread(owners2) {
+    const counts = safeArray(owners2).map(o => safeArray(o?.patients).length);
+    if (!counts.length) return 0;
+    return Math.max(...counts) - Math.min(...counts);
+  }
+
+  function evaluateOwnerHardRules(owner, ownersAll, role, limitsOverride, ctx = {}) {
     const limits = limitsOverride || (role === "pca" ? PCA_LIMITS : RN_LIMITS);
     const ownerCount = Math.max(1, safeArray(ownersAll).length);
 
@@ -226,6 +327,25 @@
       else warnings.push(rec);
     }
 
+    // ✅ Report sources flag (WARNING so it doesn't trip avoidable==0 gate)
+    // Still strongly optimized via qualityTuple.reportOverflow.
+    const prevMap = ctx?.prevOwnerByPid || null;
+    if (prevMap) {
+      const ptCount = safeArray(owner?.patients).length;
+      const limit = allowedReportSourcesForCount(ptCount);
+      const mine = reportSourcesForOwner(owner, prevMap);
+      if (limit > 0 && mine > limit) {
+        warnings.push({
+          tag: "REPORT_SOURCES",
+          mine,
+          limit,
+          unavoidable: false,
+          severity: "warning",
+          message: `Report sources high (${mine} > ${limit})`
+        });
+      }
+    }
+
     return {
       counts: ownerCounts,
       violations,
@@ -235,15 +355,19 @@
     };
   }
 
-  // Public: evaluate all owners at once
-  // Returns a map keyed by owner.name (fallback index)
+  // Public: evaluate all owners at once (build prev map ONCE)
   window.evaluateAssignmentHardRules = function (owners, role, limitsOverride) {
     const list = safeArray(owners).filter(Boolean);
     const out = {};
+
+    const r = (role === "pca") ? "pca" : "nurse";
+    const prevOwnerByPid = buildPrevOwnerMap(r);
+
     list.forEach((o, idx) => {
       const key = o?.name || o?.label || `owner_${idx + 1}`;
-      out[key] = evaluateOwnerHardRules(o, list, role === "pca" ? "pca" : "nurse", limitsOverride);
+      out[key] = evaluateOwnerHardRules(o, list, r, limitsOverride, { prevOwnerByPid });
     });
+
     return out;
   };
 
@@ -268,7 +392,7 @@
     let sumPen = 0;
     const list = safeArray(owners).filter(Boolean);
     for (let i = 0; i < list.length; i++) {
-      const ev = evaluateOwnerHardRules(list[i], list, role, limitsOverride);
+      const ev = evaluateOwnerHardRules(list[i], list, role, limitsOverride, { prevOwnerByPid: buildPrevOwnerMap(role) });
       sumPen += computePenaltyForOwnerEval(ev);
     }
     return sumPen;
@@ -336,6 +460,61 @@
   };
 
   // =========================================================
+  // Lexicographic “quality tuple”
+  // Lower is always better. Earlier fields dominate.
+  // =========================================================
+  function countAvoidableViolationsAll(owners2, role2, limitsOverride) {
+    let total = 0;
+    const arr = safeArray(owners2).filter(Boolean);
+    for (const o of arr) {
+      const ev = evaluateOwnerHardRules(o, arr, role2, limitsOverride, { prevOwnerByPid: buildPrevOwnerMap(role2) });
+      total += safeArray(ev?.violations).length;
+    }
+    return total;
+  }
+
+  function countWarningsAll(owners2, role2, limitsOverride) {
+    let total = 0;
+    const arr = safeArray(owners2).filter(Boolean);
+    for (const o of arr) {
+      const ev = evaluateOwnerHardRules(o, arr, role2, limitsOverride, { prevOwnerByPid: buildPrevOwnerMap(role2) });
+      total += safeArray(ev?.warnings).length;
+    }
+    return total;
+  }
+
+  function qualityTuple(owners2, role2, limitsOverride) {
+    const list2 = safeArray(owners2).filter(Boolean);
+    const prevMap = buildPrevOwnerMap(role2);
+
+    return {
+      avoidable: countAvoidableViolationsAll(list2, role2, limitsOverride),
+      reportOverflow: reportOverflowTotal(list2, prevMap),
+      spread: countSpread(list2),
+      loadImb: loadImbalance(list2, role2),
+      churn: list2.reduce((s, o) => s + reportSourcesForOwner(o, prevMap), 0),
+      walk: list2.reduce((s, o) => s + walkingSpreadForOwner(o), 0)
+    };
+  }
+
+  function isBetterTuple(next, base) {
+    if (!base) return true;
+    if (next.avoidable !== base.avoidable) return next.avoidable < base.avoidable;
+    if (next.reportOverflow !== base.reportOverflow) return next.reportOverflow < base.reportOverflow;
+    if (next.spread !== base.spread) return next.spread < base.spread;
+    if (next.loadImb !== base.loadImb) return next.loadImb < base.loadImb;
+    if (next.churn !== base.churn) return next.churn < base.churn;
+    return next.walk < base.walk;
+  }
+
+  function deepCloneOwnersShallow(owners2) {
+    return safeArray(owners2).map(o => ({
+      ...o,
+      patients: safeArray(o?.patients).slice()
+    }));
+  }
+
+  // =========================================================
   // MAIN: distributePatientsEvenly
   // =========================================================
   window.distributePatientsEvenly = function (owners, patients, options = {}) {
@@ -360,10 +539,8 @@
       return set;
     }
 
-    // Normalize to patient objects (ignore null)
     let list = listRaw.map(toPatientObj).filter(p => p && !p.isEmpty);
 
-    // Fallback if caller passed ids but getPatientById not available
     if (!list.length) {
       if (!preserveExisting) owners.forEach(o => { o.patients = []; });
       else ensurePatientsArrays();
@@ -380,13 +557,11 @@
       return;
     }
 
-    // If preserveExisting, remove any patients already pre-assigned (e.g., pins)
     if (preserveExisting) {
       const already = assignedSet();
       list = list.filter(p => !already.has(Number(p.id)));
     }
 
-    // Optional shuffle before sorting
     if (randomize) {
       for (let i = list.length - 1; i > 0; i--) {
         const j = Math.floor(Math.random() * (i + 1));
@@ -396,333 +571,14 @@
       }
     }
 
-    // =========================================================
-    // Phase 2: In-place repair rebalance (NO full redistribution)
-    // Priority:
-    //   1) Avoidable hard rule violations
-    //   2) COUNT balance spread (maxCount-minCount)
-    //   3) Load imbalance
-    //   4) Report churn
-    //   5) Walking spread
-    // =========================================================
+    if (!preserveExisting) owners.forEach(o => { o.patients = []; });
+    else ensurePatientsArrays();
 
-    function uniqCount(arr) {
-      return new Set(safeArray(arr).filter(Boolean)).size;
-    }
-
-    function getPrevOwnerNameForPatient(patientId, role2) {
-      const pid = Number(patientId);
-      if (!pid) return "";
-
-      if (role2 === "pca") {
-        const arr = Array.isArray(window.currentPcas) ? window.currentPcas : [];
-        const owner = arr.find(o => Array.isArray(o.patients) && o.patients.includes(pid));
-        return owner ? (owner.name || `PCA ${owner.id}`) : "";
-      }
-
-      const arr = Array.isArray(window.currentNurses) ? window.currentNurses : [];
-      const owner = arr.find(o => Array.isArray(o.patients) && o.patients.includes(pid));
-      return owner ? (owner.name || `RN ${owner.id}`) : "";
-    }
-
-    function reportSourcesForOwner(owner, role2) {
-      const names = [];
-      for (const pid of safeArray(owner?.patients)) {
-        const nm = getPrevOwnerNameForPatient(pid, role2);
-        if (nm) names.push(nm);
-      }
-      return uniqCount(names);
-    }
-
-    function roomNumberForPatientId(pid) {
-      const p = resolvePatient(pid);
-      if (!p) return null;
-
-      if (typeof window.getRoomNumber === "function") {
-        const n = window.getRoomNumber(p);
-        if (typeof n === "number" && isFinite(n) && n !== 9999) return n;
-      }
-
-      const label =
-        (typeof window.getRoomLabelForPatient === "function" ? window.getRoomLabelForPatient(p) : "") ||
-        String(p.room || "");
-
-      const m = String(label).match(/(\d+)/);
-      return m ? Number(m[1]) : null;
-    }
-
-    function walkingSpreadForOwner(owner) {
-      const nums = safeArray(owner?.patients)
-        .map(roomNumberForPatientId)
-        .filter(n => typeof n === "number" && isFinite(n));
-      if (nums.length < 2) return 0;
-      nums.sort((a, b) => a - b);
-      return nums[nums.length - 1] - nums[0];
-    }
-
-    function ownerLoad(owner, role2) {
-      return ownerProjectedLoad(owner, role2 === "pca" ? "pca" : "nurse", null);
-    }
-
-    function loadImbalance(owners2, role2) {
-      const loads = safeArray(owners2).map(o => ownerLoad(o, role2));
-      if (!loads.length) return 0;
-      const min = Math.min(...loads);
-      const max = Math.max(...loads);
-      return max - min;
-    }
-
-    function countSpread(owners2) {
-      const counts = safeArray(owners2).map(o => safeArray(o?.patients).length);
-      if (!counts.length) return 0;
-      return Math.max(...counts) - Math.min(...counts);
-    }
-
-    function countAvoidableViolationsAll(owners2, role2, limitsOverride) {
-      let total = 0;
-      const arr = safeArray(owners2).filter(Boolean);
-      for (const o of arr) {
-        const ev = evaluateOwnerHardRules(o, arr, role2, limitsOverride);
-        total += safeArray(ev?.violations).length;
-      }
-      return total;
-    }
-
-    function countWarningsAll(owners2, role2, limitsOverride) {
-      let total = 0;
-      const arr = safeArray(owners2).filter(Boolean);
-      for (const o of arr) {
-        const ev = evaluateOwnerHardRules(o, arr, role2, limitsOverride);
-        total += safeArray(ev?.warnings).length;
-      }
-      return total;
-    }
-
-    function getWorstOffenders(owners2, role2, limitsOverride) {
-      const arr = safeArray(owners2).filter(Boolean);
-      const scored = arr.map((o, idx) => {
-        const ev = evaluateOwnerHardRules(o, arr, role2, limitsOverride);
-        const v = safeArray(ev?.violations).length;
-        const load = ownerLoad(o, role2);
-        return { o, idx, v, load };
-      });
-
-      scored.sort((a, b) => {
-        if (b.v !== a.v) return b.v - a.v;
-        return b.load - a.load;
-      });
-
-      return scored.filter(x => x.v > 0);
-    }
-
-    function swapInPlace(ownerA, i, ownerB, j) {
-      const A = safeArray(ownerA.patients);
-      const B = safeArray(ownerB.patients);
-      const tmp = A[i];
-      A[i] = B[j];
-      B[j] = tmp;
-      ownerA.patients = A;
-      ownerB.patients = B;
-    }
-
-    // -----------------------------
-    // ✅ RN lock helpers (lock-aware repair)
-    // Patient fields:
-    //   patient.lockRnEnabled (bool)
-    //   patient.lockRnTo (incoming RN id)
-    // -----------------------------
-    function rnLockMeta(patientId) {
-      const p = resolvePatient(patientId);
-      if (!p) return { enabled: false, rnId: null };
-      const enabled = !!p.lockRnEnabled;
-      const rnId = (p.lockRnTo !== undefined && p.lockRnTo !== null) ? Number(p.lockRnTo) : null;
-      return { enabled, rnId: Number.isFinite(rnId) ? rnId : null };
-    }
-
-    function isSwapAllowedWithRnLocks(ownerA, pidA, ownerB, pidB, role2) {
-      if (role2 !== "nurse") return true;
-
-      const A = Number(ownerA?.id);
-      const B = Number(ownerB?.id);
-
-      const lockA = rnLockMeta(pidA);
-      const lockB = rnLockMeta(pidB);
-
-      // After swap:
-      // - pidA would belong to ownerB
-      // - pidB would belong to ownerA
-      if (lockA.enabled && lockA.rnId && Number(lockA.rnId) !== B) return false;
-      if (lockB.enabled && lockB.rnId && Number(lockB.rnId) !== A) return false;
-
-      return true;
-    }
-
-    // Main in-place repair
-    window.repairAssignmentsInPlace = function (owners2, role2, limitsOverride, opts = {}) {
-      const list2 = safeArray(owners2).filter(Boolean);
-      if (list2.length < 2) return { ok: false, reason: "Need at least 2 owners" };
-
-      const r2 = (role2 === "pca") ? "pca" : "nurse";
-      const maxIters = typeof opts.maxIters === "number" ? opts.maxIters : 20;
-
-      let iter = 0;
-
-      while (iter < maxIters) {
-        iter++;
-
-        const baseViol = countAvoidableViolationsAll(list2, r2, limitsOverride);
-        if (baseViol <= 0) {
-          return {
-            ok: true,
-            done: true,
-            iter,
-            avoidableViolations: 0,
-            warnings: countWarningsAll(list2, r2, limitsOverride)
-          };
-        }
-
-        const baseCountSpread = countSpread(list2);
-        const baseLoadImb = loadImbalance(list2, r2);
-        const baseChurn = list2.reduce((s, o) => s + reportSourcesForOwner(o, r2), 0);
-        const baseWalk = list2.reduce((s, o) => s + walkingSpreadForOwner(o), 0);
-
-        const offenders = getWorstOffenders(list2, r2, limitsOverride);
-        const candidateAIdxs = offenders.length
-          ? offenders.slice(0, 3).map(x => x.idx)
-          : list2.slice(0, 3).map((_, idx) => idx);
-
-        let best = null;
-
-        for (const aIdx of candidateAIdxs) {
-          const A = list2[aIdx];
-          const Apts = safeArray(A.patients);
-          if (!Apts.length) continue;
-
-          for (let bIdx = 0; bIdx < list2.length; bIdx++) {
-            if (bIdx === aIdx) continue;
-            const B = list2[bIdx];
-            const Bpts = safeArray(B.patients);
-            if (!Bpts.length) continue;
-
-            for (let i = 0; i < Apts.length; i++) {
-              for (let j = 0; j < Bpts.length; j++) {
-                const pidA = Apts[i];
-                const pidB = Bpts[j];
-
-                // ✅ lock gate
-                if (!isSwapAllowedWithRnLocks(A, pidA, B, pidB, r2)) continue;
-
-                const origA = A.patients;
-                const origB = B.patients;
-
-                swapInPlace(A, i, B, j);
-
-                const viol = countAvoidableViolationsAll(list2, r2, limitsOverride);
-
-                if (viol > baseViol) {
-                  A.patients = origA;
-                  B.patients = origB;
-                  continue;
-                }
-
-                const cSpread = countSpread(list2);
-                const loadImb = loadImbalance(list2, r2);
-                const churn = list2.reduce((s, o) => s + reportSourcesForOwner(o, r2), 0);
-                const walk = list2.reduce((s, o) => s + walkingSpreadForOwner(o), 0);
-
-                // revert
-                A.patients = origA;
-                B.patients = origB;
-
-                const candidate = {
-                  aIdx, bIdx, i, j,
-                  pidA, pidB,
-                  viol,
-                  cSpread,
-                  loadImb,
-                  churn,
-                  walk,
-                  base: { baseViol, baseCountSpread, baseLoadImb, baseChurn, baseWalk }
-                };
-
-                function betterThan(x, y) {
-                  if (!y) return true;
-                  if (x.viol !== y.viol) return x.viol < y.viol;
-                  if (x.cSpread !== y.cSpread) return x.cSpread < y.cSpread;
-                  if (x.loadImb !== y.loadImb) return x.loadImb < y.loadImb;
-                  if (x.churn !== y.churn) return x.churn < y.churn;
-                  return x.walk < y.walk;
-                }
-
-                const improves =
-                  (candidate.viol < baseViol) ||
-                  (candidate.viol === baseViol && candidate.cSpread < baseCountSpread) ||
-                  (candidate.viol === baseViol && candidate.cSpread === baseCountSpread && candidate.loadImb < baseLoadImb) ||
-                  (candidate.viol === baseViol && candidate.cSpread === baseCountSpread && candidate.loadImb === baseLoadImb && candidate.churn < baseChurn) ||
-                  (candidate.viol === baseViol && candidate.cSpread === baseCountSpread && candidate.loadImb === baseLoadImb && candidate.churn === baseChurn && candidate.walk < baseWalk);
-
-                if (!improves) continue;
-                if (betterThan(candidate, best)) best = candidate;
-              }
-            }
-          }
-        }
-
-        if (!best) {
-          return {
-            ok: true,
-            done: false,
-            iter,
-            avoidableViolations: baseViol,
-            warnings: countWarningsAll(list2, r2, limitsOverride),
-            reason: "No improving swap found (or locks prevent improvement). Some stacking may be unavoidable."
-          };
-        }
-
-        // ✅ Apply best swap
-        const Ause = list2[best.aIdx];
-        const Buse = list2[best.bIdx];
-        if (Ause && Buse) swapInPlace(Ause, best.i, Buse, best.j);
-        else break;
-      }
-
-      return {
-        ok: true,
-        done: false,
-        iter: maxIters,
-        avoidableViolations: countAvoidableViolationsAll(
-          safeArray(owners2).filter(Boolean),
-          (role2 === "pca") ? "pca" : "nurse",
-          limitsOverride
-        ),
-        warnings: countWarningsAll(
-          safeArray(owners2).filter(Boolean),
-          (role2 === "pca") ? "pca" : "nurse",
-          limitsOverride
-        ),
-        reason: "Hit max repair iterations"
-      };
-    };
-
-    // -----------------------------
-    // Distribution
-    // -----------------------------
-
-    // If NOT preserving, wipe first. If preserving, keep existing assignments (e.g., pinned).
-    if (!preserveExisting) {
-      owners.forEach(o => { o.patients = []; });
-    } else {
-      ensurePatientsArrays();
-    }
-
-    // If load balancing turned off, do round-robin across remaining list
     if (!useLoadBalancing) {
       const already = preserveExisting ? assignedSet() : new Set();
-
       list.forEach((p, index) => {
         const pid = Number(p.id);
         if (preserveExisting && already.has(pid)) return;
-
         const owner = owners[index % owners.length];
         if (!Array.isArray(owner.patients)) owner.patients = [];
         owner.patients.push(pid);
@@ -730,33 +586,23 @@
       return;
     }
 
-    // Sort patients: highest acuity first so we spread the hard stuff early
     list.sort((a, b) => {
       const sa = (role === "pca") ? pcaPatientScore(a) : rnPatientScore(a);
       const sb = (role === "pca") ? pcaPatientScore(b) : rnPatientScore(b);
       return sb - sa;
     });
 
-    // Target caps must account for already-assigned patients if preserveExisting
     const totalRemaining = list.length;
-
-    // Current counts per owner (could include pinned)
     const baseCounts = owners.map(o => safeArray(o.patients).length);
-
-    // Total patients on the board = already assigned + remaining
     const totalAll = baseCounts.reduce((s, x) => s + x, 0) + totalRemaining;
 
     const nOwners = owners.length;
     const base = Math.floor(totalAll / nOwners);
     const remainder = totalAll % nOwners;
 
-    // We want final counts to be either base or base+1
-    // Compute each owner's cap as (base or base+1), but never below its current count.
     const desiredCaps = owners.map((_, i) => base + (i < remainder ? 1 : 0));
     const capByIndex = desiredCaps.map((cap, i) => Math.max(cap, baseCounts[i]));
 
-    // Greedy: each patient goes to eligible owner with lowest projected load,
-    // while respecting caps (count balancing).
     list.forEach(p => {
       let bestIdx = -1;
       let bestScore = Infinity;
@@ -767,15 +613,12 @@
         if (curCount >= capByIndex[i]) continue;
 
         const projected = ownerProjectedLoad(o, role === "pca" ? "pca" : "nurse", p);
-
         if (projected < bestScore) {
           bestScore = projected;
           bestIdx = i;
         }
       }
 
-      // Fallback: if everyone is capped (rare; can happen with heavy pinning),
-      // put it on the current smallest-count owner.
       if (bestIdx === -1) {
         bestIdx = 0;
         let bestCount = Infinity;
@@ -793,4 +636,216 @@
       chosen.patients.push(Number(p.id));
     });
   };
+
+  // =========================================================
+  // Phase 2: In-place repair rebalance
+  // =========================================================
+  function getWorstOffenders(owners2, role2, limitsOverride) {
+    const arr = safeArray(owners2).filter(Boolean);
+    const prevMap = buildPrevOwnerMap(role2);
+
+    const scored = arr.map((o, idx) => {
+      const ev = evaluateOwnerHardRules(o, arr, role2, limitsOverride, { prevOwnerByPid: prevMap });
+      const v = safeArray(ev?.violations).length;
+      const ro = reportOverflowForOwner(o, prevMap);
+      const load = ownerLoad(o, role2);
+      return { o, idx, v, ro, load };
+    });
+
+    scored.sort((a, b) => {
+      if (b.v !== a.v) return b.v - a.v;
+      if (b.ro !== a.ro) return b.ro - a.ro;
+      return b.load - a.load;
+    });
+
+    return scored.filter(x => (x.v > 0) || (x.ro > 0));
+  }
+
+  function swapInPlace(ownerA, i, ownerB, j) {
+    const A = safeArray(ownerA.patients);
+    const B = safeArray(ownerB.patients);
+    const tmp = A[i];
+    A[i] = B[j];
+    B[j] = tmp;
+    ownerA.patients = A;
+    ownerB.patients = B;
+  }
+
+  // ✅ RN lock helpers
+  function rnLockMeta(patientId) {
+    const p = resolvePatient(patientId);
+    if (!p) return { enabled: false, rnId: null };
+    const enabled = !!p.lockRnEnabled;
+    const rnId = (p.lockRnTo !== undefined && p.lockRnTo !== null) ? Number(p.lockRnTo) : null;
+    return { enabled, rnId: Number.isFinite(rnId) ? rnId : null };
+  }
+
+  function isSwapAllowedWithRnLocks(ownerA, pidA, ownerB, pidB, role2) {
+    if (role2 !== "nurse") return true;
+
+    const A = Number(ownerA?.id);
+    const B = Number(ownerB?.id);
+
+    const lockA = rnLockMeta(pidA);
+    const lockB = rnLockMeta(pidB);
+
+    if (lockA.enabled && lockA.rnId && Number(lockA.rnId) !== B) return false;
+    if (lockB.enabled && lockB.rnId && Number(lockB.rnId) !== A) return false;
+
+    return true;
+  }
+
+  function repairAssignmentsInPlaceInternal(owners2, role2, limitsOverride, opts = {}) {
+    const list2 = safeArray(owners2).filter(Boolean);
+    if (list2.length < 2) return { ok: false, reason: "Need at least 2 owners" };
+
+    const r2 = (role2 === "pca") ? "pca" : "nurse";
+    const maxIters = typeof opts.maxIters === "number" ? opts.maxIters : 20;
+
+    let iter = 0;
+
+    while (iter < maxIters) {
+      iter++;
+
+      const baseTuple = qualityTuple(list2, r2, limitsOverride);
+
+      if (baseTuple.avoidable <= 0 && baseTuple.reportOverflow <= 0) {
+        return {
+          ok: true,
+          done: true,
+          iter,
+          avoidableViolations: baseTuple.avoidable,
+          reportOverflow: baseTuple.reportOverflow,
+          warnings: countWarningsAll(list2, r2, limitsOverride)
+        };
+      }
+
+      const offenders = getWorstOffenders(list2, r2, limitsOverride);
+      const candidateAIdxs = offenders.length
+        ? offenders.slice(0, 3).map(x => x.idx)
+        : list2.slice(0, 3).map((_, idx) => idx);
+
+      let best = null;
+
+      for (const aIdx of candidateAIdxs) {
+        const A = list2[aIdx];
+        const Apts = safeArray(A.patients);
+        if (!Apts.length) continue;
+
+        for (let bIdx = 0; bIdx < list2.length; bIdx++) {
+          if (bIdx === aIdx) continue;
+          const B = list2[bIdx];
+          const Bpts = safeArray(B.patients);
+          if (!Bpts.length) continue;
+
+          for (let i = 0; i < Apts.length; i++) {
+            for (let j = 0; j < Bpts.length; j++) {
+              const pidA = Apts[i];
+              const pidB = Bpts[j];
+
+              if (!isSwapAllowedWithRnLocks(A, pidA, B, pidB, r2)) continue;
+
+              const origA = A.patients;
+              const origB = B.patients;
+
+              swapInPlace(A, i, B, j);
+
+              const nextTuple = qualityTuple(list2, r2, limitsOverride);
+
+              A.patients = origA;
+              B.patients = origB;
+
+              if (!isBetterTuple(nextTuple, baseTuple)) continue;
+
+              const candidate = { aIdx, bIdx, i, j, pidA, pidB, baseTuple, nextTuple };
+              if (!best || isBetterTuple(candidate.nextTuple, best.nextTuple)) best = candidate;
+            }
+          }
+        }
+      }
+
+      if (!best) {
+        return {
+          ok: true,
+          done: false,
+          iter,
+          avoidableViolations: qualityTuple(list2, r2, limitsOverride).avoidable,
+          reportOverflow: qualityTuple(list2, r2, limitsOverride).reportOverflow,
+          warnings: countWarningsAll(list2, r2, limitsOverride),
+          reason: "No improving swap found (some issues may be unavoidable)."
+        };
+      }
+
+      const Ause = list2[best.aIdx];
+      const Buse = list2[best.bIdx];
+      if (Ause && Buse) swapInPlace(Ause, best.i, Buse, best.j);
+      else break;
+    }
+
+    return {
+      ok: true,
+      done: false,
+      iter: maxIters,
+      avoidableViolations: qualityTuple(list2, r2, limitsOverride).avoidable,
+      reportOverflow: qualityTuple(list2, r2, limitsOverride).reportOverflow,
+      warnings: countWarningsAll(list2, r2, limitsOverride),
+      reason: "Hit max repair iterations"
+    };
+  }
+
+  window.repairAssignmentsInPlace = function (owners2, role2, limitsOverride, opts = {}) {
+    return repairAssignmentsInPlaceInternal(owners2, role2, limitsOverride, opts);
+  };
+
+  // =========================================================
+  // ✅ NEW: Safe Rebalance API (never makes it worse)
+  // =========================================================
+  window.rebalanceOwnersSafely = function (owners, role, limitsOverride, opts = {}) {
+    const r = (role === "pca") ? "pca" : "nurse";
+    const baseOwners = safeArray(owners).filter(Boolean);
+
+    const baselineTuple = qualityTuple(baseOwners, r, limitsOverride);
+    const baselinePatients = baseOwners.map(o => safeArray(o?.patients).slice());
+
+    const clone = deepCloneOwnersShallow(baseOwners);
+    const res = repairAssignmentsInPlaceInternal(clone, r, limitsOverride, opts);
+
+    const nextTuple = qualityTuple(clone, r, limitsOverride);
+
+    // ✅ HARD GATE: never apply preventable (avoidable) rule breaks
+    if (nextTuple.avoidable > 0) {
+      baseOwners.forEach((o, idx) => { o.patients = safeArray(baselinePatients[idx]); });
+      return {
+        ok: true,
+        applied: false,
+        reason: "Unable to produce a rule-clean rebalance (avoidable violations remain).",
+        baseline: baselineTuple,
+        attempted: nextTuple,
+        repair: res
+      };
+    }
+
+    if (!isBetterTuple(nextTuple, baselineTuple)) {
+      baseOwners.forEach((o, idx) => { o.patients = safeArray(baselinePatients[idx]); });
+      return {
+        ok: true,
+        applied: false,
+        reason: "Unable to produce a more optimal assignment.",
+        baseline: baselineTuple,
+        attempted: nextTuple,
+        repair: res
+      };
+    }
+
+    baseOwners.forEach((o, idx) => { o.patients = safeArray(clone[idx]?.patients); });
+
+    return {
+      ok: true,
+      applied: true,
+      baseline: baselineTuple,
+      improved: nextTuple,
+      repair: res
+    };
+  };
+
 })();

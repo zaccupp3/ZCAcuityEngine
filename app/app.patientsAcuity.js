@@ -13,6 +13,12 @@
 // - TELE has near-zero impact on RN workflow → RN load score ignores TELE
 // - TELE has meaningful PCA impact (q4 vitals / workflow volume) → PCA load includes TELE weight
 // - UI formatting remains unchanged; this is scoring-only
+//
+// ✅ UPDATED (Jan 2026 - Workload tiers + shift-killer realism v1.1):
+// - RN workload tiers tightened (GREEN/YELLOW/RED thresholds)
+// - RN "shift-killer" weights tuned (Drip/Sitter/CIWA/NIH)
+// - Adds small per-patient combo bonus (e.g., Sitter+NIH, Drip+CIWA, etc.)
+// - Adds window.getLoadCategory helper for debugging + compatibility
 // ---------------------------------------------------------
 
 (function () {
@@ -23,7 +29,7 @@
   function safeArray(v) { return Array.isArray(v) ? v : []; }
 
   // Version marker for debugging
-  window.__patientsAcuityLoaded = "v2_staff_attribution_2026-01-02__role_tele_scoring_2026-01-08";
+  window.__patientsAcuityLoaded = "v2_staff_attribution_2026-01-02__role_tele_scoring_2026-01-08__rn_tiers_shiftkillers_2026-01-13";
 
   function ensurePatientsReady() {
     if (typeof window.ensureDefaultPatients === "function") {
@@ -544,22 +550,38 @@
     // TELE: role-specific
     if (p.tele) score += TELE_WEIGHT_RN;
 
-    // RN drivers
-    if (p.drip) score += 6;
-    if (p.nih) score += 4;
+    // RN drivers (tuned shift-killers)
+    if (p.drip) score += 7;        // was 6
+    if (p.nih) score += 5;         // was 4
     if (p.bg) score += 2;
-    if (p.ciwa) score += 4;
+    if (p.ciwa) score += 5;        // was 4
     if (p.restraint) score += 6;
-    if (p.sitter) score += 5;
+    if (p.sitter) score += 7;      // was 5
     if (p.vpo) score += 4;
     if (p.isolation) score += 3;
     if (p.admit) score += 4;
     if (p.lateDc) score += 2;
 
     // NOTE: RN load intentionally does not include PCA-only drivers (chg/foley/q2/heavy/feeder)
-    // (They can exist as tags, but RN workflow score here stays RN-centered.)
-
     return score;
+  }
+
+  // NEW: small per-patient combo bonus (realism gain; keeps stacking rules intact)
+  function computeRnPerPatientComboBonus(p) {
+    if (!p || p.isEmpty) return 0;
+
+    let b = 0;
+
+    // "shift-killer" combos
+    if (p.sitter && p.restraint) b += 3;
+    if (p.ciwa && p.sitter) b += 3;
+    if (p.drip && p.ciwa) b += 3;
+    if (p.drip && p.sitter) b += 4;
+
+    // busy-work combos
+    if (p.nih && p.bg) b += 2;
+
+    return b;
   }
 
   function computeRnStackingBonus(patientsInAssignment) {
@@ -617,8 +639,10 @@
 
     // RN load score uses RN-specific scoring (Tele weight = 0)
     const base = pts.reduce((sum, p) => sum + getRnPatientScore(p), 0);
+    const combo = pts.reduce((sum, p) => sum + computeRnPerPatientComboBonus(p), 0);
     const bonus = computeRnStackingBonus(pts);
-    return base + bonus;
+
+    return base + combo + bonus;
   }
 
   function getPcaLoadScore(pca) {
@@ -659,9 +683,18 @@
       return "load-high";
     }
 
-    if (s <= 14) return "load-good";
-    if (s <= 23) return "load-medium";
-    return "load-high";
+    // RN tighter thresholds (so 12–13 stops reading as GREEN)
+    if (s <= 10) return "load-good";     // green
+    if (s <= 14) return "load-medium";   // yellow
+    return "load-high";                  // red
+  }
+
+  // Debug/compat helper (you were trying getLoadCategory earlier)
+  function getLoadCategory(score, role = "nurse") {
+    const cls = getLoadClass(score, role);
+    if (cls === "load-good") return "green";
+    if (cls === "load-medium") return "yellow";
+    return "red";
   }
 
   // =========================
@@ -1156,6 +1189,9 @@
   window.getNurseLoadScore = getNurseLoadScore;
   window.getPcaLoadScore = getPcaLoadScore;
   window.getLoadClass = getLoadClass;
+
+  // ✅ new helper for debugging + compatibility with your console checks
+  window.getLoadCategory = window.getLoadCategory || getLoadCategory;
 
   window.getRnDriversSummaryFromPatientIds = getRnDriversSummaryFromPatientIds;
   window.getPcaDriversSummaryFromPatientIds = getPcaDriversSummaryFromPatientIds;
