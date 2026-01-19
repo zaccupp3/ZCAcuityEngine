@@ -1,5 +1,6 @@
 // script.js
-// Tabs + Support Role Persistence + Multi-Unit UI + Finalize Shift + Unit Pulse (minimal demo wiring)
+// Tabs + Support Role Persistence + Multi-Unit UI + Finalize Shift + Unit Metrics (minimal wiring)
+// ✅ Environment tab/page removed — environment is now ONLY the header unit selector (#unitSwitcher)
 
 (function () {
   // -----------------------------
@@ -48,9 +49,6 @@
     if (activeBtn) activeBtn.classList.add("active");
 
     // lightweight refresh when entering tabs that depend on unit/settings
-    if (sectionId === "environmentTab") {
-      if (typeof window.renderEnvironmentTab === "function") window.renderEnvironmentTab();
-    }
     if (sectionId === "unitPulseTab") {
       if (typeof window.renderUnitPulseTab === "function") window.renderUnitPulseTab();
     }
@@ -131,7 +129,7 @@
   }
 
   // -----------------------------
-  // Multi-unit UI wiring
+  // Multi-unit UI wiring (header-only)
   // -----------------------------
   function getUnitLabelFromMembership(m) {
     const name = m?.unit?.name || m?.units?.name || "";
@@ -177,176 +175,29 @@
       try { window.refreshAuthPill(); } catch (_) {}
     }
 
-    // refresh environment preview
-    if (typeof window.renderEnvironmentTab === "function") window.renderEnvironmentTab();
+    // If other modules want to react to unit changes, they already do via setActiveUnit / init hooks.
   }
 
-  function wireUnitSwitchers() {
+  function wireUnitSwitcherHeaderOnly() {
     const headerSel = document.getElementById("unitSwitcher");
-    const envSel = document.getElementById("envUnitSelect");
-    const btnMakeActive = document.getElementById("btnEnvMakeActive");
-
     populateUnitSelect(headerSel);
-    populateUnitSelect(envSel);
 
-    if (headerSel) {
+    if (headerSel && !headerSel.__cuppBound) {
+      headerSel.__cuppBound = true;
       headerSel.addEventListener("change", async () => {
         const unitId = headerSel.value;
         if (!unitId) return;
+
         try {
           await activateUnitFromSelection(unitId);
-          // keep env selector in sync
-          if (envSel) envSel.value = unitId;
         } catch (e) {
           console.warn("[unit] switch failed", e);
           alert("Unable to switch unit (check membership/RLS).");
           // revert UI selection
           populateUnitSelect(headerSel);
-          populateUnitSelect(envSel);
         }
       });
     }
-
-    if (btnMakeActive && envSel) {
-      btnMakeActive.addEventListener("click", async () => {
-        const unitId = envSel.value;
-        if (!unitId) {
-          alert("Select a unit first.");
-          return;
-        }
-        try {
-          await activateUnitFromSelection(unitId);
-          if (headerSel) headerSel.value = unitId;
-        } catch (e) {
-          console.warn("[unit] activate failed", e);
-          alert("Unable to activate unit (check membership/RLS).");
-        }
-      });
-    }
-  }
-
-  // Environment tab renderer
-  window.renderEnvironmentTab = function renderEnvironmentTab() {
-    const unitLabelEl = document.getElementById("envActiveUnitLabel");
-    const previewEl = document.getElementById("envSettingsPreview");
-
-    let label = "—";
-    const rows = Array.isArray(window.availableUnits) ? window.availableUnits : [];
-    const activeId = window.activeUnitId;
-
-    if (activeId) {
-      const match = rows.find(r => String(r.unit_id) === String(activeId));
-      label = match ? getUnitLabelFromMembership(match) : String(activeId);
-    }
-
-    if (unitLabelEl) unitLabelEl.textContent = label;
-
-    if (previewEl) {
-      const obj = window.unitSettings || null;
-      previewEl.textContent = JSON.stringify(obj || {}, null, 2);
-    }
-
-    // keep selects synced with latest
-    populateUnitSelect(document.getElementById("unitSwitcher"));
-    populateUnitSelect(document.getElementById("envUnitSelect"));
-  };
-
-  // -----------------------------
-  // Seeding: 2 South (200A–221B)
-  // -----------------------------
-  function build2SouthRoomSchema_200A_221B() {
-    // 200A..221B inclusive (22 numbers * 2 sides = 44 beds) — BUT your app is a 32-bed grid.
-    // For demo: we still *store* the schema as provided; mapping to 32 visible rooms can be layered later.
-    const beds = [];
-    for (let n = 200; n <= 221; n++) {
-      beds.push(`${n}A`);
-      beds.push(`${n}B`);
-    }
-    return {
-      version: 1,
-      unit_type: "medsurg_tele",
-      beds,
-      notes: "Standard 2 South schema (200A–221B). Stored for demo; app grid mapping handled separately."
-    };
-  }
-
-  function buildDefaultEnabledTags() {
-    // Mirrors your current patient model flags; "enabled_tags" becomes a per-unit configuration later.
-    return {
-      rn: ["tele", "drip", "nih", "bg", "ciwa", "restraint", "sitter", "vpo", "isolation", "admit", "lateDc"],
-      pca: ["chg", "foley", "q2turns", "heavy", "feeder"]
-    };
-  }
-
-  function buildDefaultRuleset() {
-    return {
-      version: 1,
-      notes: "Baseline ruleset; scoring/explainability will evolve. Current frontend enforces constraints client-side."
-    };
-  }
-
-  async function seed2South32() {
-    if (!window.sb || !window.sb.upsertUnit || !window.sb.upsertUnitSettings) {
-      alert("Supabase not configured.");
-      return;
-    }
-
-    const { user } = await window.sb.getUser();
-    const updated_by = user?.id || null;
-
-    // Unit identity (code should be UNIQUE ideally)
-    const unitPayload = { name: "2 South", code: "2SOUTH" };
-    const u = await window.sb.upsertUnit(unitPayload);
-    if (u.error) throw u.error;
-
-    const unit_id = u.row?.id;
-    if (!unit_id) throw new Error("Seed failed: unit_id missing from upsertUnit response.");
-
-    const settingsPayload = {
-      unit_id,
-      room_schema: build2SouthRoomSchema_200A_221B(),
-      staffing_defaults: {
-        version: 1,
-        default_current_rns: 4,
-        default_current_pcas: 2,
-        default_oncoming_rns: 4,
-        default_oncoming_pcas: 2
-      },
-      enabled_tags: buildDefaultEnabledTags(),
-      ruleset: buildDefaultRuleset(),
-      updated_by
-    };
-
-    const s = await window.sb.upsertUnitSettings(settingsPayload);
-    if (s.error) throw s.error;
-
-    // try to activate immediately (only works if you're a member per RLS)
-    try {
-      // refresh memberships then activate if membership exists
-      if (typeof window.refreshMyUnits === "function") await window.refreshMyUnits();
-      const rows = Array.isArray(window.availableUnits) ? window.availableUnits : [];
-      const mem = rows.find(r => r?.unit?.code === "2SOUTH" || r?.unit_id === unit_id);
-      if (mem) {
-        await activateUnitFromSelection(mem.unit_id);
-        window.renderEnvironmentTab();
-      }
-    } catch (e) {
-      console.warn("[seed] activate after seed failed (likely membership)", e);
-    }
-
-    alert("Seed complete: 2 South (200A–221B) unit + settings created/updated.");
-  }
-
-  function wireEnvironmentSeedButtons() {
-    const b1 = document.getElementById("btnSeed2South32");
-    if (b1) b1.addEventListener("click", async () => {
-      try {
-        await seed2South32();
-      } catch (e) {
-        console.warn("[seed] failed", e);
-        alert("Seed failed (check RLS / unique constraints on units.code and unit_settings.unit_id).");
-      }
-    });
   }
 
   // -----------------------------
@@ -354,7 +205,6 @@
   // -----------------------------
   function buildSnapshotStateFromOncoming() {
     // Minimal, demo-safe snapshot: store the oncoming assignments + current patient details.
-    // Your oncoming assignments live in incomingNurses / incomingPcas with patients arrays.
     return {
       version: 1,
       captured_at: new Date().toISOString(),
@@ -377,7 +227,6 @@
 
       patients: Array.isArray(window.patients) ? window.patients.map(p => ({ ...p })) : [],
 
-      // capture queue too for continuity (optional)
       admitQueue: Array.isArray(window.admitQueue) ? window.admitQueue.map(a => ({ ...a })) : []
     };
   }
@@ -386,13 +235,9 @@
     const pts = Array.isArray(window.patients) ? window.patients : [];
     const activePatients = pts.filter(p => p && p.isEmpty === false);
 
-    // “admit” tag indicates admit
     const admits = activePatients.filter(p => p.admit).length;
-
-    // discharge count: those flagged recentlyDischarged (session)
     const discharges = activePatients.filter(p => p.recentlyDischarged).length;
 
-    // Tag counts (only >0)
     const tagList = [
       "tele","drip","nih","bg","ciwa","restraint","sitter","vpo","isolation","admit","lateDc",
       "chg","foley","q2turns","heavy","feeder"
@@ -405,12 +250,10 @@
       });
     });
 
-    // only where >0
     Object.keys(acuity_counts).forEach(k => {
       if (!acuity_counts[k]) delete acuity_counts[k];
     });
 
-    // patient_acuity: { patientId: [tag1, tag2] }
     const patient_acuity = {};
     activePatients.forEach(p => {
       const tags = tagList.filter(t => !!p[t]);
@@ -430,8 +273,6 @@
   }
 
   function swapLiveWithOncomingAndResetOncoming() {
-    // Replace Live state with Oncoming state:
-    // currentNurses/currentPcas <= incomingNurses/incomingPcas (deep copy)
     window.currentNurses = (Array.isArray(window.incomingNurses) ? window.incomingNurses : []).map(n => ({
       ...n,
       patients: Array.isArray(n.patients) ? n.patients.slice() : []
@@ -442,7 +283,6 @@
       patients: Array.isArray(p.patients) ? p.patients.slice() : []
     }));
 
-    // Reset oncoming workspace (preserve names? For now keep staff list but clear patient allocations)
     window.incomingNurses = (Array.isArray(window.incomingNurses) ? window.incomingNurses : []).map(n => ({
       ...n,
       patients: []
@@ -453,7 +293,6 @@
       patients: []
     }));
 
-    // Keep legacy bare globals in sync if they exist
     if (typeof currentNurses !== "undefined") currentNurses = window.currentNurses;
     if (typeof currentPcas !== "undefined") currentPcas = window.currentPcas;
     if (typeof incomingNurses !== "undefined") incomingNurses = window.incomingNurses;
@@ -461,7 +300,6 @@
 
     if (typeof window.saveState === "function") window.saveState();
 
-    // Re-render
     if (typeof window.renderCurrentNurseList === "function") window.renderCurrentNurseList();
     if (typeof window.renderCurrentPcaList === "function") window.renderCurrentPcaList();
     if (typeof window.renderIncomingNurseList === "function") window.renderIncomingNurseList();
@@ -479,7 +317,7 @@
     const typeEl = document.getElementById("finalizeShiftType");
 
     if (!window.activeUnitId) {
-      setText(msgId, "❌ No active unit selected. Choose a unit first (header dropdown or Environment tab).");
+      setText(msgId, "❌ No active unit selected. Choose a unit first (top-right Unit dropdown).");
       return;
     }
 
@@ -503,7 +341,6 @@
       const { user } = await window.sb.getUser();
       const created_by = user?.id || null;
 
-      // 1) Publish oncoming snapshot
       const snapshotState = buildSnapshotStateFromOncoming();
       const snapRes = await window.sb.insertShiftSnapshot({
         unit_id: window.activeUnitId,
@@ -515,7 +352,6 @@
       });
       if (snapRes.error) throw snapRes.error;
 
-      // 2) Compute analytics from outgoing Live Assignment
       const metrics = computeAnalyticsFromLive();
       const metRes = await window.sb.insertAnalyticsShiftMetrics({
         unit_id: window.activeUnitId,
@@ -526,11 +362,7 @@
       });
       if (metRes.error) throw metRes.error;
 
-      // 3) Swap Live ← Oncoming and reset Oncoming
       swapLiveWithOncomingAndResetOncoming();
-
-      // OPTIONAL: If you want to use app.shiftChange.js instead of swapLiveWithOncoming...
-      // if (typeof window.finalizeShiftChange === "function") window.finalizeShiftChange();
 
       setText(msgId, `✅ Finalized! Snapshot + metrics saved for ${shift_date} (${shift_type}). Live board updated.`);
     } catch (e) {
@@ -545,15 +377,16 @@
     const btn = document.getElementById("btnFinalizeShift");
     if (!btn) return;
 
-    // default date = today
     const dateEl = document.getElementById("finalizeShiftDate");
     if (dateEl && !dateEl.value) dateEl.value = fmtDateYYYYMMDD(new Date());
 
-    btn.addEventListener("click", async () => {
-      await finalizeShift();
-    });
+    if (!btn.__cuppBound) {
+      btn.__cuppBound = true;
+      btn.addEventListener("click", async () => {
+        await finalizeShift();
+      });
+    }
 
-    // role-based UI enable/disable
     const updateBtnAccess = () => {
       const ok = canFinalizeForRole(window.activeUnitRole);
       btn.disabled = !ok;
@@ -564,12 +397,11 @@
     };
 
     updateBtnAccess();
-    // if auth UI updates role later, it can call this hook
     window.onAuthRoleChanged = updateBtnAccess;
   }
 
   // -----------------------------
-  // Unit Pulse (minimal table)
+  // Unit Metrics (Historic table) — keep existing wiring name for now
   // -----------------------------
   function defaultPulseDates() {
     const to = new Date();
@@ -586,10 +418,9 @@
     if (fromEl && !fromEl.value) fromEl.value = d.from;
     if (toEl && !toEl.value) toEl.value = d.to;
 
-    // small status
     const status = document.getElementById("pulseStatusMsg");
     if (status) {
-      if (!window.activeUnitId) status.textContent = "Select an active unit to load pulse data.";
+      if (!window.activeUnitId) status.textContent = "Select an active unit to load metrics.";
       else status.textContent = "";
     }
   };
@@ -656,11 +487,10 @@
     const to = toEl?.value || defaultPulseDates().to;
     const shiftType = typeEl?.value || "";
 
-    setText(statusId, "⏳ Loading pulse data…");
+    setText(statusId, "⏳ Loading metrics…");
     if (btn) btn.disabled = true;
 
     try {
-      // Supabase range: inclusive boundaries – we use gte/lte on shift_date
       let q = window.sb.client
         .from("analytics_shift_metrics")
         .select("id, unit_id, shift_date, shift_type, metrics, created_at")
@@ -678,7 +508,6 @@
       const rows = Array.isArray(data) ? data : [];
       setHTML(tableId, toTableHTML(rows));
 
-      // summary: averages / totals
       const totals = rows.reduce((acc, r) => {
         const sum = r?.metrics?.shift_summary || {};
         acc.total_patients += Number(sum.total_patients || 0);
@@ -697,7 +526,7 @@
 
       setText(statusId, rows.length ? "✅ Loaded." : "✅ No results for this range.");
     } catch (e) {
-      console.warn("[pulse] load failed", e);
+      console.warn("[metrics] load failed", e);
       setText(statusId, "❌ Load failed (check RLS / connectivity).");
       setHTML(tableId, "");
       setHTML(summaryId, "No data loaded yet.");
@@ -709,6 +538,9 @@
   function wirePulseButton() {
     const btn = document.getElementById("btnLoadPulse");
     if (!btn) return;
+    if (btn.__cuppBound) return;
+    btn.__cuppBound = true;
+
     btn.addEventListener("click", async () => {
       await loadPulse();
     });
@@ -719,8 +551,7 @@
   // -----------------------------
   window.onMembershipsUpdated = function onMembershipsUpdated() {
     // called by auth UI or init after refreshMyUnits
-    wireUnitSwitchers();
-    if (typeof window.renderEnvironmentTab === "function") window.renderEnvironmentTab();
+    wireUnitSwitcherHeaderOnly();
   };
 
   // -----------------------------
@@ -732,18 +563,15 @@
 
     // Unit UI depends on memberships loaded by app.init.js.
     // We still wire now, then re-wire when memberships update.
-    wireUnitSwitchers();
-    wireEnvironmentSeedButtons();
+    wireUnitSwitcherHeaderOnly();
 
     wireFinalizeButton();
     wirePulseButton();
 
-    // initial renders of environment/pulse if needed
-    if (typeof window.renderEnvironmentTab === "function") window.renderEnvironmentTab();
+    // initial renders
     if (typeof window.renderUnitPulseTab === "function") window.renderUnitPulseTab();
 
     // If init already populated availableUnits, keep UI synced
-    // (refreshMyUnits lives in app.state and is called during app.init.js)
     if (Array.isArray(window.availableUnits) && window.availableUnits.length) {
       window.onMembershipsUpdated();
     }

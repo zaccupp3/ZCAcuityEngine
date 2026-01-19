@@ -106,21 +106,19 @@
 
     <!-- Middle: Tabs -->
     <nav class="header-nav top-tabs" aria-label="Primary">
-      <button class="tabButton header-tab" data-target="environmentTab">Environment</button>
+      <!-- ✅ Environment tab REMOVED (unit selector in header-right is the environment) -->
       <button class="tabButton active header-tab" data-target="staffingTab">Staffing Details</button>
       <button class="tabButton header-tab" data-target="patientDetailsTab">Patient Details</button>
       <button class="tabButton header-tab" data-target="highRiskTab">High Risk Report</button>
       <button class="tabButton header-tab" data-target="liveAssignmentTab">LIVE Assignment</button>
       <button class="tabButton header-tab" data-target="oncomingAssignmentTab">Oncoming Assignment</button>
-
-      <!-- ✅ BOTH tabs exist now -->
       <button class="tabButton header-tab" data-target="unitPulseTab">Unit Pulse</button>
       <button class="tabButton header-tab" data-target="unitMetricsTab">Unit Metrics</button>
     </nav>
 
     <!-- Right: Unit Switch + Compact Auth Menu -->
     <div class="header-right">
-      <!-- Minimal unit switcher hook (wired in JS) -->
+      <!-- ✅ Minimal unit switcher hook (wired in JS) -->
       <div class="unit-switcher" style="display:flex; align-items:center; gap:8px; margin-right:10px;">
         <span style="font-size:12px; opacity:0.75;">Unit</span>
         <select id="unitSwitcher" style="max-width:220px;">
@@ -197,62 +195,7 @@
   <!-- MAIN CONTENT -->
   <main class="main-container">
 
-    <!-- ENVIRONMENT TAB (NEW) -->
-    <section id="environmentTab" class="tab-section" style="display: none;">
-      <h1>Environment</h1>
-      <p>
-        Unit-scoped settings live here. Selecting a unit here should populate settings across all tabs.
-      </p>
-
-      <div class="staff-card">
-        <div class="staff-card-header">Active Unit (Settings Scope)</div>
-
-        <div class="staff-inline-controls" style="gap:10px; flex-wrap:wrap;">
-          <label for="envUnitSelect"><strong>Unit:</strong></label>
-          <select id="envUnitSelect" style="min-width: 240px;">
-            <option value="">— Select a unit —</option>
-          </select>
-
-          <button id="btnEnvMakeActive" type="button">Make Active Unit</button>
-        </div>
-
-        <div style="margin-top: 10px; font-size: 12px; opacity: 0.8;">
-          Active unit: <strong id="envActiveUnitLabel">—</strong>
-        </div>
-      </div>
-
-      <div class="staff-card">
-        <div class="staff-card-header">Seed / Test Environment</div>
-
-        <div style="font-size:14px; color:#475569; line-height:1.4; margin-bottom:10px;">
-          Create standard demo units + settings in Supabase for quick investor demos.
-        </div>
-
-        <div class="actions-row" style="flex-wrap:wrap;">
-          <button id="btnSeed2South32" type="button">Seed: 2 South (200A–221B)</button>
-          <button id="btnSeed2SouthOverflow" type="button" disabled title="Coming soon">Seed: 2 South + Overflow</button>
-        </div>
-
-        <div style="margin-top: 10px; font-size: 12px; opacity: 0.8;">
-          Note: seeding requires you to be an owner/admin in the target unit(s) based on RLS.
-        </div>
-      </div>
-
-      <div class="staff-card">
-        <div class="staff-card-header">Loaded Unit Settings (Preview)</div>
-        <div style="font-size:12px; opacity:0.8; margin-bottom:8px;">
-          This is the current <code>unit_settings</code> payload loaded for the active unit.
-        </div>
-        <pre id="envSettingsPreview" style="white-space:pre-wrap; font-size:12px; background:#0b1220; color:#e5e7eb; padding:12px; border-radius:10px; overflow:auto; max-height:320px;">{}</pre>
-      </div>
-
-      <div class="staff-card">
-        <div class="staff-card-header">Notes</div>
-        <div style="font-size:14px; color:#475569; line-height:1.4;">
-          Add environment metrics here (staffing strain, bed status, holds, throughput, etc.).
-        </div>
-      </div>
-    </section>
+    <!-- ✅ ENVIRONMENT TAB REMOVED (unit selector in header-right is the environment) -->
 
     <!-- STAFFING TAB -->
     <section id="staffingTab" class="tab-section" style="display: block;">
@@ -457,7 +400,7 @@
           Print Oncoming (1-page)
         </button>
 
-        <!-- ✅ Scoped rebalances (THIS IS THE FIX) -->
+        <!-- ✅ Scoped rebalances -->
         <button type="button" onclick="window.rebalanceOncomingRnOnly && window.rebalanceOncomingRnOnly()">Rebalance RN (Only)</button>
         <button type="button" onclick="window.rebalanceOncomingPcaOnly && window.rebalanceOncomingPcaOnly()">Rebalance PCA (Only)</button>
 
@@ -508,18 +451,17 @@
       <div id="pcaAssignmentOutput" class="assignment-grid two-column-grid"></div>
     </section>
 
-    <!-- ✅ UNIT PULSE TAB (NEW / CURRENT SHIFT) -->
+    <!-- ✅ UNIT PULSE TAB -->
     <section id="unitPulseTab" class="tab-section" style="display: none;">
       <h1>Unit Pulse</h1>
       <p>
         Live, shift-specific workload pulse (time-windowed). Staff list is driven by current RN/PCA assignments.
       </p>
 
-      <!-- The new JS renders into this root -->
       <div id="unitPulseRoot"></div>
     </section>
 
-    <!-- ✅ UNIT METRICS TAB (HISTORIC / CHART-FIRST) -->
+    <!-- ✅ UNIT METRICS TAB -->
     <section id="unitMetricsTab" class="tab-section" style="display: none;">
       <h1>Unit Metrics</h1>
       <p>
@@ -799,12 +741,12 @@
   <!-- ✅ Unit Pulse (current shift) -->
   <script src="app/app.unitPulse.js"></script>
 
-    <!-- ✅ PRINT MODULE -->
+  <!-- ✅ PRINT MODULE -->
   <script src="app/app.printOncoming.js?v=8"></script>
   <script src="app/app.printLive.js?v=8"></script>
 
-    <!-- OCR -->
-    <script src="https://unpkg.com/tesseract.js@5/dist/tesseract.min.js"></script>
+  <!-- OCR -->
+  <script src="https://unpkg.com/tesseract.js@5/dist/tesseract.min.js"></script>
 
   <!-- =====================================================
        PDF.js (LOCAL, ES MODULE BUILD)
@@ -838,5 +780,5 @@
 
   <!-- Keep LAST -->
   <script src="script.js"></script>
-  </body>
-  </html>
+</body>
+</html>
