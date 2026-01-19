@@ -1,341 +1,114 @@
 /* =====================================================
-   GENERAL LAYOUT
-===================================================== */
+   style.css (FULL REPLACEMENT) — Chunk 1/2
+   - De-duped + consolidated
+   - Keeps current “clinical tile” theme
+   - Adds LIVE Admit Queue header-dock support (no overlap)
+   ===================================================== */
 
+/* =========================
+   TOKENS / THEME
+========================= */
 :root{
   --bg: #f4f6f8;
-  --text: #111827;
-  --muted: #6b7280;
+  --text: #0f172a;
+  --muted: #64748b;
 
   --brand: #00558c;
   --brand2: #0079c1;
 
-  --card: #ffffff;
-  --border: #d9e1ec;
+  --border: rgba(148,163,184,0.35);
 
-  /* NEW: cleaner “clinical” card palette (screenshot #1 vibe) */
-  --card-bg: #ffffff;
-  --card-border: #dfe7f2;
-  --card-shadow: 0 1px 2px rgba(16,24,40,0.06);
-  --card-shadow-hover: 0 2px 6px rgba(16,24,40,0.10);
+  /* Card tokens */
+  --card-bg: rgba(255,255,255,0.92);
+  --card-border: rgba(148,163,184,0.35);
+  --card-shadow: 0 10px 30px rgba(2,6,23,0.06);
+  --card-shadow-hover: 0 14px 40px rgba(2,6,23,0.10);
 
-  --card-header-bg: #f3f6fb;      /* light header strip */
-  --card-header-text: #0f172a;
+  /* Table tokens */
+  --table-head-bg: rgba(226,232,240,0.55);
+  --table-divider: rgba(148,163,184,0.30);
+  --table-row-hover: rgba(2,6,23,0.03);
 
-  --table-head-bg: #edf3ff;       /* subtle blue-gray */
-  --table-row-hover: rgba(17,24,39,0.03);
-  --table-divider: #e5e7eb;
-
-  --pill-bg: #eef2ff;
-  --pill-text: #334155;
+  /* Load bars */
+  --good: #4CAF50;
+  --med:  #ffc107;
+  --high: #ff5252;
 }
 
-body {
+/* =========================
+   BASE
+========================= */
+*{ box-sizing: border-box; }
+
+body{
   margin: 0;
   padding: 0;
   font-family: Arial, sans-serif;
-  background: var(--bg);
   color: var(--text);
+
+  /* blue fade background (kept) */
+  background:
+    radial-gradient(1200px 700px at 10% 0%, rgba(142,200,246,0.55), rgba(142,200,246,0.0) 60%),
+    radial-gradient(1100px 650px at 90% 10%, rgba(142,200,246,0.40), rgba(142,200,246,0.0) 55%),
+    linear-gradient(180deg, rgba(142,200,246,0.18), var(--bg) 45%);
 }
 
-h2, h3 {
-  margin-top: 20px;
-  color: #333;
+h1,h2,h3{
+  color: var(--text);
+  letter-spacing: -0.01em;
 }
 
-hr {
+hr{
   margin: 20px 0;
   border: none;
-  border-top: 1px solid #ccc;
+  border-top: 1px solid rgba(148,163,184,0.45);
 }
 
 /* Keep main content from hiding behind sticky header */
 .app-main,
-.main-container {
+.main-container{
   padding-top: 10px;
 }
 
-/* =====================================================
-   TOP STICKY HEADER + INLINE TABS
-===================================================== */
-
-.app-header{
-  position: sticky;
-  top: 0;
-  z-index: 1000;
-  background: #fff;
-  border-bottom: 1px solid var(--border);
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  padding: 10px 18px;
+/* =========================
+   FORM CONTROLS
+========================= */
+input, select, textarea{
+  border-radius: 12px;
+  border: 1px solid rgba(148,163,184,0.45);
+  background: rgba(255,255,255,0.92);
+  outline: none;
 }
 
-.app-header-left{
-  display: flex;
-  align-items: center;
-  min-width: 320px;
+input:focus, select:focus, textarea:focus{
+  border-color: rgba(59,130,246,0.65);
+  box-shadow: 0 0 0 4px rgba(59,130,246,0.15);
 }
-
-.brand{
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  min-width: 0;
-}
-
-.brand-dot{
-  width: 28px;
-  height: 28px;
-  border-radius: 50%;
-  background: linear-gradient(135deg, #f37021, #00a9e0);
-  flex: 0 0 auto;
-}
-
-.brand-text{
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-}
-
-.brand-title{
-  font-size: 16px;
-  font-weight: 700;
-  color: var(--brand);
-  line-height: 1.1;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.brand-subtitle{
-  font-size: 12px;
-  color: #6b7280;
-  line-height: 1.1;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.top-tabs{
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex: 1;
-  flex-wrap: nowrap;
-  overflow-x: auto;
-  padding-bottom: 2px;
-}
-
-.top-tabs .tabButton{
-  flex: 0 0 auto;
-  color: white;
-  background: #0066c5;
-  border: none;
-  padding: 9px 12px;
-  cursor: pointer;
-  border-radius: 8px;
-  font-weight: 700;
-  font-size: 13px;
-  white-space: nowrap;
-}
-
-.top-tabs .tabButton.active{
-  background: #00a1ff;
-}
-
-.top-tabs .tabButton:hover{
-  background: #008ce6;
-}
-
-.top-tabs::-webkit-scrollbar{
-  height: 8px;
-}
-.top-tabs::-webkit-scrollbar-thumb{
-  background: #d6dde8;
-  border-radius: 999px;
-}
-.top-tabs::-webkit-scrollbar-track{
-  background: transparent;
-}
-
-@media (max-width: 720px){
-  .app-header-left{ min-width: 220px; }
-  .brand-subtitle{ display: none; }
-}
-
-/* =====================================================
-   LEGACY TABS BAR (OLD) — DISABLE
-===================================================== */
-
-#header,
-.tab-bar{
-  display: none !important;
-}
-
-/* Base tab styles */
-.tabButton {
-  color: white;
-  background: #0066c5;
-  border: none;
-  padding: 10px 14px;
-  cursor: pointer;
-  border-radius: 4px;
-  font-weight: bold;
-}
-.tabButton.active { background: #00a1ff; }
-.tabButton:hover  { background: #008ce6; }
-
-.tab-section {
-  display: none;
-  padding: 20px;
-}
-
-/* =====================================================
-   STAFFING PANELS
-===================================================== */
-
-.staffBlock {
-  background: white;
-  padding: 15px;
-  margin-top: 15px;
-  border-radius: 6px;
-  box-shadow: 0 2px 6px rgba(0,0,0,0.08);
-}
-
-.staffList .nurseRow,
-.staffList .pcaRow {
-  display: flex;
-  align-items: center;
-  gap: 15px;
-  background: #f8f9fa;
-  padding: 8px;
-  border-radius: 4px;
-  margin-bottom: 8px;
-}
-
-.restrictionsGroup { display: flex; align-items: center; gap: 10px; }
-.restrictionOption { font-size: 12px; }
-
-.staffing-two-column {
-  display: flex;
-  gap: 24px;
-  align-items: flex-start;
-  margin-top: 10px;
-  flex-wrap: wrap;
-}
-
-.staff-column { flex: 1; min-width: 360px; }
-
-.staff-column > h2 {
-  margin: 0 0 8px;
-  font-size: 18px;
-  color: var(--brand);
-}
-
-.staff-card {
-  background: var(--card);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 12px 16px;
-  margin-bottom: 16px;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
-}
-
-.staff-card-header { font-weight: 600; margin-bottom: 8px; color: #003c6d; }
-
-.staff-inline-controls{
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  align-items: center;
-  margin-bottom: 8px;
-  font-size: 13px;
-}
-.staff-inline-controls label { font-weight: 500; }
-.staff-inline-controls select { padding: 2px 4px; }
-.staff-inline-controls button { padding: 4px 10px; font-size: 13px; }
-
-.staff-subtitle { font-weight: 600; font-size: 13px; margin: 4px 0 6px; }
 
 /* =========================
-   Staffing Details — 3-column layout (Support + Current + Oncoming)
+   BUTTONS (GLOBAL)
 ========================= */
-
-.staffing-three-column {
-  display: flex;
-  gap: 24px;
-  align-items: flex-start;
-  margin-top: 10px;
-  flex-wrap: wrap;
-}
-
-.staff-column--support {
-  min-width: 280px;
-  max-width: 360px;
-}
-
-.staff-role-row {
-  display: grid;
-  grid-template-columns: 1fr;
-  gap: 6px;
-  margin-bottom: 10px;
-}
-
-.staff-role-row input {
-  padding: 6px 8px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  font-size: 14px;
-}
-
-/* On wide screens: 3 columns; on smaller screens: stack nicely */
-@media (min-width: 1200px) {
-  .staffing-three-column {
-    flex-wrap: nowrap;
-  }
-  .staff-column--support {
-    flex: 0 0 320px;
-  }
-  .staffing-three-column .staff-column:not(.staff-column--support) {
-    flex: 1;
-    min-width: 360px;
-  }
-}
-
-/* =====================================================
-   PATIENT LIST
-===================================================== */
-
-#patientList {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.patientRow {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-  background: white;
-  padding: 8px;
-  border-radius: 6px;
-  box-shadow: 0 1px 4px rgba(0,0,0,0.08);
-}
-
-.patientRow.empty { opacity: 0.6; }
-
-.patientRow strong {
+button{
   cursor: pointer;
-  padding: 3px 6px;
-  border-radius: 4px;
-  background: #e8f1ff;
+  border: none;
+  padding: 6px 10px;
+  border-radius: 12px;
+  transition: transform 120ms ease, box-shadow 120ms ease, background 120ms ease;
 }
 
-.reviewBtn { background: #eee; border: none; padding: 4px 6px; cursor: pointer; }
-.reviewBtn.reviewed { background: #b2ffc0; }
-.deleteBtn { background: #ffcccc; border: none; padding: 4px 6px; cursor: pointer; }
-.addBtn { background: #ccf2ff; border: none; padding: 4px 6px; cursor: pointer; }
+button:hover{
+  transform: translateY(-1px);
+  box-shadow: 0 10px 20px rgba(2,6,23,0.08);
+}
+
+button:active{
+  transform: translateY(0px);
+  box-shadow: 0 6px 12px rgba(2,6,23,0.06);
+}
+
+/* Quick utility buttons */
+.queue-btn{ background: #e8f2ff; }
+.queue-btn:hover{ background: #d3e8ff; }
 
 .room-link-btn{
   background: none;
@@ -346,1022 +119,20 @@ hr {
   cursor: pointer;
   font: inherit;
 }
-.room-link-btn:focus { outline: none; }
-
-/* =====================================================
-   LOAD SCORE COLORS (KEEP!)
-===================================================== */
-
-.load-good   { border-left: 10px solid #4CAF50; }
-.load-medium { border-left: 10px solid #ffc107; }
-.load-high   { border-left: 10px solid #ff5252; }
-
-/* =====================================================
-   ASSIGNMENT CARDS (RN + PCA) — CLEAN “TILE” THEME (NEW)
-   Applies to Live + Oncoming RN/PCA blocks while keeping load bars.
-===================================================== */
-
-/* Target the actual assignment blocks your renderer makes */
-#liveNurseAssignments .nurseBlock,
-#livePcaAssignments .pcaBlock,
-#assignmentOutput .nurseBlock,
-#pcaAssignmentOutput .pcaBlock,
-#liveNurseAssignments .liveCard,
-#livePcaAssignments .liveCard {
-  background: var(--card-bg);
-  border: 1px solid var(--card-border);
-  border-radius: 10px;
-  box-shadow: var(--card-shadow);
-  margin: 0;
-  overflow: hidden; /* so header strip looks crisp */
-}
-
-#liveNurseAssignments .nurseBlock:hover,
-#livePcaAssignments .pcaBlock:hover,
-#assignmentOutput .nurseBlock:hover,
-#pcaAssignmentOutput .pcaBlock:hover {
-  box-shadow: var(--card-shadow-hover);
-}
-
-/* Card “top area” (name + meta line). Your HTML uses .liveCardHeader/.card-meta in places */
-.liveCardHeader,
-.liveCard .card-meta,
-.card-meta {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-
-/* Make the top header area look like screenshot #1: subtle strip */
-#liveNurseAssignments .liveCardHeader,
-#livePcaAssignments .liveCardHeader,
-#assignmentOutput .liveCardHeader,
-#pcaAssignmentOutput .liveCardHeader,
-#liveNurseAssignments .liveCardHeader + div,
-#assignmentOutput .liveCardHeader + div {
-  background: var(--card-header-bg);
-  color: var(--card-header-text);
-}
-
-/* If your renderer doesn’t wrap the header in a dedicated element,
-   we still want the first row of content to read cleanly */
-#liveNurseAssignments .nurseBlock > div:first-child,
-#livePcaAssignments .pcaBlock > div:first-child,
-#assignmentOutput .nurseBlock > div:first-child,
-#pcaAssignmentOutput .pcaBlock > div:first-child {
-  padding: 10px 12px 6px;
-}
-
-#liveNurseAssignments .nurseBlock > div:first-child strong,
-#livePcaAssignments .pcaBlock > div:first-child strong,
-#assignmentOutput .nurseBlock > div:first-child strong,
-#pcaAssignmentOutput .pcaBlock > div:first-child strong{
-  color: #0f172a;
-}
-
-/* Meta line (Patients | Load Score) */
-.card-meta{
-  font-size: 14px;
-  color: #111827;
-  font-weight: 600;
-}
-
-/* Optional: small “Drivers/Report sources” lines read cleaner */
-#liveNurseAssignments .nurseBlock small,
-#livePcaAssignments .pcaBlock small,
-#assignmentOutput .nurseBlock small,
-#pcaAssignmentOutput .pcaBlock small{
-  color: var(--muted);
-}
-
-/* Tables inside assignment cards */
-#liveNurseAssignments table,
-#livePcaAssignments table,
-#assignmentOutput table,
-#pcaAssignmentOutput table{
-  width: 100%;
-  border-collapse: collapse;
-  table-layout: fixed;
-  margin-top: 0;
-}
-
-/* Table header */
-#liveNurseAssignments th,
-#livePcaAssignments th,
-#assignmentOutput th,
-#pcaAssignmentOutput th{
-  background: var(--table-head-bg);
-  color: #0f172a;
-  font-weight: 700;
-  font-size: 15px;
-  padding: 10px 8px;
-  text-align: center;
-  border-bottom: 1px solid var(--table-divider);
-}
-
-/* Table cells */
-#liveNurseAssignments td,
-#livePcaAssignments td,
-#assignmentOutput td,
-#pcaAssignmentOutput td{
-  font-size: 15px; /* match your “Patients | Load Score” vibe */
-  padding: 10px 8px;
-  text-align: center;
-  vertical-align: middle;
-  border-bottom: 1px solid var(--table-divider);
-  background: #fff;
-}
-
-#liveNurseAssignments tbody tr:hover td,
-#livePcaAssignments tbody tr:hover td,
-#assignmentOutput tbody tr:hover td,
-#pcaAssignmentOutput tbody tr:hover td{
-  background: var(--table-row-hover);
-}
-
-/* Keep row height consistent */
-#liveNurseAssignments tbody tr,
-#livePcaAssignments tbody tr,
-#assignmentOutput tbody tr,
-#pcaAssignmentOutput tbody tr{
-  height: 34px;
-}
-
-/* Make sure 4th column (Prev RN/PCA) never disappears */
-#assignmentOutput table,
-#pcaAssignmentOutput table{
-  table-layout: auto !important;
-}
-#assignmentOutput th:nth-child(4),
-#assignmentOutput td:nth-child(4),
-#pcaAssignmentOutput th:nth-child(4),
-#pcaAssignmentOutput td:nth-child(4){
-  min-width: 110px;
-  white-space: nowrap;
-}
-
-/* Allow acuity notes to wrap a bit if needed without pushing Prev col off */
-#assignmentOutput th:nth-child(3),
-#assignmentOutput td:nth-child(3),
-#pcaAssignmentOutput th:nth-child(3),
-#pcaAssignmentOutput td:nth-child(3){
-  white-space: normal;
-}
-
-/* =====================================================
-   LIVE Assignment — layout rules (keep what you had)
-===================================================== */
-
-/* RN grid (3 across desktop, responsive down) */
-#liveNurseAssignments{
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 12px;
-  align-items: start;
-}
-@media (max-width: 1200px){
-  #liveNurseAssignments{ grid-template-columns: repeat(2, minmax(0, 1fr)); }
-}
-@media (max-width: 700px){
-  #liveNurseAssignments{ grid-template-columns: 1fr; }
-}
-
-/* PCA row on LIVE: horizontal row with scroll if too many */
-#livePcaAssignments{
-  display: flex !important;
-  flex-wrap: nowrap;
-  gap: 10px;
-  align-items: stretch;
-  overflow-x: auto;
-  padding-bottom: 6px;
-}
-#livePcaAssignments .pcaBlock,
-#livePcaAssignments .liveCard{
-  flex: 0 0 240px;
-  max-width: 240px;
-}
-
-/* =====================================================
-   ONCOMING Assignment — layout rules (grid that fills width)
-===================================================== */
-
-#assignmentOutput,
-#pcaAssignmentOutput{
-  display: grid;
-  gap: 12px;
-  align-items: start;
-}
-
-/* Incoming RN cards */
-#assignmentOutput{
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-}
-@media (max-width: 1400px){
-  #assignmentOutput{ grid-template-columns: repeat(2, minmax(0, 1fr)); }
-}
-@media (max-width: 900px){
-  #assignmentOutput{ grid-template-columns: 1fr; }
-}
-
-/* Incoming PCA cards */
-#pcaAssignmentOutput{
-  grid-template-columns: repeat(5, minmax(0, 1fr));
-}
-@media (max-width: 1700px){
-  #pcaAssignmentOutput{ grid-template-columns: repeat(4, minmax(0, 1fr)); }
-}
-@media (max-width: 1400px){
-  #pcaAssignmentOutput{ grid-template-columns: repeat(3, minmax(0, 1fr)); }
-}
-@media (max-width: 1100px){
-  #pcaAssignmentOutput{ grid-template-columns: repeat(2, minmax(0, 1fr)); }
-}
-@media (max-width: 800px){
-  #pcaAssignmentOutput{ grid-template-columns: 1fr; }
-}
-
-/* Ensure the Oncoming PCA row “fills” width when fewer cards:
-   grid already does this; each card stretches to its column. */
-#pcaAssignmentOutput .pcaBlock{
-  width: 100%;
-}
-
-/* =====================================================
-   HIGH ACUITY TILES
-===================================================== */
-
-.tilesGrid{
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
-  gap: 12px;
-}
-
-#acuityTiles{
-  margin-top: 1rem;
-  display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
-  grid-auto-rows: minmax(140px, auto);
-  gap: 12px;
-}
-
-.acuity-tile{
-  background: #ffffff;
-  border-radius: 8px;
-  padding: 10px 12px;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
-  border: 1px solid #e3e7ee;
-  display: flex;
-  flex-direction: column;
-  justify-content: space-between;
-}
-
-.acuity-tile-title{
-  font-size: 0.9rem;
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: #374151;
-  margin-bottom: 4px;
-}
-
-.acuity-tile-count{
-  font-size: 1.9rem;
-  font-weight: 700;
-  color: #111827;
-  margin-bottom: 6px;
-}
-
-.acuity-tile-rooms{
-  font-size: 0.8rem;
-  color: #4b5563;
-  line-height: 1.35;
-  max-height: 3.5rem;
-  overflow-y: auto;
-}
-
-.acuity-tile-rooms strong{
-  font-weight: 600;
-  color: #111827;
-}
-
-@media (max-width: 1200px){
-  #acuityTiles{ grid-template-columns: repeat(3, minmax(0, 1fr)); }
-}
-@media (max-width: 800px){
-  #acuityTiles{ grid-template-columns: repeat(2, minmax(0, 1fr)); }
-}
-
-/* =====================================================
-   DISCHARGE BIN
-===================================================== */
-
-#dischargeBin{
-  background: #ffe6e6;
-  padding: 12px;
-  border: 2px dashed #ff5252;
-  border-radius: 6px;
-  margin-bottom: 20px;
-  text-align: center;
-  font-weight: bold;
-}
-
-/* =====================================================
-   QUEUE LIST
-===================================================== */
-
-.queueList{ display: flex; flex-direction: column; gap: 12px; }
-
-.queue-item{
-  background: white;
-  padding: 12px;
-  border-radius: 6px;
-  box-shadow: 0 1px 6px rgba(0,0,0,0.10);
-}
-
-.queue-item-header{ display: flex; justify-content: space-between; }
-
-.queue-item-title input{
-  width: 150px;
-  font-size: 16px;
-}
-
-.queue-item-tags{
-  margin: 10px 0;
-  font-size: 13px;
-  color: #555;
-}
-
-.queue-item-actions button{ margin-right: 8px; }
-
-/* =====================================================
-   BUTTONS
-===================================================== */
-
-button{
-  cursor: pointer;
-  border-radius: 4px;
-  border: none;
-  padding: 6px 10px;
-}
-
-.queue-btn{ background: #e8f2ff; }
-.queue-btn:hover{ background: #d3e8ff; }
-
-/* =====================================================
-   MODALS
-===================================================== */
-
-.modal{
-  display: none;
-  position: fixed;
-  inset: 0;
-  background: rgba(0,0,0,0.55);
-  justify-content: center;
-  align-items: center;
-  z-index: 9999;
-}
-
-.modal-content{
-  background: white;
-  max-width: 550px;
-  padding: 20px;
-  border-radius: 8px;
-  box-shadow: 0 4px 14px rgba(0,0,0,0.4);
-}
-
-.modal-grid{
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 6px;
-}
-
-.modal-section{ margin: 10px 0; }
-
-/* =====================================================
-   HISTORY
-===================================================== */
-
-.history-entry{
-  background: #f9f9f9;
-  padding: 10px;
-  border-radius: 6px;
-  margin-bottom: 10px;
-  border-left: 4px solid #008fff;
-}
-
-.history-entry-title{ font-weight: bold; }
-.history-entry-meta{ font-size: 12px; color: #555; }
-.history-entry-tags{ margin: 8px 0; font-size: 13px; }
+.room-link-btn:focus{ outline: none; }
 
 /* =========================
-   HIGH RISK TILES — centered title + big count + bottom Rooms footer
-   Paste at END of style.css
-   ========================= */
-
-#acuityTiles {
-  margin-top: 1rem;
-  display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
-  grid-auto-rows: minmax(140px, auto);
-  gap: 12px;
-}
-
-#acuityTiles .acuity-tile {
-  background: #ffffff;
-  border-radius: 10px;
-  padding: 14px 14px 12px;
-  border: 1px solid #e3e7ee;
-  box-shadow: 0 1px 3px rgba(0,0,0,0.08);
-
-  display: flex;
-  flex-direction: column;
-  justify-content: space-between; /* pushes footer to bottom */
-  text-align: center;
-  min-height: 140px;
-}
-
-#acuityTiles .acuity-tile-title {
-  font-size: 0.95rem;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: #111827;
-  margin: 0 0 10px;
-  text-align: center;
-}
-
-#acuityTiles .acuity-tile-count {
-  font-size: 44px;
-  font-weight: 800;
-  line-height: 1;
-  margin: 0;
-  color: #111827;
-  text-align: center;
-}
-
-#acuityTiles .acuity-tile-rooms {
-  margin-top: 12px;
-  padding-top: 10px;
-  border-top: 1px solid #e5e7eb;
-
-  text-align: left;     /* label style */
-  font-size: 13px;
-  color: #4b5563;
-  line-height: 1.25;
-}
-
-#acuityTiles .acuity-tile-rooms strong {
-  color: #111827;
-  font-weight: 700;
-}
-
-/* Responsive */
-@media (max-width: 1200px) {
-  #acuityTiles { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-}
-@media (max-width: 800px) {
-  #acuityTiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-}
-
-/* =====================================================
-   HIGH RISK REPORT — Square tiles + centered layout + bigger Rooms line
-   Paste at VERY BOTTOM of style.css
-===================================================== */
-
-#acuityTiles {
-  /* keep your grid, but ensure consistent square-ish tiles */
-  align-items: stretch;
-}
-
-#acuityTiles .acuity-tile {
-  /* Make tiles square-ish: height ~= width.
-     This uses aspect-ratio, which is well supported in modern browsers. */
-  aspect-ratio: .85 / 0.55;
-  min-height: 180px; /* safety so they don't get too tiny */
-  display: flex;
-  flex-direction: column;
-  justify-content: space-between;
-  text-align: center;
-}
-
-#acuityTiles .acuity-tile-title {
-  margin-top: 10px;
-  text-align: center;
-  font-weight: 800;
-}
-
-#acuityTiles .acuity-tile-count {
-  text-align: center;
-  font-size: 60px; /* big and punchy */
-  font-weight: 800;
-  line-height: 1;
-  margin: 6px 0 8px;
-}
-
-#acuityTiles .acuity-tile-footer {
-  margin-top: auto;
-  padding-top: 10px;
-  border-top: 1px solid #e5e7eb;
-  font-size: 16px;      /* BIGGER "Rooms:" */
-  font-weight: 700;
-  text-align: left;     /* reads nicely as a label */
-}
-
-@media (max-width: 900px) {
-  #acuityTiles .acuity-tile-count {
-    font-size: 60px;
-  }
-  #acuityTiles .acuity-tile-footer {
-    font-size: 15px;
-  }
-}
-
-/* =====================================================
-   Staffing Details — tighten top spacing + leadership column tweaks
-   ===================================================== */
-
-/* Reduce extra grey space above page content */
-.tab-section {
-  padding-top: 10px; /* was 20px */
-}
-
-/* Tighten the H1 a bit so it sits closer to header */
-#staffingTab h1 {
-  margin-top: 8px;
-  margin-bottom: 12px;
-}
-
-/* Make the 3 columns align flush at the top */
-.staffing-three-column {
-  margin-top: 6px; /* reduce whitespace above cards */
-  align-items: flex-start;
-}
-
-/* Leadership column: keep it visually aligned and clean */
-.staff-column--support > h2 {
-  margin-top: 0; /* ensure header aligns with other column headers */
-}
-
-/* Make Leadership Team a single card, with a nice internal divider */
-.leadership-card {
-  padding-top: 14px;
-}
-
-.leadership-divider {
-  border: none;
-  border-top: 1px solid var(--border);
-  margin: 12px 0;
-  opacity: 0.9;
-}
-
-/* =====================================================
-   LIVE: Admit Queue "Queue Area" (compact, above RN cards)
-===================================================== */
-
-.queue-area{
-  margin: 14px 0 18px;
-  background: #ffffff;
-  border: 1px solid var(--card-border, #dfe7f2);
-  border-radius: 10px;
-  box-shadow: var(--card-shadow, 0 1px 2px rgba(16,24,40,0.06));
-  padding: 12px 12px 10px;
-}
-
-/* Header row: title left, add button right */
-.queue-area-header{
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding-bottom: 10px;
-  border-bottom: 1px solid #e5e7eb;
-  margin-bottom: 10px;
-}
-
-.queue-area-header button{
-  background: #e8f2ff;
-  padding: 8px 12px;
-  border-radius: 8px;
-  font-weight: 700;
-}
-
-/* Compact list container */
-.queue-list-compact{
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-
-  /* keeps it from taking over the page */
-  max-height: 240px;     /* tuned for ~3-4 admits */
-  overflow-y: auto;
-  padding-right: 6px;    /* room for scrollbar */
-}
-
-/* Make each admit row more compact inside the new area */
-.queue-list-compact .queue-item{
-  padding: 10px 10px;
-  border-radius: 10px;
-}
-
-/* If your queue item header is wide, tighten it */
-.queue-list-compact .queue-item-header{
-  gap: 10px;
-  align-items: center;
-}
-
-/* Buttons in queue item: smaller + tidy */
-.queue-list-compact .queue-item-actions button{
-  padding: 6px 10px;
-  border-radius: 8px;
-  font-weight: 700;
-}
-
-/* Slightly reduce text sizes so 3–4 items fit comfortably */
-.queue-list-compact .queue-item-title input{
-  font-size: 14px;
-  width: 170px;
-}
-
-.queue-list-compact .queue-item-tags{
-  font-size: 12px;
-  margin: 8px 0 0;
-}
-
-/* Nice scrollbar (optional) */
-.queue-list-compact::-webkit-scrollbar{
-  width: 10px;
-}
-.queue-list-compact::-webkit-scrollbar-thumb{
-  background: #d6dde8;
-  border-radius: 999px;
-}
-.queue-list-compact::-webkit-scrollbar-track{
-  background: transparent;
-}
-
-/* =====================================================
-   LIVE RN GRID — Add a "utility tile" in the 9th slot
-   Paste at VERY BOTTOM of style.css
-===================================================== */
-
-/* Make a 2-item layout where the RN grid + utility tile behave like a single grid */
-.live-rn-grid-with-utility{
-  display: grid;
-  grid-template-columns: 1fr;
-  gap: 12px;
-}
-
-/* The existing #liveNurseAssignments is already a 3-col grid.
-   We make it continue to be 3-col, then place a utility card that matches sizing. */
-#liveNurseAssignments{
-  grid-column: 1 / -1;
-}
-
-/* Utility card styling */
-.live-utility-tile{
-  background: var(--card-bg);
-  border: 1px solid var(--card-border);
-  border-radius: 10px;
-  box-shadow: var(--card-shadow);
-  overflow: hidden;
-  padding: 12px;
-}
-
-/* Header row inside utility tile */
-.live-utility-header{
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  padding-bottom: 10px;
-  border-bottom: 1px solid var(--table-divider);
-  margin-bottom: 10px;
-}
-
-.live-utility-meta{
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  margin-bottom: 10px;
-  font-size: 14px;
-}
-
-/* Buttons inside the tile */
-.live-utility-btn{
-  background: #e8f2ff;
-  border: none;
-  padding: 6px 10px;
-  border-radius: 6px;
-  cursor: pointer;
-  font-weight: 600;
-  font-size: 13px;
-}
-.live-utility-btn:hover{
-  background: #d3e8ff;
-}
-
-/* Drop zone inside the tile */
-.discharge-drop-zone--tile{
-  border: 2px dashed #ff5252;
-  border-radius: 8px;
-  padding: 12px;
-  text-align: center;
-  font-weight: 700;
-  background: #fff5f5;
-}
-
-/* Place the utility tile so it "feels" like the 9th RN card:
-   we align it with the RN grid columns by matching width behavior */
-.live-column--rn .live-rn-grid-with-utility{
-  align-items: start;
-}
-
-/* On desktop, show utility tile under the RN grid, visually in the open area.
-   The RN grid already flows 3 columns; the extra tile naturally sits as the next block. */
-@media (min-width: 701px){
-  .live-utility-tile{
-    max-width: none;
-  }
-}
-
-/* On smaller screens, everything stacks cleanly */
-@media (max-width: 700px){
-  .live-utility-header,
-  .live-utility-meta{
-    flex-direction: column;
-    align-items: flex-start;
-  }
-}
-
-/* =====================================================
-   LIVE: Discharge Bin as a dedicated 9th grid slot card
-===================================================== */
-
-#dischargeBinCard.discharge-card{
-  background: var(--card-bg, #fff);
-  border: 1px solid var(--card-border, #dfe7f2);
-  border-radius: 10px;
-  box-shadow: var(--card-shadow, 0 1px 2px rgba(16,24,40,0.06));
-  padding: 12px;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  min-height: 220px; /* helps it “feel” like a true grid tile */
-}
-
-#dischargeBinCard .discharge-card-header{
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-}
-
-#dischargeBinCard .discharge-title{
-  font-weight: 800;
-  color: #0f172a;
-}
-
-#dischargeBinCard .discharge-clear-btn{
-  background: #e8f2ff;
-  border: 0;
-  border-radius: 8px;
-  padding: 6px 10px;
-  font-weight: 700;
-  font-size: 12px;
-  cursor: pointer;
-}
-
-#dischargeBinCard .discharge-clear-btn:hover{
-  background: #d3e8ff;
-}
-
-#dischargeBinCard .discharge-meta{
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  font-size: 13px;
-  color: #111827;
-}
-
-#dischargeBinCard .discharge-history-btn{
-  background: #e8f2ff;
-  border: 0;
-  border-radius: 8px;
-  padding: 6px 10px;
-  font-weight: 700;
-  font-size: 12px;
-  cursor: pointer;
-}
-
-#dischargeBinCard .discharge-history-btn:hover{
-  background: #d3e8ff;
-}
-
-/* Make drop zone fit card, not full-width bar */
-#dischargeBinCard .discharge-drop-zone--card{
-  flex: 1;
-  min-height: 110px;
-  border: 2px dashed #ff5252;
-  border-radius: 10px;
-  background: #fff7f7;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-weight: 800;
-  color: #111827;
-  text-align: center;
-  padding: 10px;
-}
-
-#dischargeBinCard .discharge-helper{
-  font-size: 12px;
-  color: #6b7280;
-  line-height: 1.2;
-}
-
-/* =====================================================
-   LIVE RN area: reserve a right-side tile for Discharge Bin
-===================================================== */
-
-.rn-grid-with-discharge{
-  display: grid;
-  grid-template-columns: 2fr 1fr; /* RN area wide + discharge tile column */
-  gap: 12px;
-  align-items: start;
-}
-
-/* RN grid stays a grid itself (your existing rules still apply) */
-#liveNurseAssignments{
-  grid-column: 1 / 2;
-}
-
-/* Make RN cards 2-up inside the RN region so the discharge card feels like the 3rd column */
-#liveNurseAssignments{
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
-  align-items: start;
-}
-
-/* Responsive: if screen gets smaller, stack discharge under RN grid */
-@media (max-width: 1200px){
-  .rn-grid-with-discharge{
-    grid-template-columns: 1fr;
-  }
-  #dischargeBinCard{
-    grid-column: 1 / -1;
-  }
-  #liveNurseAssignments{
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-}
-@media (max-width: 700px){
-  #liveNurseAssignments{
-    grid-template-columns: 1fr;
-  }
-}
-
-/* Discharge card styling (same as before, kept) */
-#dischargeBinCard.discharge-card{
-  background: var(--card-bg, #fff);
-  border: 1px solid var(--card-border, #dfe7f2);
-  border-radius: 10px;
-  box-shadow: var(--card-shadow, 0 1px 2px rgba(16,24,40,0.06));
-  padding: 12px;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  min-height: 220px;
-}
-
-#dischargeBinCard .discharge-card-header{
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-}
-
-#dischargeBinCard .discharge-title{
-  font-weight: 800;
-  color: #0f172a;
-}
-
-#dischargeBinCard .discharge-clear-btn,
-#dischargeBinCard .discharge-history-btn{
-  background: #e8f2ff;
-  border: 0;
-  border-radius: 8px;
-  padding: 6px 10px;
-  font-weight: 700;
-  font-size: 12px;
-  cursor: pointer;
-}
-#dischargeBinCard .discharge-clear-btn:hover,
-#dischargeBinCard .discharge-history-btn:hover{
-  background: #d3e8ff;
-}
-
-#dischargeBinCard .discharge-meta{
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  font-size: 13px;
-  color: #111827;
-}
-
-#dischargeBinCard .discharge-drop-zone--card{
-  flex: 1;
-  min-height: 110px;
-  border: 2px dashed #ff5252;
-  border-radius: 10px;
-  background: #fff7f7;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-weight: 800;
-  color: #111827;
-  text-align: center;
-  padding: 10px;
-}
-
-#dischargeBinCard .discharge-helper{
-  font-size: 12px;
-  color: #6b7280;
-  line-height: 1.2;
-}
-
-/* =========================
-   LIVE RN GRID: force 3x3
-   ========================= */
-
-/* RN assignments container should be a 3-col grid */
-#liveNurseAssignments.live-grid-nurse {
-  display: grid !important;
-  grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
-  gap: 14px !important;
-  align-items: start !important;
-}
-
-/* If you have a generic .assignment-grid rule forcing 2 columns, override it */
-.assignment-grid.live-grid-nurse {
-  grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
-}
-
-/* Make sure RN tiles behave as grid items */
-#liveNurseAssignments .nurseBlock,
-#liveNurseAssignments .dischargeBinCard {
-  width: 100%;
-  min-width: 0;
-}
-
-/* Pin discharge bin into the 9th slot: col 3 / row 3 */
-#dischargeBinCard.dischargeBinCard {
-  grid-column: 3 !important;
-  grid-row: 3 !important;
-}
-
-/* If the screen is too narrow for 3 columns, fall back gracefully */
-@media (max-width: 1100px) {
-  #liveNurseAssignments.live-grid-nurse {
-    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
-  }
-  #dischargeBinCard.dischargeBinCard {
-    grid-column: auto !important;
-    grid-row: auto !important;
-  }
-}
-
-/* RN live grid should always be 3 columns */
-.live-grid-nurse {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(320px, 1fr));
-  gap: 16px;
-  align-items: start;
-}
-
-/* The reserved 9th slot */
-.rn-grid-slot-9 {
-  grid-column: 3;
-  grid-row: 3;
-  min-height: 220px;
-}
-
-/* Optional: make discharge card look consistent */
-.discharge-card .discharge-drop-zone {
-  min-height: 70px;
-}
-
-/* =====================================================
-   HEADER: brand + tabs + compact auth dropdown
-   Paste at VERY BOTTOM of style.css
-===================================================== */
-
+   TOP STICKY HEADER + INLINE TABS
+========================= */
 .app-header{
-  background: #fff;
+  position: sticky;
+  top: 0;
+  z-index: 1000;
+
+  background: rgba(255,255,255,0.85);
+  backdrop-filter: blur(10px);
   border-bottom: 1px solid var(--border);
+
   display: flex;
   align-items: center;
   gap: 14px;
@@ -1416,7 +187,6 @@ button{
   text-overflow: ellipsis;
 }
 
-/* tabs center: allow horizontal scroll instead of smushing */
 .top-tabs{
   display: flex;
   align-items: center;
@@ -1427,9 +197,36 @@ button{
   padding-bottom: 2px;
 }
 
-.top-tabs .tabButton{
+.top-tabs::-webkit-scrollbar{ height: 8px; }
+.top-tabs::-webkit-scrollbar-thumb{
+  background: #d6dde8;
+  border-radius: 999px;
+}
+.top-tabs::-webkit-scrollbar-track{ background: transparent; }
+
+.tabButton{
   flex: 0 0 auto;
-  border-radius: 10px;
+  color: white;
+  background: rgba(2,132,199,0.85);
+  border: none;
+  padding: 9px 14px;
+  cursor: pointer;
+  border-radius: 999px;
+  font-weight: 800;
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.tabButton.active{
+  background: rgba(59,130,246,0.95);
+  box-shadow: 0 10px 18px rgba(59,130,246,0.18);
+}
+
+.tabButton:hover{ background: rgba(2,132,199,0.98); }
+
+@media (max-width: 900px){
+  .app-header-left{ min-width: 220px; }
+  .brand-subtitle{ display: none; }
 }
 
 /* right auth */
@@ -1440,9 +237,22 @@ button{
   min-width: 56px;
 }
 
-.auth-menu{
-  position: relative;
+/* legacy tabs bar (disable) */
+#header,
+.tab-bar{
+  display: none !important;
 }
+
+/* tab-section baseline */
+.tab-section{
+  display: none;
+  padding: 20px;
+}
+
+/* =========================
+   AUTH DROPDOWN (header)
+========================= */
+.auth-menu{ position: relative; }
 
 .auth-menu-btn{
   width: 42px;
@@ -1456,17 +266,10 @@ button{
   justify-content: center;
   cursor: pointer;
 }
+.auth-menu-btn:hover{ background: #f8fafc; }
 
-.auth-menu-btn:hover{
-  background: #f8fafc;
-}
+.auth-avatar{ font-size: 18px; line-height: 1; }
 
-.auth-avatar{
-  font-size: 18px;
-  line-height: 1;
-}
-
-/* dropdown */
 .auth-dropdown{
   position: absolute;
   right: 0;
@@ -1481,7 +284,6 @@ button{
   display: none;
   z-index: 2000;
 }
-
 .auth-dropdown.open{ display: block; }
 
 .auth-dropdown-header{
@@ -1508,7 +310,6 @@ button{
   cursor: pointer;
   font-weight: 900;
 }
-
 .auth-x:hover{ background: #e2e8f0; }
 
 .auth-block{
@@ -1539,8 +340,17 @@ button{
   font-weight: 800;
   border: 0;
 }
-
 .auth-primary-btn:hover{ background: #008ce6; }
+
+.auth-secondary-btn{
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: #e8f2ff;
+  color: #003c6d;
+  font-weight: 800;
+  border: 1px solid #cfe3ff;
+}
+.auth-secondary-btn:hover{ background: #d3e8ff; }
 
 .auth-danger-btn{
   padding: 10px 12px;
@@ -1550,8 +360,17 @@ button{
   font-weight: 800;
   border: 0;
 }
-
 .auth-danger-btn:hover{ background: #dc2626; }
+
+.auth-ghost-btn{
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: #ffffff;
+  color: #0f172a;
+  font-weight: 800;
+  border: 1px solid #cbd5e1;
+}
+.auth-ghost-btn:hover{ background: #f8fafc; }
 
 .auth-userline{
   display: flex;
@@ -1585,75 +404,676 @@ button{
   min-height: 16px;
 }
 
-/* responsive: reduce brand width so tabs keep room */
-@media (max-width: 900px){
-  .app-header-left{ min-width: 220px; }
-  .brand-subtitle{ display: none; }
+/* =========================
+   STAFFING PANELS
+========================= */
+.staffBlock{
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  border-radius: 16px;
+  box-shadow: var(--card-shadow);
+  backdrop-filter: blur(6px);
+  padding: 15px;
+  margin-top: 15px;
+}
+
+.staffList .nurseRow,
+.staffList .pcaRow{
+  display: flex;
+  align-items: center;
+  gap: 15px;
+  background: rgba(248,250,252,0.75);
+  padding: 8px;
+  border-radius: 12px;
+  margin-bottom: 8px;
+  border: 1px solid rgba(148,163,184,0.25);
+}
+
+.restrictionsGroup{ display: flex; align-items: center; gap: 10px; }
+.restrictionOption{ font-size: 12px; }
+
+.staffing-two-column{
+  display: flex;
+  gap: 24px;
+  align-items: flex-start;
+  margin-top: 10px;
+  flex-wrap: wrap;
+}
+
+.staff-column{ flex: 1; min-width: 360px; }
+
+.staff-column > h2{
+  margin: 0 0 8px;
+  font-size: 18px;
+  color: var(--brand);
+}
+
+.staff-card{
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  border-radius: 16px;
+  padding: 12px 16px;
+  margin-bottom: 16px;
+  box-shadow: var(--card-shadow);
+  backdrop-filter: blur(6px);
+}
+
+.staff-card-header{
+  font-weight: 800;
+  margin-bottom: 8px;
+  color: #0f172a;
+}
+
+.staff-inline-controls{
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 8px;
+  font-size: 13px;
+}
+.staff-inline-controls label{ font-weight: 700; }
+.staff-inline-controls select{ padding: 2px 4px; }
+.staff-inline-controls button{ padding: 4px 10px; font-size: 13px; }
+
+.staff-subtitle{ font-weight: 800; font-size: 13px; margin: 4px 0 6px; }
+
+/* Staffing Details — 3-column layout */
+.staffing-three-column{
+  display: flex;
+  gap: 24px;
+  align-items: flex-start;
+  margin-top: 6px;
+  flex-wrap: wrap;
+}
+
+.staff-column--support{
+  min-width: 280px;
+  max-width: 360px;
+}
+
+.staff-role-row{
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.staff-role-row input{
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  font-size: 14px;
+}
+
+@media (min-width: 1200px){
+  .staffing-three-column{ flex-wrap: nowrap; }
+  .staff-column--support{ flex: 0 0 320px; }
+  .staffing-three-column .staff-column:not(.staff-column--support){
+    flex: 1;
+    min-width: 360px;
+  }
 }
 
 /* =========================
-   Patient Details — clean table/grid UI
-   ========================= */
+   PATIENT LIST (legacy list view)
+========================= */
+#patientList{
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
 
-.patient-table-wrap{
-  background: #fff;
-  border: 1px solid var(--border);
+.patientRow{
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  border-radius: 16px;
+  box-shadow: var(--card-shadow);
+  backdrop-filter: blur(6px);
+  padding: 8px;
+}
+.patientRow.empty{ opacity: 0.6; }
+
+.patientRow strong{
+  cursor: pointer;
+  padding: 3px 6px;
   border-radius: 10px;
-  box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+  background: #e8f1ff;
+}
+
+.reviewBtn{ background: #eee; border: none; padding: 4px 6px; cursor: pointer; }
+.reviewBtn.reviewed{ background: #b2ffc0; }
+.deleteBtn{ background: #ffcccc; border: none; padding: 4px 6px; cursor: pointer; }
+.addBtn{ background: #ccf2ff; border: none; padding: 4px 6px; cursor: pointer; }
+
+/* =========================
+   LOAD SCORE COLORS (KEEP)
+========================= */
+.load-good{   border-left: 10px solid var(--good) !important; }
+.load-medium{ border-left: 10px solid var(--med)  !important; }
+.load-high{   border-left: 10px solid var(--high) !important; }
+
+.assignment-card,
+.nurseBlock,
+.pcaBlock{
+  overflow: hidden; /* keeps bar crisp */
+}
+
+/* =========================
+   ASSIGNMENT CARDS (RN + PCA) — CLEAN TILE THEME
+========================= */
+#liveNurseAssignments .nurseBlock,
+#livePcaAssignments .pcaBlock,
+#assignmentOutput .nurseBlock,
+#pcaAssignmentOutput .pcaBlock,
+#liveNurseAssignments .liveCard,
+#livePcaAssignments .liveCard{
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  border-radius: 16px;
+  box-shadow: var(--card-shadow);
+  backdrop-filter: blur(6px);
+  margin: 0;
+}
+
+#liveNurseAssignments .nurseBlock:hover,
+#livePcaAssignments .pcaBlock:hover,
+#assignmentOutput .nurseBlock:hover,
+#pcaAssignmentOutput .pcaBlock:hover{
+  box-shadow: var(--card-shadow-hover);
+}
+
+.liveCardHeader,
+.liveCard .card-meta,
+.card-meta{
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.card-meta{
+  font-size: 14px;
+  color: #111827;
+  font-weight: 800;
+}
+
+#liveNurseAssignments .nurseBlock small,
+#livePcaAssignments .pcaBlock small,
+#assignmentOutput .nurseBlock small,
+#pcaAssignmentOutput .pcaBlock small{
+  color: var(--muted);
+}
+
+#liveNurseAssignments table,
+#livePcaAssignments table,
+#assignmentOutput table,
+#pcaAssignmentOutput table{
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+  margin-top: 0;
+}
+
+#liveNurseAssignments th,
+#livePcaAssignments th,
+#assignmentOutput th,
+#pcaAssignmentOutput th{
+  background: var(--table-head-bg);
+  color: #0f172a;
+  font-weight: 900;
+  font-size: 15px;
+  padding: 10px 8px;
+  text-align: center;
+  border-bottom: 1px solid var(--table-divider);
+}
+
+#liveNurseAssignments td,
+#livePcaAssignments td,
+#assignmentOutput td,
+#pcaAssignmentOutput td{
+  font-size: 15px;
+  padding: 10px 8px;
+  text-align: center;
+  vertical-align: middle;
+  border-bottom: 1px solid var(--table-divider);
+  background: rgba(255,255,255,0.92);
+}
+
+#liveNurseAssignments tbody tr:hover td,
+#livePcaAssignments tbody tr:hover td,
+#assignmentOutput tbody tr:hover td,
+#pcaAssignmentOutput tbody tr:hover td{
+  background: var(--table-row-hover);
+}
+
+/* Oncoming: prevent 4th col disappearing */
+#assignmentOutput table,
+#pcaAssignmentOutput table{
+  table-layout: auto !important;
+}
+
+#assignmentOutput th:nth-child(4),
+#assignmentOutput td:nth-child(4),
+#pcaAssignmentOutput th:nth-child(4),
+#pcaAssignmentOutput td:nth-child(4){
+  min-width: 110px;
+  white-space: nowrap;
+}
+
+#assignmentOutput th:nth-child(3),
+#assignmentOutput td:nth-child(3),
+#pcaAssignmentOutput th:nth-child(3),
+#pcaAssignmentOutput td:nth-child(3){
+  white-space: normal;
+}
+/* =====================================================
+   style.css (FULL REPLACEMENT) — Chunk 2/2
+   (append directly after Chunk 1)
+   ===================================================== */
+
+/* =========================
+   LIVE Assignment — layout
+========================= */
+
+/* RN grid: 3 / 2 / 1 columns */
+#liveNurseAssignments{
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  align-items: start;
+}
+@media (max-width: 1200px){
+  #liveNurseAssignments{ grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 700px){
+  #liveNurseAssignments{ grid-template-columns: 1fr; }
+}
+
+/* PCA row on LIVE: horizontal scroll */
+#livePcaAssignments{
+  display: flex !important;
+  flex-wrap: nowrap;
+  gap: 10px;
+  align-items: stretch;
+  overflow-x: auto;
+  padding-bottom: 6px;
+}
+#livePcaAssignments .pcaBlock,
+#livePcaAssignments .liveCard{
+  flex: 0 0 240px;
+  max-width: 240px;
+}
+
+/* =========================
+   ONCOMING Assignment — layout
+========================= */
+#assignmentOutput,
+#pcaAssignmentOutput{
+  display: grid;
+  gap: 12px;
+  align-items: start;
+}
+
+#assignmentOutput{
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+@media (max-width: 1400px){
+  #assignmentOutput{ grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 900px){
+  #assignmentOutput{ grid-template-columns: 1fr; }
+}
+
+#pcaAssignmentOutput{
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+@media (max-width: 1700px){
+  #pcaAssignmentOutput{ grid-template-columns: repeat(4, minmax(0, 1fr)); }
+}
+@media (max-width: 1400px){
+  #pcaAssignmentOutput{ grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+@media (max-width: 1100px){
+  #pcaAssignmentOutput{ grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 800px){
+  #pcaAssignmentOutput{ grid-template-columns: 1fr; }
+}
+
+#pcaAssignmentOutput .pcaBlock{ width: 100%; }
+
+/* =========================
+   DISCHARGE BIN CARD (tile)
+   (kept as canonical; legacy #dischargeBin removed)
+========================= */
+#dischargeBinCard.discharge-card{
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  border-radius: 16px;
+  box-shadow: var(--card-shadow);
+  backdrop-filter: blur(6px);
+
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 220px;
+}
+
+#dischargeBinCard .discharge-card-header{
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+#dischargeBinCard .discharge-title{
+  font-weight: 900;
+  color: #0f172a;
+}
+
+#dischargeBinCard .discharge-clear-btn,
+#dischargeBinCard .discharge-history-btn{
+  background: #e8f2ff;
+  border: 0;
+  border-radius: 12px;
+  padding: 6px 10px;
+  font-weight: 900;
+  font-size: 12px;
+  cursor: pointer;
+}
+#dischargeBinCard .discharge-clear-btn:hover,
+#dischargeBinCard .discharge-history-btn:hover{
+  background: #d3e8ff;
+}
+
+#dischargeBinCard .discharge-meta{
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 13px;
+  color: #111827;
+}
+
+#dischargeBinCard .discharge-drop-zone--card{
+  flex: 1;
+  min-height: 110px;
+  border: 2px dashed var(--high);
+  border-radius: 16px;
+  background: rgba(255,247,247,0.9);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 900;
+  color: #111827;
+  text-align: center;
+  padding: 10px;
+}
+
+#dischargeBinCard .discharge-helper{
+  font-size: 12px;
+  color: #6b7280;
+  line-height: 1.2;
+}
+
+/* =========================
+   QUEUE LIST (base)
+========================= */
+.queueList{ display: flex; flex-direction: column; gap: 12px; }
+
+.queue-item{
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  border-radius: 16px;
+  box-shadow: var(--card-shadow);
+  backdrop-filter: blur(6px);
+  padding: 12px;
+}
+
+.queue-item-header{ display: flex; justify-content: space-between; gap: 10px; }
+
+.queue-item-title input{
+  width: 150px;
+  font-size: 16px;
+}
+
+.queue-item-tags{
+  margin: 10px 0;
+  font-size: 13px;
+  color: #555;
+}
+
+.queue-item-actions button{ margin-right: 8px; }
+
+/* =========================
+   LIVE: Admit Queue — HEADER DOCK (no overlap)
+   Add class "live-admit-dock" to the top inline queue wrapper.
+========================= */
+.live-admit-dock{
+  position: relative !important;
+  top: auto !important;
+  left: auto !important;
+  right: auto !important;
+  transform: none !important;
+  z-index: 2;
+
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+
+  width: min(820px, 62vw);
+  max-width: 900px;
+
+  padding: 8px 10px;
+  border-radius: 16px;
+  background: rgba(255,255,255,0.86);
+  border: 1px solid rgba(148,163,184,0.35);
+  box-shadow: 0 10px 26px rgba(2,6,23,0.10);
+  backdrop-filter: blur(8px);
+}
+
+.live-admit-dock .queue-area-header,
+.live-admit-dock .queue-top-row{
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 8px;
+  border-bottom: 0;
+  padding-bottom: 0;
+  margin-bottom: 0;
+}
+
+.live-admit-dock .queue-title{
+  font-weight: 900;
+  font-size: 13px;
+  color: #0f172a;
+  margin-right: 6px;
+  white-space: nowrap;
+}
+
+.live-admit-dock input[type="text"],
+.live-admit-dock .queue-input{
+  height: 28px;
+  padding: 0 10px;
+  border-radius: 12px;
+  font-size: 13px;
+}
+
+.live-admit-dock .queue-add-btn,
+.live-admit-dock .queue-area-header button{
+  height: 28px;
+  padding: 0 10px;
+  border-radius: 12px;
+  font-size: 13px;
+  font-weight: 900;
+  background: #e8f2ff;
+}
+.live-admit-dock .queue-add-btn:hover,
+.live-admit-dock .queue-area-header button:hover{
+  background: #d3e8ff;
+}
+
+.live-admit-dock .queue-list-compact,
+.live-admit-dock .queue-items{
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+
+  max-height: 92px;     /* ~2 rows of compact cards */
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.live-admit-dock .queue-item{
+  width: 200px;         /* 3–4 across */
+  padding: 8px 10px;
+  border-radius: 16px;
+}
+
+.live-admit-dock .queue-item-title input{
+  width: 100%;
+  font-size: 13px;
+}
+
+.live-admit-dock .queue-item-actions button{
+  height: 24px;
+  padding: 0 8px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+/* =========================
+   HIGH ACUITY / HIGH RISK TILES (single canonical version)
+========================= */
+#acuityTiles{
+  margin-top: 1rem;
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 12px;
+  align-items: stretch;
+}
+
+.acuity-tile{
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  border-radius: 16px;
+  box-shadow: var(--card-shadow);
+  backdrop-filter: blur(6px);
+
+  aspect-ratio: 0.85 / 0.55;
+  min-height: 180px;
+
+  padding: 14px 14px 12px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  text-align: center;
+}
+
+.acuity-tile-title{
+  font-size: 0.95rem;
+  font-weight: 900;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #111827;
+  margin: 10px 0 10px;
+}
+
+.acuity-tile-count{
+  font-size: 60px;
+  font-weight: 900;
+  line-height: 1;
+  margin: 6px 0 8px;
+  color: #111827;
+}
+
+.acuity-tile-rooms{
+  margin-top: auto;
+  padding-top: 10px;
+  border-top: 1px solid rgba(148,163,184,0.30);
+  font-size: 14px;
+  font-weight: 800;
+  text-align: left;
+  color: #4b5563;
+  line-height: 1.25;
+  max-height: 4.5rem;
+  overflow-y: auto;
+}
+.acuity-tile-rooms strong{ color:#111827; font-weight: 900; }
+
+@media (max-width: 1200px){
+  #acuityTiles{ grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+@media (max-width: 800px){
+  #acuityTiles{ grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+/* =========================
+   Patient Details — table/grid UI
+========================= */
+.patient-table-wrap{
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  border-radius: 16px;
+  box-shadow: var(--card-shadow);
+  backdrop-filter: blur(6px);
   overflow: auto;
 }
 
 .patient-table{
   width: 100%;
   border-collapse: collapse;
-  min-width: 1200px; /* lets it scroll horizontally on small screens */
+  min-width: 1200px;
 }
 
 .patient-table thead th{
   position: sticky;
   top: 0;
-  background: var(--table-head-bg, #edf3ff);
+  background: var(--table-head-bg);
   z-index: 2;
   padding: 10px 8px;
   font-size: 13px;
   text-align: left;
-  border-bottom: 1px solid var(--table-divider, #e5e7eb);
+  border-bottom: 1px solid var(--table-divider);
 }
 
 .patient-table tbody td{
   padding: 10px 8px;
   font-size: 13px;
   vertical-align: middle;
-  border-bottom: 1px solid var(--table-divider, #e5e7eb); /* ✅ horizontal line between rows */
+  border-bottom: 1px solid var(--table-divider);
 }
 
 .patient-table tbody tr:hover td{
-  background: rgba(17,24,39,0.03);
+  background: var(--table-row-hover);
 }
 
-/* Center Room column */
 .patient-table .col-room,
 .patient-table td.col-room{
   text-align: center;
-  font-weight: 700;
+  font-weight: 900;
   width: 70px;
 }
 
-/* Status toggle buttons */
 .status-toggle{
   display: inline-flex;
   gap: 6px;
-  background: #f8fafc;
-  border: 1px solid #e2e8f0;
-  border-radius: 10px;
+  background: rgba(248,250,252,0.9);
+  border: 1px solid rgba(148,163,184,0.35);
+  border-radius: 12px;
   padding: 4px;
 }
 
 .status-btn{
   border: 0;
   padding: 6px 10px;
-  border-radius: 8px;
-  font-weight: 800;
+  border-radius: 10px;
+  font-weight: 900;
   font-size: 12px;
   cursor: pointer;
   background: transparent;
@@ -1668,19 +1088,14 @@ button{
   background: #ef4444;
 }
 
-/* When room is empty, visually dim the row */
-.patient-row-empty td{
-  opacity: 0.55;
-}
+.patient-row-empty td{ opacity: 0.55; }
 
-/* Tags grouping so it doesn’t look like a wall of checkboxes */
 .tags-wrap{
   display: flex;
   flex-wrap: wrap;
   gap: 10px 12px;
   align-items: center;
 }
-
 .tags-wrap label{
   display: inline-flex;
   align-items: center;
@@ -1688,40 +1103,9 @@ button{
   white-space: nowrap;
 }
 
-/* =====================================================
-   AUTH DROPDOWN — add secondary + ghost button styles
-   Paste at VERY BOTTOM of style.css
-===================================================== */
-
-.auth-secondary-btn{
-  padding: 10px 12px;
-  border-radius: 12px;
-  background: #e8f2ff;
-  color: #003c6d;
-  font-weight: 800;
-  border: 1px solid #cfe3ff;
-}
-.auth-secondary-btn:hover{
-  background: #d3e8ff;
-}
-
-.auth-ghost-btn{
-  padding: 10px 12px;
-  border-radius: 12px;
-  background: #ffffff;
-  color: #0f172a;
-  font-weight: 800;
-  border: 1px solid #cbd5e1;
-}
-.auth-ghost-btn:hover{
-  background: #f8fafc;
-} 
-
-/* =====================================================
-   Assignment icons: 💡 explanation + ! rule-flag
-   Paste at VERY BOTTOM of style.css
-===================================================== */
-
+/* =========================
+   ICONS (explain + rule flag)
+========================= */
 .icon-row{
   display: flex;
   align-items: center;
@@ -1755,236 +1139,185 @@ button{
   box-shadow: 0 1px 2px rgba(16,24,40,0.06);
 }
 
-.icon-bulb{
-  font-size: 16px;
-}
-
-/* Yellow warning */
 .flag-warn{
-  background: #fbbf24;         /* amber */
+  background: #fbbf24;
   border-color: #f59e0b;
   color: #111827;
-}
-
-/* Red violation */
-.flag-bad{
-  background: #ef4444;         /* red */
-  border-color: #dc2626;
-  color: #ffffff;
-}
-
-/* Make the "!" look centered and bold */
-.flag-warn,
-.flag-bad{
   font-size: 16px;
   font-weight: 900;
 }
 
-/* =====================================================
-   FRESH UI POLISH (Radix-ish vibe)
-   Paste near VERY BOTTOM of style.css
-===================================================== */
-
-/* Softer page background gradient */
-:root{
-  --bg: #f6f7fb;               /* slightly cleaner */
-  --text: #0f172a;
-  --muted: #64748b;
-
-  /* fresher card tokens */
-  --card-bg: rgba(255,255,255,0.92);
-  --card-border: rgba(148,163,184,0.35);
-  --card-shadow: 0 10px 30px rgba(2,6,23,0.06);
-  --card-shadow-hover: 0 14px 40px rgba(2,6,23,0.10);
-
-  --table-head-bg: rgba(226,232,240,0.55);
-  --table-divider: rgba(148,163,184,0.30);
-  --table-row-hover: rgba(2,6,23,0.03);
+.flag-bad{
+  background: #ef4444;
+  border-color: #dc2626;
+  color: #ffffff;
+  font-size: 16px;
+  font-weight: 900;
 }
 
-body{
-  background:
-    radial-gradient(900px 600px at 15% 0%, rgba(99,102,241,0.10), transparent 60%),
-    radial-gradient(900px 600px at 85% 15%, rgba(236,72,153,0.08), transparent 55%),
-    radial-gradient(900px 600px at 60% 100%, rgba(14,165,233,0.10), transparent 55%),
-    var(--bg);
+/* =========================
+   MODALS (generic legacy)
+========================= */
+.modal{
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.55);
+  justify-content: center;
+  align-items: center;
+  z-index: 9999;
 }
 
-/* Slightly cleaner typography everywhere */
-h1,h2,h3{
-  color: var(--text) !important;
-  letter-spacing: -0.01em;
+.modal-content{
+  background: white;
+  max-width: 550px;
+  padding: 20px;
+  border-radius: 16px;
+  box-shadow: 0 4px 14px rgba(0,0,0,0.4);
 }
 
-/* Make form controls feel modern */
-input, select, textarea{
-  border-radius: 12px;
-  border: 1px solid rgba(148,163,184,0.45);
+.modal-grid{
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 6px;
+}
+
+.modal-section{ margin: 10px 0; }
+
+/* =========================
+   Patient Profile Modal (overlay/card)
+========================= */
+.modal-overlay{
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.35);
+  display: none;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+  padding: 18px;
+}
+
+.modal-card{
+  width: min(820px, 95vw);
+  max-height: min(80vh, 680px);
+  overflow: auto;
+  border-radius: 16px;
+  border: 1px solid rgba(15, 23, 42, 0.12);
   background: rgba(255,255,255,0.92);
-  outline: none;
-}
-input:focus, select:focus, textarea:focus{
-  border-color: rgba(59,130,246,0.65);
-  box-shadow: 0 0 0 4px rgba(59,130,246,0.15);
-}
-
-/* Modern button baseline (keeps your colors, upgrades shape/hover) */
-button{
-  border-radius: 12px;
-  transition: transform 120ms ease, box-shadow 120ms ease, background 120ms ease;
-}
-button:hover{
-  transform: translateY(-1px);
-  box-shadow: 0 10px 20px rgba(2,6,23,0.08);
-}
-button:active{
-  transform: translateY(0px);
-  box-shadow: 0 6px 12px rgba(2,6,23,0.06);
-}
-
-/* Applies to your major blocks without changing HTML */
-.staffBlock,
-.staff-card,
-.queue-area,
-.queue-item,
-.patientRow,
-.assignment-card,
-#dischargeBinCard,
-#liveNurseAssignments .nurseBlock,
-#livePcaAssignments .pcaBlock,
-#assignmentOutput .nurseBlock,
-#pcaAssignmentOutput .pcaBlock{
-  background: var(--card-bg) !important;
-  border: 1px solid var(--card-border) !important;
-  border-radius: 16px !important;
-  box-shadow: var(--card-shadow) !important;
-  backdrop-filter: blur(6px);
-}
-
-.staffBlock:hover,
-.staff-card:hover,
-.queue-area:hover,
-.queue-item:hover,
-.patientRow:hover,
-.assignment-card:hover,
-#dischargeBinCard:hover,
-#liveNurseAssignments .nurseBlock:hover,
-#livePcaAssignments .pcaBlock:hover{
-  box-shadow: var(--card-shadow-hover) !important;
-}
-
-/* Table headers softer */
-.assignment-table th,
-#liveNurseAssignments th,
-#livePcaAssignments th,
-#assignmentOutput th,
-#pcaAssignmentOutput th{
-  background: var(--table-head-bg) !important;
-  border-bottom: 1px solid var(--table-divider) !important;
-}
-
-/* Row dividers softer */
-.assignment-table td,
-#liveNurseAssignments td,
-#livePcaAssignments td,
-#assignmentOutput td,
-#pcaAssignmentOutput td{
-  border-bottom: 1px solid var(--table-divider) !important;
-}
-
-.app-header{
-  background: rgba(255,255,255,0.85) !important;
   backdrop-filter: blur(10px);
-  border-bottom: 1px solid rgba(148,163,184,0.35) !important;
+  box-shadow: 0 24px 60px rgba(16,24,40,0.22);
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
 }
 
-/* Tabs become softer pills */
-.top-tabs .tabButton{
-  border-radius: 999px !important;
-  padding: 9px 14px !important;
-  background: rgba(2,132,199,0.85) !important;  /* still your vibe */
+.modal-header{
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 16px;
+  border-bottom: 1px solid rgba(15, 23, 42, 0.10);
+  cursor: grab;
 }
-.top-tabs .tabButton.active{
-  background: rgba(59,130,246,0.95) !important;
-  box-shadow: 0 10px 18px rgba(59,130,246,0.18);
-}
+.modal-header:active{ cursor: grabbing; }
 
-/* =====================================================
-   PAGE BACKGROUND: blue fade (#8EC8F6)
-   Paste at VERY BOTTOM of style.css
-===================================================== */
-
-:root{
-  --bg: #f4f6f8;          /* keep your base */
-  --bg-accent: #8EC8F6;   /* new blue fade */
+.modal-title{
+  font-size: 16px;
+  font-weight: 900;
+  color: #0f172a;
 }
 
-/* Apply a soft blue gradient like your reference */
-body{
-  background: radial-gradient(1200px 700px at 10% 0%, rgba(142,200,246,0.55), rgba(142,200,246,0.0) 60%),
-              radial-gradient(1100px 650px at 90% 10%, rgba(142,200,246,0.40), rgba(142,200,246,0.0) 55%),
-              linear-gradient(180deg, rgba(142,200,246,0.18), var(--bg) 45%);
+.modal-close{
+  width: 34px;
+  height: 34px;
+  border-radius: 999px;
+  border: 1px solid rgba(15, 23, 42, 0.12);
+  background: #fff;
+  cursor: pointer;
+  font-weight: 900;
 }
 
-/* =====================================================
-   RESTORE LOAD CATEGORY BARS (green/yellow/red)
-   Works for: .nurseBlock / .pcaBlock / .assignment-card
-===================================================== */
+.modal-body{ padding: 14px 16px 16px 16px; }
 
-/* Ensure the left load bar always shows */
-.load-good,
-.load-medium,
-.load-high{
-  border-left-width: 10px !important;
-  border-left-style: solid !important;
+.profile-grid{
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin-top: 10px;
+}
+.profile-col h4{
+  margin: 0 0 10px 0;
+  font-size: 14px;
+  font-weight: 900;
+  color: #0f172a;
 }
 
-/* Explicit colors (don’t let other rules override) */
-.load-good{   border-left-color: #4CAF50 !important; }
-.load-medium{ border-left-color: #ffc107 !important; }
-.load-high{   border-left-color: #ff5252 !important; }
-
-/* Apply even if the load class is on the card wrapper */
-.assignment-card.load-good,
-.assignment-card.load-medium,
-.assignment-card.load-high,
-.nurseBlock.load-good,
-.nurseBlock.load-medium,
-.nurseBlock.load-high,
-.pcaBlock.load-good,
-.pcaBlock.load-medium,
-.pcaBlock.load-high{
-  border-left-width: 10px !important;
-  border-left-style: solid !important;
+.tag-list{
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(15, 23, 42, 0.10);
+  background: rgba(255,255,255,0.75);
 }
 
-/* Make sure your “tile” border doesn’t visually hide the bar */
-.assignment-card,
-.nurseBlock,
-.pcaBlock{
-  overflow: hidden; /* keeps bar clean and crisp */
+.tag-item{
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+  color: #0f172a;
+}
+.tag-item input[type="checkbox"]{ width: 16px; height: 16px; }
+
+.profile-actions{
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 14px;
 }
 
-/* =====================================================
-   AUTH GATE (Full-page login screen)
-===================================================== */
+.btn{
+  height: 36px;
+  padding: 0 14px;
+  border-radius: 12px;
+  border: 1px solid rgba(15, 23, 42, 0.15);
+  background: #ffffff;
+  font-weight: 900;
+  cursor: pointer;
+}
 
+.btn-primary{
+  border: none;
+  background: #0f172a;
+  color: #fff;
+}
+
+@media (max-width: 720px){
+  .profile-grid{ grid-template-columns: 1fr; }
+}
+
+/* =========================
+   AUTH GATE (full-page)
+========================= */
 .auth-gate{
   position: fixed;
   inset: 0;
   z-index: 99999;
-  display: none;              /* shown when not authed */
+  display: none;
   align-items: center;
   justify-content: center;
   padding: 24px;
 
-  /* soft gradient like your reference */
   background:
     radial-gradient(900px 520px at 15% 10%, rgba(142,200,246,0.55), rgba(142,200,246,0.0) 60%),
     radial-gradient(900px 520px at 85% 20%, rgba(142,200,246,0.35), rgba(142,200,246,0.0) 55%),
     linear-gradient(180deg, rgba(142,200,246,0.18), #f4f6f8 45%);
 }
-
 .auth-gate.show{ display: flex; }
 
 .auth-card{
@@ -2018,40 +1351,17 @@ body{
   font-size: 22px;
   font-weight: 900;
   color: #0f172a;
-  letter-spacing: 0.2px;
 }
 
 .auth-subtitle{
   font-size: 13px;
-  font-weight: 600;
+  font-weight: 700;
   color: #475569;
   margin-top: 3px;
 }
 
 .auth-form{ display: flex; flex-direction: column; gap: 12px; }
-
 .auth-field{ display: flex; flex-direction: column; gap: 6px; }
-
-.auth-label{
-  font-size: 12px;
-  font-weight: 800;
-  color: #334155;
-}
-
-.auth-input{
-  width: 100%;
-  padding: 12px 12px;
-  border-radius: 12px;
-  border: 1px solid rgba(15,23,42,0.16);
-  background: rgba(255,255,255,0.95);
-  font-size: 14px;
-  outline: none;
-}
-
-.auth-input:focus{
-  border-color: rgba(0,102,197,0.55);
-  box-shadow: 0 0 0 4px rgba(142,200,246,0.35);
-}
 
 .auth-password-wrap{
   position: relative;
@@ -2084,7 +1394,7 @@ body{
   align-items: center;
   gap: 8px;
   font-size: 12px;
-  font-weight: 700;
+  font-weight: 800;
   color: #334155;
 }
 
@@ -2093,10 +1403,9 @@ body{
   background: transparent;
   cursor: pointer;
   font-size: 12px;
-  font-weight: 800;
+  font-weight: 900;
   color: #1d4ed8;
 }
-
 .auth-link:hover{ text-decoration: underline; }
 
 .auth-primary{
@@ -2108,10 +1417,7 @@ body{
   background: linear-gradient(180deg, #111827, #0b1220);
   color: #fff;
   font-weight: 900;
-  letter-spacing: 0.3px;
 }
-
-.auth-primary:hover{ filter: brightness(1.05); }
 
 .auth-divider{
   display: grid;
@@ -2120,7 +1426,7 @@ body{
   gap: 10px;
   margin: 6px 0 2px;
   color: #64748b;
-  font-weight: 800;
+  font-weight: 900;
   font-size: 12px;
 }
 .auth-divider::before,
@@ -2141,29 +1447,24 @@ body{
   color: #0f172a;
 }
 
-.auth-secondary:hover{
-  background: rgba(255,255,255,1);
-}
-
 .auth-msg{
   min-height: 18px;
   font-size: 12px;
-  font-weight: 700;
+  font-weight: 800;
   color: #475569;
   margin-top: 2px;
 }
 .auth-msg.error{ color: #b91c1c; }
 .auth-msg.ok{ color: #065f46; }
 
-/* =====================================================
-   AQI Modal (draggable) — paste at VERY BOTTOM
-===================================================== */
-
+/* =========================
+   AQI Modal (draggable)
+========================= */
 .aqi-panel{
   width: min(980px, 92vw);
   max-height: 86vh;
   overflow: hidden;
-  border-radius: 14px;
+  border-radius: 16px;
   padding: 0;
 }
 
@@ -2173,12 +1474,11 @@ body{
   justify-content:space-between;
   gap: 12px;
   padding: 12px 14px;
-  background: #f3f6fb;
-  border-bottom: 1px solid #e5e7eb;
+  background: rgba(226,232,240,0.7);
+  border-bottom: 1px solid rgba(148,163,184,0.30);
   cursor: grab;
   user-select: none;
 }
-
 .aqi-header:active{ cursor: grabbing; }
 
 .aqi-title{
@@ -2186,17 +1486,16 @@ body{
   font-size: 14px;
   color: #0f172a;
 }
-
 .aqi-subtitle{
   font-size: 12px;
   color: #475569;
-  font-weight: 700;
+  font-weight: 800;
 }
 
 .aqi-x{
   border: 0;
   background: #f1f5f9;
-  border-radius: 10px;
+  border-radius: 12px;
   padding: 8px 10px;
   cursor: pointer;
   font-weight: 900;
@@ -2219,9 +1518,9 @@ body{
 }
 
 .aqi-card{
-  background:#fff;
-  border: 1px solid #dfe7f2;
-  border-radius: 12px;
+  background: rgba(255,255,255,0.92);
+  border: 1px solid rgba(148,163,184,0.30);
+  border-radius: 16px;
   box-shadow: 0 1px 2px rgba(16,24,40,0.06);
   padding: 12px;
 }
@@ -2242,7 +1541,7 @@ body{
 .aqi-kpi-label{
   font-size: 12px;
   color:#475569;
-  font-weight: 800;
+  font-weight: 900;
 }
 .aqi-kpi-value{
   font-size: 44px;
@@ -2254,14 +1553,14 @@ body{
 .aqi-kpi-sub{
   font-size: 12px;
   color:#475569;
-  font-weight: 700;
+  font-weight: 800;
   line-height: 1.25;
 }
 
 .aqi-table-wrap{
   overflow:auto;
-  border: 1px solid #e5e7eb;
-  border-radius: 12px;
+  border: 1px solid rgba(148,163,184,0.30);
+  border-radius: 16px;
 }
 
 .aqi-table{
@@ -2273,293 +1572,406 @@ body{
 .aqi-table thead th{
   position: sticky;
   top: 0;
-  background: #edf3ff;
+  background: rgba(226,232,240,0.7);
   z-index: 2;
   padding: 10px 8px;
   font-size: 12px;
   text-align: left;
-  border-bottom: 1px solid #e5e7eb;
+  border-bottom: 1px solid rgba(148,163,184,0.30);
 }
 
 .aqi-table tbody td{
   padding: 10px 8px;
   font-size: 12px;
-  border-bottom: 1px solid #e5e7eb;
+  border-bottom: 1px solid rgba(148,163,184,0.30);
 }
 
 .aqi-table tbody tr:hover td{
   background: rgba(17,24,39,0.03);
 }
 
-/* =====================================================
-   Patient Profile Modal (centered + draggable + aligned tags)
-   Paste at VERY BOTTOM of style.css
-===================================================== */
-
-.modal-overlay{
-  position: fixed;
-  inset: 0;
-  background: rgba(15, 23, 42, 0.35);
-  display: none;              /* set to flex when open */
-  align-items: center;
-  justify-content: center;
-  z-index: 9999;
-  padding: 18px;
-}
-
-.modal-card{
-  width: min(820px, 95vw);
-  max-height: min(80vh, 680px);
-  overflow: auto;
+/* =========================
+   HISTORY
+========================= */
+.history-entry{
+  background: rgba(249,250,251,0.9);
+  padding: 10px;
   border-radius: 16px;
-  border: 1px solid rgba(15, 23, 42, 0.12);
-  background: rgba(255,255,255,0.92);
-  backdrop-filter: blur(10px);
-  box-shadow: 0 24px 60px rgba(16,24,40,0.22);
-  position: absolute;         /* so we can drag it */
-  left: 50%;
-  top: 50%;
-  transform: translate(-50%, -50%);
+  margin-bottom: 10px;
+  border-left: 4px solid #008fff;
 }
-
-.modal-header{
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 14px 16px;
-  border-bottom: 1px solid rgba(15, 23, 42, 0.10);
-  cursor: grab;               /* draggable affordance */
-}
-
-.modal-header:active{
-  cursor: grabbing;
-}
-
-.modal-title{
-  font-size: 16px;
-  font-weight: 800;
-  color: #0f172a;
-}
-
-.modal-close{
-  width: 34px;
-  height: 34px;
-  border-radius: 999px;
-  border: 1px solid rgba(15, 23, 42, 0.12);
-  background: #fff;
-  cursor: pointer;
-  font-weight: 900;
-}
-
-.modal-body{
-  padding: 14px 16px 16px 16px;
-}
-
-.profile-grid{
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 16px;
-  margin-top: 10px;
-}
-
-.profile-col h4{
-  margin: 0 0 10px 0;
-  font-size: 14px;
-  font-weight: 900;
-  color: #0f172a;
-}
-
-.tag-list{
-  display: flex;
-  flex-direction: column;      /* ✅ vertical alignment */
-  gap: 10px;
-  padding: 10px 12px;
-  border-radius: 12px;
-  border: 1px solid rgba(15, 23, 42, 0.10);
-  background: rgba(255,255,255,0.75);
-}
-
-.tag-item{
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  font-size: 13px;
-  color: #0f172a;
-}
-
-.tag-item input[type="checkbox"]{
-  width: 16px;
-  height: 16px;
-}
-
-.profile-actions{
-  display: flex;
-  justify-content: flex-end;
-  gap: 10px;
-  margin-top: 14px;
-}
-
-.btn{
-  height: 36px;
-  padding: 0 14px;
-  border-radius: 10px;
-  border: 1px solid rgba(15, 23, 42, 0.15);
-  background: #ffffff;
-  font-weight: 800;
-  cursor: pointer;
-}
-
-.btn-primary{
-  border: none;
-  background: #0f172a;
-  color: #fff;
-}
-
-@media (max-width: 720px){
-  .profile-grid{ grid-template-columns: 1fr; }
-}
+.history-entry-title{ font-weight: 900; }
+.history-entry-meta{ font-size: 12px; color: #555; }
+.history-entry-tags{ margin: 8px 0; font-size: 13px; }
 
 /* =====================================================
-   Patient Profile Modal polish (vertical tags + drag affordance)
+   MODERN CLEAN HEADER (Slack/Stripe-ish) + BACKGROUND
    Paste at VERY BOTTOM of style.css
 ===================================================== */
 
-#patientProfileModal{
+/* ----- Background behind the app: cleaner + less "toy" ----- */
+body{
+  background:
+    radial-gradient(1100px 700px at 15% 0%, rgba(142,200,246,0.30), transparent 60%),
+    radial-gradient(900px 650px at 85% 10%, rgba(99,102,241,0.14), transparent 55%),
+    linear-gradient(180deg, #ffffff 0%, rgba(244,246,248,1) 46%);
+}
+
+/* Optional: give main page content a bit of breathing room */
+.app-main,
+.main-container{
+  padding-top: 12px;
+}
+
+/* ----- Header: clean white bar with subtle border ----- */
+.app-header{
+  background: #ffffff !important;
+  border-bottom: 1px solid rgba(15,23,42,0.10) !important;
+  box-shadow: 0 1px 0 rgba(15,23,42,0.04) !important; /* minimal */
+  backdrop-filter: none !important;
+
+  padding: 12px 18px !important;
+  gap: 18px !important;
+}
+
+/* Brand: simple, modern */
+.brand-dot{
+  width: 28px !important;
+  height: 28px !important;
+  border-radius: 8px !important;
+  background: linear-gradient(135deg, #00a9e0, #0066c5, #f37021) !important;
+  box-shadow: none !important;
+}
+
+.brand-title{
+  font-size: 14px !important;
+  font-weight: 900 !important;
+  letter-spacing: 0.1px !important;
+  color: #0f172a !important;
+}
+.brand-subtitle{
+  font-size: 11px !important;
+  font-weight: 700 !important;
+  color: rgba(71,85,105,0.95) !important;
+}
+
+/* Tabs row: look like top-nav links (not doughy pills) */
+.top-tabs{
+  gap: 14px !important;
+  padding-bottom: 0 !important;
+  overflow-x: auto;
+}
+.top-tabs::-webkit-scrollbar{ height: 8px; }
+.top-tabs::-webkit-scrollbar-thumb{
+  background: rgba(148,163,184,0.45);
+  border-radius: 999px;
+}
+.top-tabs::-webkit-scrollbar-track{ background: transparent; }
+
+/* Nav-link style tabs */
+.top-tabs .tabButton{
+  background: transparent !important;
+  color: rgba(15,23,42,0.75) !important;
+  border: 1px solid transparent !important;
+
+  padding: 8px 10px !important;
+  border-radius: 10px !important;
+  font-weight: 800 !important;
+  font-size: 13px !important;
+
+  box-shadow: none !important;
+  transform: none !important;
+  transition: color 140ms ease, background 140ms ease, border-color 140ms ease;
+}
+
+.top-tabs .tabButton:hover{
+  background: rgba(15,23,42,0.04) !important;
+  color: rgba(15,23,42,0.92) !important;
+  border-color: rgba(15,23,42,0.06) !important;
+}
+
+/* Active: subtle underline + darker text (like modern nav) */
+.top-tabs .tabButton.active{
+  background: transparent !important;
+  color: rgba(15,23,42,0.98) !important;
+  border-color: transparent !important;
+  box-shadow: none !important;
+  position: relative;
+}
+.top-tabs .tabButton.active::after{
+  content:"";
+  position: absolute;
+  left: 10px;
+  right: 10px;
+  bottom: -7px;
+  height: 2px;
+  background: rgba(15,23,42,0.92);
+  border-radius: 999px;
+}
+
+/* Header right area buttons (if any) should look like: outline + primary black */
+.app-header .header-right button,
+.app-header .auth-menu-btn{
+  height: 34px !important;
+  padding: 0 12px !important;
+  border-radius: 10px !important;
+  font-weight: 900 !important;
+  font-size: 13px !important;
+
+  box-shadow: none !important;
+  transform: none !important;
+}
+
+/* Default “outline” style for header buttons */
+.app-header .header-right button,
+.app-header .auth-menu-btn{
+  background: #ffffff !important;
+  color: rgba(15,23,42,0.92) !important;
+  border: 1px solid rgba(15,23,42,0.16) !important;
+}
+.app-header .header-right button:hover,
+.app-header .auth-menu-btn:hover{
+  background: rgba(15,23,42,0.03) !important;
+}
+
+/* Optional: if you give your primary CTA a class, it becomes the black pill */
+.header-cta{
+  background: rgba(15,23,42,0.96) !important;
+  color: #ffffff !important;
+  border: 1px solid rgba(15,23,42,0.96) !important;
+}
+.header-cta:hover{
+  background: rgba(2,6,23,0.98) !important;
+}
+
+/* Responsive: keep the header feeling airy on small screens */
+@media (max-width: 900px){
+  .app-header{ padding: 10px 12px !important; }
+  .app-header-left{ min-width: 220px; }
+  .brand-subtitle{ display: none; }
+}
+
+/* LIVE: hide legacy Populate button (keep Import + Print) */
+button[onclick*="populateLive"],
+button[onclick*="PopulateLive"],
+button[onclick*="populateLiveAssignment"]{
+  display: none !important;
+}
+
+/* =====================================================
+   LIVE: Admit Queue stays in header colored space (no overlap)
+===================================================== */
+
+/* Make the queue container NOT float/overlay */
+.queue-area{
+  position: relative !important;
+  top: auto !important;
+  left: auto !important;
+  right: auto !important;
+  transform: none !important;
+  z-index: 2;
+
+  /* keep it up high and compact */
+  margin: 8px 0 12px 0 !important;
+  width: min(860px, 70vw);
+  max-width: 900px;
+}
+
+/* Compact list: 3–4 cards across */
+.queue-list-compact,
+.queueList{
+  display: flex !important;
+  flex-wrap: wrap !important;
+  flex-direction: row !important;
+  gap: 8px !important;
+
+  max-height: 92px;        /* ~2 rows */
+  overflow-y: auto;
+}
+
+/* Each admit item compact */
+.queue-item{
+  width: 210px;
+  padding: 8px 10px !important;
   border-radius: 14px;
-  border: 1px solid rgba(15, 23, 42, 0.12);
-  background: rgba(255,255,255,0.92);
-  backdrop-filter: blur(10px);
-  box-shadow: 0 24px 60px rgba(16,24,40,0.22);
 }
 
-#patientProfileModal #profileModalTitle{
-  cursor: grab; /* user can grab title area to drag */
+/* Keep the RN grid from getting tucked under anything */
+#liveNurseAssignments{
+  margin-top: 6px;
 }
 
-#patientProfileModal #profileModalTitle:active{
-  cursor: grabbing;
+/* Hide legacy bottom Admit Queue section (keep inline queue) */
+#admitQueueTab,
+#admitQueueSection,
+#admitQueuePanel,
+#legacyAdmitQueue,
+.legacy-admit-queue{
+  display: none !important;
 }
 
-/* make checkbox rows vertical + aligned */
-#patientProfileModal .profile-tag-item{
+
+/* LIVE: title row (Live Assignment on left, Admit Queue on right) */
+.live-title-row{
   display: flex;
-  align-items: center;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+  margin-bottom: 10px;
+}
+
+/* Keep the page title tight */
+.live-title-row .live-title{
+  margin: 0;
+}
+
+/* Inline Admit Queue dock: compact, stays in header band, never overlays tiles */
+.live-title-row .live-admit-dock{
+  position: relative !important;
+  top: auto !important;
+  left: auto !important;
+  transform: none !important;
+
+  width: min(520px, 46vw);
+  max-width: 560px;
+
+  background: rgba(255,255,255,0.9);
+  border: 1px solid rgba(15,23,42,0.10);
+  border-radius: 14px;
+  box-shadow: 0 10px 24px rgba(2,6,23,0.10);
+  padding: 10px 10px 8px;
+}
+
+/* Make queue items compact inside the dock */
+.live-title-row .live-admit-dock .queueList,
+.live-title-row .live-admit-dock .queue-list-compact{
+  display: flex !important;
+  flex-wrap: wrap !important;
+  gap: 8px !important;
+  max-height: 92px;
+  overflow-y: auto;
+}
+
+/* Each admit item: compact card */
+.live-title-row .live-admit-dock .queue-item{
+  width: 210px;
+  padding: 8px 10px;
+  border-radius: 12px;
+}
+
+/* Top Admit Queue: show admits horizontally */
+#admitQueueInlineHost #queueList{
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
   gap: 10px;
-  margin: 8px 0;
-  font-size: 13px;
+  overflow-x: auto;
+  padding-bottom: 6px;
+  max-height: 120px;
 }
 
-#patientProfileModal .profile-tag-item input[type="checkbox"]{
-  width: 16px;
-  height: 16px;
+/* Each admit card compact + horizontal-friendly */
+#admitQueueInlineHost #queueList .queue-item{
+  flex: 0 0 260px;
+  max-width: 260px;
 }
 
-/* Patient Profile upgraded modal */
+/* Hide legacy (static) Admit Queue block under RN grid */
+#liveAssignmentTab .legacy-admit-queue,
+#liveAssignmentTab #admitQueueLegacy,
+#liveAssignmentTab #admitQueue,
+#liveAssignmentTab .admit-queue-legacy,
+#liveAssignmentTab h2 + button { 
+  /* last selector is a catch-all; remove if it hides other stuff */
+  display: none !important;
+}
+
+/* --- Patient Profile / Pre-Admit modal layout hardening --- */
 .pp-overlay{
-  position: fixed;
-  inset: 0;
-  background: rgba(15, 23, 42, 0.35);
-  display: none;
-  align-items: center;
-  justify-content: center;
-  z-index: 9999;
+  position:fixed;
+  inset:0;
+  background: rgba(15,23,42,0.55);
+  display:none;               /* scripts set to flex when open */
+  align-items:center;
+  justify-content:center;
+  z-index: 10000;
 }
 
 .pp-card{
-  position: fixed;
-  left: 50%;
-  top: 50%;
-  transform: translate(-50%, -50%);
-  width: min(720px, calc(100vw - 24px));
-  background: white;
-  border-radius: 16px;
-  box-shadow: 0 24px 60px rgba(0,0,0,0.20);
-  overflow: hidden;
+  width: min(920px, 94vw);
+  max-height: 86vh;
+  overflow: auto;
+  background: #fff;
+  border-radius: 18px;
+  box-shadow: 0 18px 48px rgba(0,0,0,.28);
 }
 
 .pp-header{
   display:flex;
   align-items:center;
   justify-content:space-between;
-  padding: 12px 14px;
-  cursor: move;
-  user-select: none;
-  background: rgba(142, 200, 246, 0.22);
-  border-bottom: 1px solid rgba(15, 23, 42, 0.08);
+  padding: 14px 16px;
+  border-bottom: 1px solid rgba(15,23,42,0.10);
 }
 
 .pp-title{
-  font-weight: 800;
+  font-size: 18px;
+  font-weight: 900;
 }
 
 .pp-close{
   border: 0;
   background: transparent;
-  font-size: 20px;
+  font-size: 22px;
+  font-weight: 900;
   cursor: pointer;
-  line-height: 1;
-  padding: 4px 8px;
-  border-radius: 10px;
-}
-
-.pp-close:hover{
-  background: rgba(15, 23, 42, 0.06);
 }
 
 .pp-body{
-  padding: 14px;
-}
-
-.pp-row{
-  display:flex;
-  align-items:center;
-  gap: 10px;
-  margin-bottom: 12px;
-}
-
-.pp-label{
-  font-weight: 800;
+  padding: 16px;
 }
 
 .pp-grid{
   display:grid;
   grid-template-columns: 1fr 1fr;
-  gap: 16px;
+  gap: 18px;
+  margin-top: 12px;
 }
 
-@media (max-width: 640px){
+@media (max-width: 860px){
   .pp-grid{ grid-template-columns: 1fr; }
-}
-
-.pp-col h4{
-  margin: 0 0 8px 0;
 }
 
 .pp-taglist{
   display:flex;
-  flex-direction: column; /* ✅ vertical alignment */
-  gap: 8px;
+  flex-direction:column;
+  gap: 10px;
 }
 
 .pp-tag{
   display:flex;
   align-items:center;
   gap: 10px;
-  padding: 8px 10px;
-  border: 1px solid rgba(15, 23, 42, 0.10);
-  border-radius: 12px;
-  background: rgba(248, 250, 252, 0.75);
+  padding: 10px 12px;
+  border-radius: 14px;
+  border: 1px solid rgba(15,23,42,0.10);
+  background: rgba(15,23,42,0.03);
 }
 
 .pp-actions{
   display:flex;
   justify-content:flex-end;
   gap: 10px;
-  margin-top: 14px;
+  margin-top: 16px;
 }
 
-.pp-overlay{
-  background: rgba(255,255,255,0.08) !important;
-  backdrop-filter: blur(1px);
+.pp-row{
+  display:flex;
+  align-items:center;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.pp-label{
+  font-weight: 800;
 }

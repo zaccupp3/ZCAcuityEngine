@@ -1,12 +1,18 @@
 // app/app.patientProfileUI.js
-// Upgraded Patient Profile modal:
+// Patient Profile modal HARDENED:
+// - fixed overlay rooted at body
 // - centered
-// - draggable
-// - RN/PCA tags vertical + aligned
-// ✅ Adds RN/PCA attribution on ACUITY_CHANGED when saved from the modal
-// This file is meant to load LAST so it overrides any legacy handler.
+// - draggable by header
+// - vertical aligned RN/PCA tags
+// - logs ACUITY_CHANGED with RN/PCA attribution
+//
+// Important behavior:
+// ✅ ALWAYS installs overrides (no early return), so cache / double-load can’t trap you
+// ✅ Self-heals if overwritten by later scripts (including script.js)
 
 (function () {
+  window.__patientProfileUIBuild = "override-active-jan2026";
+
   function safeArray(v) { return Array.isArray(v) ? v : []; }
 
   function safeGetPatient(id) {
@@ -62,10 +68,9 @@
   }
 
   // ----------------------------
-  // ✅ Attribution builder (uses your canonical helper if present)
+  // Attribution builder
   // ----------------------------
   function getAssignmentContextCompat(patientId) {
-    // Best: your canonical helper (already exists per your console output)
     if (typeof window.getAssignmentContextForPatient === "function") {
       try {
         const ctx = window.getAssignmentContextForPatient(patientId);
@@ -73,7 +78,6 @@
       } catch (_) {}
     }
 
-    // Fallback: try the raw finders
     let rn = null, pca = null;
     try { if (typeof window.findAssignedNurse === "function") rn = window.findAssignedNurse(patientId); } catch {}
     try { if (typeof window.findAssignedPca === "function") pca = window.findAssignedPca(patientId); } catch {}
@@ -90,11 +94,9 @@
 
   function buildAttributionBlock(patientId) {
     const ctx = getAssignmentContextCompat(patientId) || {};
-    // normalize / enrich names if missing
     let rnName = ctx.rnName;
     let pcaName = ctx.pcaName;
 
-    // If your ctx does not include names, look them up from the live arrays
     if (!rnName && ctx.rnId != null) {
       const rn = safeArray(window.currentNurses).find(n => Number(n?.id) === Number(ctx.rnId));
       rnName = rn?.name || "";
@@ -106,7 +108,6 @@
       if (ctx.pcaStaffId == null) ctx.pcaStaffId = pc?.staff_id ?? null;
     }
 
-    // Match your “patient_details” style: top-level fields + nested attribution
     return {
       rnId: ctx.rnId ?? null,
       rnStaffId: ctx.rnStaffId ?? null,
@@ -115,7 +116,7 @@
       pcaStaffId: ctx.pcaStaffId ?? null,
       pcaName: pcaName || "",
       attribution: {
-        affects: { rn: true, pca: true }, // analytics can still decide impact per-tag
+        affects: { rn: true, pca: true },
         rn: (ctx.rnId != null) ? { id: ctx.rnId, staff_id: ctx.rnStaffId ?? null, name: rnName || "" } : null,
         pca: (ctx.pcaId != null) ? { id: ctx.pcaId, staff_id: ctx.pcaStaffId ?? null, name: pcaName || "" } : null
       }
@@ -135,7 +136,6 @@
         changes: changes.slice(),
         source: source || "patient_profile",
 
-        // ✅ staff correlation fields
         rnId: staff.rnId,
         rnStaffId: staff.rnStaffId,
         rnName: staff.rnName,
@@ -144,16 +144,15 @@
         pcaStaffId: staff.pcaStaffId,
         pcaName: staff.pcaName,
 
-        // ✅ nested block (optional but useful)
         attribution: staff.attribution
-      }, { v: 2, source: "app.patientProfileUI.js" });
+      }, { v: 3, source: "app.patientProfileUI.js" });
     } catch (e) {
       console.warn("[eventLog] ACUITY_CHANGED (profile) failed", e);
     }
   }
 
   // ----------------------------
-  // Modal shell + drag
+  // Modal shell + drag + HARD STYLES
   // ----------------------------
   let currentProfilePatientId = null;
 
@@ -167,6 +166,9 @@
 
     handleEl.addEventListener("mousedown", (e) => {
       if (e.button !== 0) return;
+      const t = e.target;
+      if (t && (t.tagName === "BUTTON" || t.closest?.("button"))) return;
+
       dragging = true;
 
       const rect = cardEl.getBoundingClientRect();
@@ -193,6 +195,29 @@
     window.addEventListener("mouseup", () => { dragging = false; });
   }
 
+  function hardStyleOverlay(modal) {
+    modal.style.position = "fixed";
+    modal.style.inset = "0";
+    modal.style.display = "none";
+    modal.style.alignItems = "center";
+    modal.style.justifyContent = "center";
+    modal.style.background = "rgba(15,23,42,0.55)";
+    modal.style.zIndex = "10000";
+  }
+
+  function hardStyleCard(card) {
+    card.style.position = "fixed";
+    card.style.left = "50%";
+    card.style.top = "50%";
+    card.style.transform = "translate(-50%, -50%)";
+    card.style.width = "min(920px, 94vw)";
+    card.style.maxHeight = "86vh";
+    card.style.overflow = "auto";
+    card.style.background = "#fff";
+    card.style.borderRadius = "18px";
+    card.style.boxShadow = "0 18px 48px rgba(0,0,0,.28)";
+  }
+
   function ensureModalShell() {
     let modal = document.getElementById("patientProfileModal");
     if (!modal) {
@@ -202,19 +227,28 @@
     }
 
     modal.classList.add("pp-overlay");
-    modal.style.display = "none";
+    hardStyleOverlay(modal);
 
     if (!modal.querySelector(".pp-card")) {
       modal.innerHTML = `
         <div class="pp-card" role="dialog" aria-modal="true">
-          <div class="pp-header" id="ppHeader">
-            <div class="pp-title" id="profileModalTitle">Patient Profile</div>
-            <button class="pp-close" type="button" id="ppCloseBtn">×</button>
+          <div class="pp-header" id="ppHeader" style="
+            display:flex;align-items:center;justify-content:space-between;
+            padding:14px 16px;border-bottom:1px solid rgba(15,23,42,0.10);
+          ">
+            <div class="pp-title" id="profileModalTitle" style="font-size:18px;font-weight:900;">Patient Profile</div>
+            <button class="pp-close" type="button" id="ppCloseBtn" style="
+              border:0;background:transparent;font-size:22px;font-weight:900;cursor:pointer;
+            ">×</button>
           </div>
-          <div class="pp-body" id="ppBody"></div>
+          <div class="pp-body" id="ppBody" style="padding:16px;"></div>
         </div>
       `;
     }
+
+    const card = modal.querySelector(".pp-card");
+    card.classList.add("pp-card");
+    hardStyleCard(card);
 
     const closeBtn = modal.querySelector("#ppCloseBtn");
     if (closeBtn && !closeBtn.__wired) {
@@ -236,21 +270,18 @@
       });
     }
 
-    makeDraggable(modal.querySelector(".pp-card"), modal.querySelector(".pp-header"));
+    makeDraggable(card, modal.querySelector("#ppHeader"));
     return modal;
-  }
-
-  function centerModal(modal) {
-    const card = modal?.querySelector(".pp-card");
-    if (!card) return;
-    card.style.left = "50%";
-    card.style.top = "50%";
-    card.style.transform = "translate(-50%, -50%)";
   }
 
   function tagItem(id, label, checked) {
     return `
-      <label class="pp-tag">
+      <label class="pp-tag" style="
+        display:flex;align-items:center;gap:10px;
+        padding:10px 12px;border-radius:14px;
+        border:1px solid rgba(15,23,42,0.10);
+        background:rgba(15,23,42,0.03);
+      ">
         <input type="checkbox" id="${id}" ${checked ? "checked" : ""}/>
         <span>${label}</span>
       </label>
@@ -268,7 +299,6 @@
 
     currentProfilePatientId = Number(patientId);
 
-    // Capture BEFORE snapshot on open
     try {
       window.__profileBeforeSnapshot = takeAcuitySnapshot(p);
       window.__profileBeforePatientId = Number(p.id);
@@ -311,8 +341,8 @@
 
     if (bodyEl) {
       bodyEl.innerHTML = `
-        <div class="pp-row">
-          <div class="pp-label">Gender:</div>
+        <div class="pp-row" style="display:flex;align-items:center;gap:10px;margin-bottom:10px;">
+          <div class="pp-label" style="font-weight:800;">Gender:</div>
           <select id="profGender">
             <option value="" ${!p.gender ? "selected" : ""}>-</option>
             <option value="M" ${p.gender === "M" ? "selected" : ""}>M</option>
@@ -321,23 +351,28 @@
           </select>
         </div>
 
-        <div class="pp-grid">
+        <div class="pp-grid" style="
+          display:grid;
+          grid-template-columns: 1fr 1fr;
+          gap:18px;
+          margin-top:12px;
+        ">
           <div class="pp-col">
             <h4>RN Acuity Tags</h4>
-            <div class="pp-taglist">
+            <div class="pp-taglist" style="display:flex;flex-direction:column;gap:10px;">
               ${rnItems.map(x => tagItem(x[0], x[1], x[2])).join("")}
             </div>
           </div>
 
           <div class="pp-col">
             <h4>PCA Acuity Tags</h4>
-            <div class="pp-taglist">
+            <div class="pp-taglist" style="display:flex;flex-direction:column;gap:10px;">
               ${pcaItems.map(x => tagItem(x[0], x[1], x[2])).join("")}
             </div>
           </div>
         </div>
 
-        <div class="pp-actions">
+        <div class="pp-actions" style="display:flex;justify-content:flex-end;gap:10px;margin-top:16px;">
           <button class="btn" type="button" id="ppCancelBtn">Cancel</button>
           <button class="btn btn-primary" type="button" id="ppSaveBtn">Save</button>
         </div>
@@ -351,7 +386,6 @@
     if (saveBtn) saveBtn.onclick = savePatientProfile;
 
     modal.style.display = "flex";
-    centerModal(modal);
   }
 
   function closePatientProfileModal() {
@@ -383,19 +417,14 @@
     }
     p.gender = newGender || "";
 
-    const getCheck = (id) => {
-      const el = document.getElementById(id);
-      return !!(el && el.checked);
-    };
+    const getCheck = (id) => !!document.getElementById(id)?.checked;
 
-    // Shared tags (apply to both sides)
     p.tele = getCheck("profTele") || getCheck("profTelePca");
     p.isolation = getCheck("profIso") || getCheck("profIsoPca");
     p.iso = p.isolation;
     p.admit = getCheck("profAdmit") || getCheck("profAdmitPca");
     p.lateDc = getCheck("profLateDc") || getCheck("profLateDcPca");
 
-    // RN-only tags
     p.drip = getCheck("profDrip");
     p.nih = getCheck("profNih");
     p.bg = getCheck("profBg");
@@ -409,7 +438,6 @@
     p.sitter = getCheck("profSitter");
     p.vpo = getCheck("profVpo");
 
-    // PCA-only tags
     p.chg = getCheck("profChg");
     p.foley = getCheck("profFoley");
     p.q2turns = getCheck("profQ2");
@@ -420,7 +448,6 @@
     p.isEmpty = false;
     p.recentlyDischarged = false;
 
-    // AFTER + diff + log with staff attribution
     try {
       const after = takeAcuitySnapshot(p);
       const changes = diffSnapshots(before, after);
@@ -431,7 +458,6 @@
 
     if (typeof window.saveState === "function") window.saveState();
 
-    // Central refresh if available
     if (typeof window.refreshUI === "function") {
       try { window.refreshUI(); } catch {}
     } else {
@@ -445,10 +471,37 @@
     closePatientProfileModal();
   }
 
-  // Override globally (key)
-  window.openPatientProfileFromRoom = openPatientProfileFromRoom;
-  window.closePatientProfileModal = closePatientProfileModal;
-  window.savePatientProfile = savePatientProfile;
+  // ----------------------------
+  // Override + self-heal (STRONG)
+  // ----------------------------
+  function installOverrides() {
+    window.openPatientProfileFromRoom = openPatientProfileFromRoom;
 
-  console.log("[patientProfileUI] upgraded modal loaded (override active, staff attribution enabled)");
+    // common legacy aliases
+    window.openPatientProfile = (patientId) => openPatientProfileFromRoom(patientId);
+    window.openPatientProfileModal = (patientId) => openPatientProfileFromRoom(patientId);
+
+    window.closePatientProfileModal = closePatientProfileModal;
+    window.savePatientProfile = savePatientProfile;
+  }
+
+  function reassert() {
+    if (window.openPatientProfileFromRoom !== openPatientProfileFromRoom) {
+      console.warn("[patientProfileUI] openPatientProfileFromRoom overwritten — reasserting");
+      installOverrides();
+    }
+  }
+
+  installOverrides();
+  window.__patientProfileUIReassert = reassert;
+
+  // keep reasserting briefly (covers late script overwrites)
+  let tries = 0;
+  const t = setInterval(() => {
+    tries++;
+    reassert();
+    if (tries >= 20) clearInterval(t);
+  }, 500);
+
+  console.log("[patientProfileUI] loaded:", window.__patientProfileUIBuild);
 })();

@@ -19,6 +19,17 @@
 // - RN "shift-killer" weights tuned (Drip/Sitter/CIWA/NIH)
 // - Adds small per-patient combo bonus (e.g., Sitter+NIH, Drip+CIWA, etc.)
 // - Adds window.getLoadCategory helper for debugging + compatibility
+//
+// ✅ UPDATED (Jan 2026 - Patient Details Bulk Controls v1):
+// - window.activateAllRooms(): sets all beds In Use (isEmpty=false)
+// - window.emptyAllRooms(): sets all beds EMPTY and clears them from LIVE + Oncoming assignments
+// - Bulk operations refresh all tabs immediately + persist state once (no manual refresh button needed)
+//
+// ✅ PATCH (Jan 2026 - Ghost Tag Kill Switch v1):
+// - Clear ALL legacy alias fields when emptying a bed (bgChecks, cows, ciwaCows, iso, q2Turns, lateDC/latedc,
+//   restraints, feeders, etc.) so “ghost tags” cannot survive.
+// - Keep alias fields in sync in togglePatientFlag + savePatientProfile.
+// - Remove Gender row from Patient Details + Patient Profile modal.
 // ---------------------------------------------------------
 
 (function () {
@@ -29,7 +40,8 @@
   function safeArray(v) { return Array.isArray(v) ? v : []; }
 
   // Version marker for debugging
-  window.__patientsAcuityLoaded = "v2_staff_attribution_2026-01-02__role_tele_scoring_2026-01-08__rn_tiers_shiftkillers_2026-01-13";
+  window.__patientsAcuityLoaded =
+    "v2_staff_attribution_2026-01-02__role_tele_scoring_2026-01-08__rn_tiers_shiftkillers_2026-01-13__bulk_controls_2026-01-18__ghost_tags_kill_v1_2026-01-18";
 
   function ensurePatientsReady() {
     if (typeof window.ensureDefaultPatients === "function") {
@@ -63,6 +75,49 @@
       null
     );
   }
+
+  // =========================
+  // Global refresh helper (ALL TABS)
+  // =========================
+
+  function refreshAllTabs(opts = {}) {
+    const o = opts || {};
+
+    // Persist first so other tabs read the latest
+    if (!o.skipSave && typeof window.saveState === "function") {
+      try { window.saveState(); } catch (_) {}
+    }
+
+    // Patient Details
+    if (!o.skipPatientGrid && typeof window.renderPatientList === "function") {
+      try { window.renderPatientList(); } catch (_) {}
+    }
+
+    // High Risk
+    if (!o.skipHighRisk && typeof window.updateAcuityTiles === "function") {
+      try { window.updateAcuityTiles(); } catch (_) {}
+    }
+
+    // LIVE / Oncoming
+    if (!o.skipLive && typeof window.renderLiveAssignments === "function") {
+      try { window.renderLiveAssignments(); } catch (_) {}
+    }
+    if (!o.skipOncoming && typeof window.renderAssignmentOutput === "function") {
+      try { window.renderAssignmentOutput(); } catch (_) {}
+    }
+    if (!o.skipOncoming && typeof window.renderPcaAssignmentOutput === "function") {
+      try { window.renderPcaAssignmentOutput(); } catch (_) {}
+    }
+
+    // Unit Pulse (optional hook)
+    // NOTE: your Unit Pulse module also listens to audit events; this is just a safety refresh.
+    if (!o.skipUnitPulse && typeof window.renderUnitPulseTab === "function") {
+      try { window.renderUnitPulseTab(); } catch (_) {}
+    }
+  }
+
+  // Expose (useful for debugging or other modules)
+  window.refreshAllTabs = window.refreshAllTabs || refreshAllTabs;
 
   // =========================
   // Assignment lookup (RN/PCA)
@@ -256,54 +311,211 @@
     // no-op by design
   }
 
-  function setBedEmptyState(patientId, makeEmpty) {
+  // =========================
+  // Ghost tags: alias sync + clear
+  // =========================
+
+  function syncLegacyAliasesFromCanonical(p, key) {
+    if (!p) return;
+
+    const k = String(key || "");
+    if (!k) return;
+
+    // Keep legacy aliases in sync anytime canonical changes
+    if (k === "bg") {
+      p.bgChecks = !!p.bg;
+    }
+
+    if (k === "ciwa") {
+      const v = !!p.ciwa;
+      p.cows = v;
+      p.ciwaCows = v;
+    }
+
+    if (k === "isolation") {
+      p.iso = !!p.isolation;
+    }
+
+    if (k === "q2turns") {
+      p.q2Turns = !!p.q2turns;
+    }
+
+    if (k === "lateDc") {
+      const v = !!p.lateDc;
+      p.lateDC = v;
+      p.latedc = v;
+    }
+
+    if (k === "restraint") {
+      p.restraints = !!p.restraint;
+    }
+
+    if (k === "feeder") {
+      p.feeders = !!p.feeder;
+    }
+  }
+
+  function clearAllAcuityFieldsAndAliases(p) {
+    if (!p) return;
+
+    // Canonical fields
+    p.gender = "";
+    p.tele = false;
+    p.drip = false;
+    p.nih = false;
+    p.bg = false;
+    p.ciwa = false;
+    p.restraint = false;
+    p.sitter = false;
+    p.vpo = false;
+    p.isolation = false;
+    p.admit = false;
+    p.lateDc = false;
+
+    p.chg = false;
+    p.foley = false;
+    p.q2turns = false;
+    p.heavy = false;
+    p.feeder = false;
+
+    p.reviewed = false;
+
+    // Legacy/alias fields (the ghost-tag culprits)
+    p.bgChecks = false;
+    p.cows = false;
+    p.ciwaCows = false;
+
+    p.iso = false;
+
+    p.q2Turns = false;
+
+    p.lateDC = false;
+    p.latedc = false;
+
+    p.restraints = false;
+
+    p.feeders = false;
+
+    // If any older variants exist, defensively zero them too
+    try {
+      if ("late_dc" in p) p.late_dc = false;
+      if ("q2" in p) p.q2 = false;
+    } catch (_) {}
+  }
+
+  // =========================
+  // Assignment clearing helpers (LIVE + Oncoming)
+  // =========================
+
+  function removePidFromOwnerLists(list, pid) {
+    const arr = safeArray(list);
+    arr.forEach(owner => {
+      if (!owner) return;
+      const pts = safeArray(owner.patients);
+      if (!pts.length) return;
+      owner.patients = pts.filter(x => Number(x) !== Number(pid));
+    });
+    return arr;
+  }
+
+  function clearPidFromAllAssignments(pid) {
+    // Current (LIVE)
+    window.currentNurses = removePidFromOwnerLists(window.currentNurses, pid);
+    window.currentPcas = removePidFromOwnerLists(window.currentPcas, pid);
+
+    // Oncoming
+    window.incomingNurses = removePidFromOwnerLists(window.incomingNurses, pid);
+    window.incomingPcas = removePidFromOwnerLists(window.incomingPcas, pid);
+
+    // Legacy bare globals (if present)
+    try {
+      if (typeof currentNurses !== "undefined") currentNurses = window.currentNurses;
+      if (typeof currentPcas !== "undefined") currentPcas = window.currentPcas;
+      if (typeof incomingNurses !== "undefined") incomingNurses = window.incomingNurses;
+      if (typeof incomingPcas !== "undefined") incomingPcas = window.incomingPcas;
+    } catch (_) {}
+  }
+
+  // =========================
+  // Bed state setter (single + bulk-safe)
+  // =========================
+
+  function setBedEmptyStateInternal(patientId, makeEmpty, opts = {}) {
     const p = getPatientById(patientId);
     if (!p) return;
 
     const beforeEmpty = !!p.isEmpty;
 
     if (makeEmpty) {
-      p.gender = "";
-      p.tele = false;
-      p.drip = false;
-      p.nih = false;
-      p.bg = false;
-      p.ciwa = false;
-      p.restraint = false;
-      p.sitter = false;
-      p.vpo = false;
-      p.isolation = false;
-      p.admit = false;
-      p.lateDc = false;
-
-      p.chg = false;
-      p.foley = false;
-      p.q2turns = false;
-      p.heavy = false;
-      p.feeder = false;
-
-      p.reviewed = false;
+      // ✅ Ghost-tag kill: clear canonical + ALL aliases
+      clearAllAcuityFieldsAndAliases(p);
 
       p.isEmpty = true;
       p.recentlyDischarged = false;
+
+      // IMPORTANT: remove from LIVE + Oncoming assignments immediately
+      if (!opts.skipAssignmentClear) {
+        clearPidFromAllAssignments(Number(p.id));
+      }
     } else {
       p.isEmpty = false;
       p.recentlyDischarged = false;
     }
 
     const afterEmpty = !!p.isEmpty;
-    logBedStateChange(p, beforeEmpty, afterEmpty, "patient_details");
+    logBedStateChange(p, beforeEmpty, afterEmpty, opts.source || "patient_details");
 
-    if (typeof window.saveState === "function") window.saveState();
-    if (typeof window.updateAcuityTiles === "function") window.updateAcuityTiles();
-    if (typeof window.renderPatientList === "function") window.renderPatientList();
-    if (typeof window.renderLiveAssignments === "function") window.renderLiveAssignments();
-    if (typeof window.renderAssignmentOutput === "function") window.renderAssignmentOutput();
-    if (typeof window.renderPcaAssignmentOutput === "function") window.renderPcaAssignmentOutput();
+    if (!opts.suppressRefresh) {
+      refreshAllTabs();
+    }
+  }
+
+  function setBedEmptyState(patientId, makeEmpty) {
+    setBedEmptyStateInternal(patientId, makeEmpty, { suppressRefresh: false, source: "patient_details" });
   }
 
   // =========================
-  // Gender safety helper
+  // Bulk actions: Add All Rooms / Empty All Rooms
+  // =========================
+
+  function activateAllRooms() {
+    ensurePatientsReady();
+    const ok = confirm("Add All Rooms: mark every bed In Use (active)?");
+    if (!ok) return;
+
+    const rows = safeArray(window.patients).slice(0, 32);
+
+    // Do not clear tags; just ensure all beds are active.
+    rows.forEach(p => {
+      if (!p) return;
+      setBedEmptyStateInternal(Number(p.id), false, { suppressRefresh: true, source: "patient_details_bulk" });
+    });
+
+    refreshAllTabs();
+  }
+
+  function emptyAllRooms() {
+    ensurePatientsReady();
+    const ok = confirm("Empty All Rooms: set every bed EMPTY and clear LIVE + Oncoming assignments?");
+    if (!ok) return;
+
+    const rows = safeArray(window.patients).slice(0, 32);
+
+    // Bulk-empty all beds + clear assignments per bed
+    rows.forEach(p => {
+      if (!p) return;
+      setBedEmptyStateInternal(Number(p.id), true, {
+        suppressRefresh: true,
+        source: "patient_details_bulk",
+        skipAssignmentClear: false
+      });
+    });
+
+    refreshAllTabs();
+  }
+
+  // =========================
+  // Gender safety helper (kept for compatibility; UI removed)
   // =========================
   function canSetGenderFallback(patient, newGender) {
     if (typeof window.canSetGender === "function") return window.canSetGender(patient, newGender);
@@ -328,18 +540,19 @@
   // =========================
 
   function changePatientGender(id, value) {
+    // UI removed, but keep function for any legacy callers
     const p = getPatientById(id);
     if (!p) return;
 
     if (p.isEmpty) {
       alert("This bed is marked EMPTY. Uncheck Empty Bed first to edit patient details.");
-      renderPatientList();
+      refreshAllTabs({ skipHighRisk: true, skipLive: true, skipOncoming: true, skipUnitPulse: true, skipSave: true });
       return;
     }
 
     if (value && !canSetGenderFallback(p, value)) {
       alert("Roommate has a different gender. Mixed-gender room not allowed for this bed.");
-      renderPatientList();
+      refreshAllTabs({ skipHighRisk: true, skipLive: true, skipOncoming: true, skipUnitPulse: true, skipSave: true });
       return;
     }
 
@@ -348,14 +561,7 @@
     recomputeIsEmpty(p);
 
     logAcuityChange(p, "gender", before, p.gender || "", "patient_details");
-
-    if (typeof window.saveState === "function") window.saveState();
-
-    if (typeof window.updateAcuityTiles === "function") window.updateAcuityTiles();
-    if (typeof window.renderPatientList === "function") window.renderPatientList();
-    if (typeof window.renderLiveAssignments === "function") window.renderLiveAssignments();
-    if (typeof window.renderAssignmentOutput === "function") window.renderAssignmentOutput();
-    if (typeof window.renderPcaAssignmentOutput === "function") window.renderPcaAssignmentOutput();
+    refreshAllTabs();
   }
 
   function togglePatientFlag(id, key, checked) {
@@ -364,7 +570,7 @@
 
     if (p.isEmpty) {
       alert("This bed is marked EMPTY. Uncheck Empty Bed first to edit patient tags.");
-      renderPatientList();
+      refreshAllTabs({ skipHighRisk: true, skipLive: true, skipOncoming: true, skipUnitPulse: true, skipSave: true });
       return;
     }
 
@@ -374,16 +580,13 @@
     // (If any UI toggles Tele, it just sets p.tele)
     p[key] = checked;
 
+    // ✅ Ghost-tag fix: sync aliases whenever canonical flips
+    syncLegacyAliasesFromCanonical(p, key);
+
     recomputeIsEmpty(p);
 
     logAcuityChange(p, String(key), before, !!checked, "patient_details");
-
-    if (typeof window.saveState === "function") window.saveState();
-    if (typeof window.renderPatientList === "function") window.renderPatientList();
-    if (typeof window.updateAcuityTiles === "function") window.updateAcuityTiles();
-    if (typeof window.renderLiveAssignments === "function") window.renderLiveAssignments();
-    if (typeof window.renderAssignmentOutput === "function") window.renderAssignmentOutput();
-    if (typeof window.renderPcaAssignmentOutput === "function") window.renderPcaAssignmentOutput();
+    refreshAllTabs();
   }
 
   // =========================
@@ -408,7 +611,6 @@
             <tr>
               <th class="col-room">Bed</th>
               <th>Status</th>
-              <th>Gender</th>
               <th>RN Tags</th>
               <th>PCA Tags</th>
             </tr>
@@ -435,15 +637,6 @@
                         onclick="window.setBedEmptyState(${p.id}, true)"
                       >Empty</button>
                     </div>
-                  </td>
-
-                  <td>
-                    <select ${empty ? "disabled" : ""} onchange="window.changePatientGender(${p.id}, this.value)">
-                      <option value="" ${(!p.gender) ? "selected" : ""}>-</option>
-                      <option value="F" ${(p.gender==="F") ? "selected" : ""}>F</option>
-                      <option value="M" ${(p.gender==="M") ? "selected" : ""}>M</option>
-                      <option value="X" ${(p.gender==="X") ? "selected" : ""}>X</option>
-                    </select>
                   </td>
 
                   <td>
@@ -1025,17 +1218,8 @@
     ];
 
     if (bodyEl) {
+      // ✅ Gender row removed
       bodyEl.innerHTML = `
-        <div class="pp-row">
-          <div class="pp-label">Gender:</div>
-          <select id="profGender">
-            <option value="" ${!p.gender ? "selected" : ""}>-</option>
-            <option value="M" ${p.gender === "M" ? "selected" : ""}>M</option>
-            <option value="F" ${p.gender === "F" ? "selected" : ""}>F</option>
-            <option value="X" ${p.gender === "X" ? "selected" : ""}>X</option>
-          </select>
-        </div>
-
         <div class="pp-grid">
           <div class="pp-col">
             <h4>RN Acuity Tags</h4>
@@ -1092,14 +1276,6 @@
       chg: !!p.chg, foley: !!p.foley, q2turns: !!p.q2turns, heavy: !!p.heavy, feeder: !!p.feeder
     };
 
-    const gSel = document.getElementById("profGender");
-    const newGender = gSel ? gSel.value : "";
-    if (newGender && !canSetGenderFallback(p, newGender)) {
-      alert("Roommate has a different gender. Mixed-gender room not allowed for this bed.");
-      return;
-    }
-    p.gender = newGender || "";
-
     const getCheck = (id) => {
       const el = document.getElementById(id);
       return !!(el && el.checked);
@@ -1111,6 +1287,7 @@
     // RN-only
     p.drip = getCheck("profDrip");
     p.nih = getCheck("profNih");
+
     p.bg = getCheck("profBg");
     p.bgChecks = p.bg;
 
@@ -1119,6 +1296,8 @@
     p.ciwaCows = p.ciwa;
 
     p.restraint = getCheck("profRestraint");
+    p.restraints = p.restraint;
+
     p.sitter = getCheck("profSitter");
     p.vpo = getCheck("profVpo");
 
@@ -1127,15 +1306,22 @@
     p.iso = p.isolation;
 
     p.admit = getCheck("profAdmit") || getCheck("profAdmitPca");
+
     p.lateDc = getCheck("profLateDc") || getCheck("profLateDcPca");
+    p.lateDC = p.lateDc;
+    p.latedc = p.lateDc;
 
     // PCA-only
     p.chg = getCheck("profChg");
     p.foley = getCheck("profFoley");
+
     p.q2turns = getCheck("profQ2");
     p.q2Turns = p.q2turns;
+
     p.heavy = getCheck("profHeavy");
+
     p.feeder = getCheck("profFeeder");
+    p.feeders = p.feeder;
 
     p.isEmpty = false;
     p.recentlyDischarged = false;
@@ -1157,14 +1343,7 @@
 
     logBulkAcuityChanges(p, changes, "patient_profile");
 
-    if (typeof window.saveState === "function") window.saveState();
-
-    if (typeof window.updateAcuityTiles === "function") window.updateAcuityTiles();
-    if (typeof window.renderPatientList === "function") window.renderPatientList();
-    if (typeof window.renderLiveAssignments === "function") window.renderLiveAssignments();
-    if (typeof window.renderAssignmentOutput === "function") window.renderAssignmentOutput();
-    if (typeof window.renderPcaAssignmentOutput === "function") window.renderPcaAssignmentOutput();
-
+    refreshAllTabs();
     closePatientProfileModal();
   }
 
@@ -1181,7 +1360,7 @@
   window.recomputeIsEmpty = recomputeIsEmpty;
   window.setBedEmptyState = setBedEmptyState;
 
-  window.changePatientGender = changePatientGender;
+  window.changePatientGender = changePatientGender; // kept for legacy; UI removed
   window.togglePatientFlag = togglePatientFlag;
   window.renderPatientList = renderPatientList;
 
@@ -1205,4 +1384,8 @@
   window.openPatientProfileFromRoom = openPatientProfileFromRoom;
   window.closePatientProfileModal = closePatientProfileModal;
   window.savePatientProfile = savePatientProfile;
+
+  // ✅ New bulk controls
+  window.activateAllRooms = activateAllRooms;
+  window.emptyAllRooms = emptyAllRooms;
 })();

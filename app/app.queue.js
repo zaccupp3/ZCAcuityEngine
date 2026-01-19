@@ -17,13 +17,17 @@
 // Compatibility:
 // - Supports legacy queue item shapes: { preTags, preGender }
 // - Exposes legacy function names: renderQueueList, promptAddAdmit, removeAdmit, renameAdmit
+//
+// PATCH (Jan 2026):
+// - Add non-prompt add API: window.addAdmitToQueue(name)
+// - Alias: window.addToAdmitQueue -> addAdmitToQueue (LIVE inline button expects it)
+// - Horizontal, readable queue tiles in #queueList (wrap + min widths)
 // ---------------------------------------------------------
 
 (function () {
   let activeQueueAssignId = null;
   let activeDraftQueueId = null;
 
-  // injected modal nodes
   let __preAdmitModal = null; // { overlay, card }
 
   // --------------------------
@@ -78,7 +82,6 @@
     if (typeof window.renderPcaAssignmentOutput === "function") window.renderPcaAssignmentOutput();
     renderQueueList();
 
-    // optional: unit pulse refresh if present
     try { if (typeof window.refreshUnitPulse === "function") window.refreshUnitPulse(); } catch (_) {}
   }
 
@@ -153,7 +156,7 @@
         sitter: !!item.preAdmit.sitter,
         vpo: !!item.preAdmit.vpo,
         isolation: !!item.preAdmit.isolation,
-        admit: !!item.preAdmit.admit, // informational (auto when placed)
+        admit: !!item.preAdmit.admit,
         lateDc: !!item.preAdmit.lateDc,
 
         chg: !!item.preAdmit.chg,
@@ -179,7 +182,7 @@
       sitter: !!legacyTags.sitter,
       vpo: !!legacyTags.vpo,
       isolation: !!legacyTags.iso,
-      admit: !!legacyTags.admit, // may not exist; ok
+      admit: !!legacyTags.admit,
       lateDc: !!legacyTags.lateDc,
 
       chg: !!legacyTags.chg,
@@ -212,15 +215,13 @@
 
     if (typeof d.gender === "string" && d.gender) targetPatient.gender = d.gender;
 
-    // Shared
     targetPatient.tele = !!d.tele;
     targetPatient.isolation = !!d.isolation;
     targetPatient.iso = targetPatient.isolation;
-    // "admit" is set on placement anyway; but if user drafted it, respect it
+
     if (typeof d.admit === "boolean") targetPatient.admit = !!d.admit;
     targetPatient.lateDc = !!d.lateDc;
 
-    // RN-only
     targetPatient.drip = !!d.drip;
     targetPatient.nih = !!d.nih;
     targetPatient.bg = !!d.bg;
@@ -232,7 +233,6 @@
     targetPatient.sitter = !!d.sitter;
     targetPatient.vpo = !!d.vpo;
 
-    // PCA-only
     targetPatient.chg = !!d.chg;
     targetPatient.foley = !!d.foley;
     targetPatient.q2turns = !!d.q2turns;
@@ -244,13 +244,23 @@
   // --------------------------
   // Queue list rendering
   // --------------------------
+  function ensureQueueListLayout(el) {
+    // This makes the INLINE queue readable (wraps tiles, not smushed)
+    el.style.display = "flex";
+    el.style.flexWrap = "wrap";
+    el.style.gap = "10px";
+    el.style.alignItems = "stretch";
+  }
+
   function renderQueueList() {
     const el = byId("queueList");
     if (!el) return;
 
+    ensureQueueListLayout(el);
+
     const q = safeArray(window.admitQueue);
     if (!q.length) {
-      el.innerHTML = `<div style="opacity:0.7;padding:8px 0;">No admits in queue.</div>`;
+      el.innerHTML = `<div style="opacity:0.7;padding:6px 0;">No admits in queue.</div>`;
       return;
     }
 
@@ -267,17 +277,35 @@
       item.preAdmitTagsText = tagsText;
 
       return `
-        <div class="queue-item">
-          <div class="queue-item-header">
-            <div class="queue-item-title"><strong>${escapeHtml(name)}</strong></div>
-            <div class="queue-item-actions">
+        <div class="queue-item" style="
+          min-width: 300px;
+          max-width: 520px;
+          flex: 1 1 320px;
+          padding: 10px 12px;
+          border-radius: 14px;
+          border: 1px solid rgba(15,23,42,0.10);
+          background: rgba(255,255,255,0.96);
+          box-shadow: 0 6px 18px rgba(0,0,0,.06);
+        ">
+          <div class="queue-item-header" style="display:flex;justify-content:space-between;gap:10px;">
+            <div class="queue-item-title" style="min-width:120px;">
+              <strong>${escapeHtml(name)}</strong>
+            </div>
+            <div class="queue-item-actions" style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end;">
               <button class="queue-btn" onclick="openQueueAssignModal(${item.id})">Assign</button>
               <button class="queue-btn" onclick="editQueuedAdmitName(${item.id})">Edit Name</button>
               <button class="queue-btn" onclick="openAdmitDraftModal(${item.id})">Pre-Admit Tags</button>
               <button class="queue-btn" onclick="removeQueuedAdmit(${item.id})">Remove</button>
             </div>
           </div>
-          ${tagsText ? `<div class="queue-item-tags"><strong>Pre-admit:</strong> ${escapeHtml(tagsText)}</div>` : ""}
+
+          ${
+            tagsText
+              ? `<div class="queue-item-tags" style="margin-top:8px;line-height:1.25;word-break:break-word;">
+                   <strong>Pre-admit:</strong> ${escapeHtml(tagsText)}
+                 </div>`
+              : `<div style="margin-top:8px;opacity:.7;">No pre-admit tags.</div>`
+          }
         </div>
       `;
     }).join("");
@@ -285,11 +313,11 @@
     if (typeof window.saveState === "function") window.saveState();
   }
 
-  function promptAddAdmit() {
-    const name = prompt("Admit name (can be edited anytime until placed):", "Admit");
-    if (name == null) return;
-
-    const item = {
+  // --------------------------
+  // Add (prompt + non-prompt)
+  // --------------------------
+  function createQueueItem(name) {
+    return {
       id: nextQueueId(),
       name: String(name || "Admit"),
       createdAt: Date.now(),
@@ -304,6 +332,10 @@
       },
       preAdmitTagsText: ""
     };
+  }
+
+  function addAdmitToQueue(name) {
+    const item = createQueueItem(name);
 
     window.admitQueue = safeArray(window.admitQueue);
     window.admitQueue.push(item);
@@ -315,6 +347,13 @@
 
     renderQueueList();
     if (typeof window.saveState === "function") window.saveState();
+    return item;
+  }
+
+  function promptAddAdmit() {
+    const name = prompt("Admit name (can be edited anytime until placed):", "Admit");
+    if (name == null) return;
+    addAdmitToQueue(String(name || "Admit"));
   }
 
   function removeQueuedAdmit(id) {
@@ -510,7 +549,7 @@
   }
 
   // --------------------------
-  // Pre-admit tags modal (match Patient Profile UI)
+  // Pre-admit tags modal
   // --------------------------
   function destroyPreAdmitModal() {
     try {
@@ -534,7 +573,6 @@
 
     handleEl.addEventListener("mousedown", (e) => {
       if (e.button !== 0) return;
-      // ignore if clicking buttons
       const t = e.target;
       if (t && (t.tagName === "BUTTON" || t.closest?.("button"))) return;
 
@@ -667,7 +705,6 @@
       `;
     }
 
-    // wire close behaviors
     const closeBtn = card.querySelector("#__padClose");
     if (closeBtn) closeBtn.onclick = closeAdmitDraftModal;
 
@@ -684,7 +721,6 @@
       });
     }
 
-    // shared tag mirroring (Tele / ISO / Late DC)
     function wireMirror(aId, bId) {
       const a = card.querySelector(aId);
       const b = card.querySelector(bId);
@@ -703,7 +739,6 @@
     const saveBtn = card.querySelector("#__padSave");
     if (saveBtn) saveBtn.onclick = saveAdmitDraftFromModal;
 
-    // draggable + centered
     makeDraggable(card, card.querySelector("#__padHeader"));
     centerCard(card);
 
@@ -727,12 +762,10 @@
 
     const getCheck = (sel) => !!card.querySelector(sel)?.checked;
 
-    // Shared (Tele/ISO/LateDC mirrored so either side works)
     d.tele = getCheck("#__padTele") || getCheck("#__padTelePca");
     d.isolation = getCheck("#__padIso") || getCheck("#__padIsoPca");
     d.lateDc = getCheck("#__padLateDc") || getCheck("#__padLateDcPca");
 
-    // RN-only
     d.drip = getCheck("#__padDrip");
     d.nih = getCheck("#__padNih");
     d.bg = getCheck("#__padBg");
@@ -741,14 +774,12 @@
     d.sitter = getCheck("#__padSitter");
     d.vpo = getCheck("#__padVpo");
 
-    // PCA-only
     d.chg = getCheck("#__padChg");
     d.foley = getCheck("#__padFoley");
     d.q2turns = getCheck("#__padQ2");
     d.heavy = getCheck("#__padHeavy");
     d.feeder = getCheck("#__padFeeder");
 
-    // informational (auto on placement)
     d.admit = false;
 
     item.preAdmitTagsText = buildPreAdmitTagsText(d);
@@ -767,10 +798,15 @@
   }
 
   // --------------------------
-  // Expose
+  // Expose (including LIVE inline expectations)
   // --------------------------
   window.renderQueueList = renderQueueList;
+  window.renderAdmitQueueList = renderQueueList;
+
   window.promptAddAdmit = promptAddAdmit;
+
+  window.addAdmitToQueue = addAdmitToQueue;
+  window.addToAdmitQueue = addAdmitToQueue; // ✅ LIVE inline button uses this today
 
   window.removeQueuedAdmit = removeQueuedAdmit;
   window.editQueuedAdmitName = editQueuedAdmitName;

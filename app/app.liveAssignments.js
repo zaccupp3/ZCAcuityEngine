@@ -2,18 +2,11 @@
 // ---------------------------------------------------------
 // LIVE Assignment engine + rendering (Current shift only)
 //
-// Adds:
-// - ! rule flag icon (yellow warning vs red violation) based on hard-rule checks
-//   Hover shows EXACT rule(s) that are stacked + counts.
-// - ✅ Empty-owner drop zones (RN + PCA)
-// - ✅ Discharge Bin restored (slot 9 fallback injection)
-// - ✅ Print LIVE button (top-right overlay; does NOT consume grid space)
-//
-// NEW (Jan 2026):
-// ✅ LIVE card color accent is now robust:
-//    - Preserve upstream CSS class returned by window.getLoadClass() (so existing styles remain)
-//    - ALSO enforce stricter thresholds for a left-border accent (inline style) so “busy greens” show yellow
-//    - This is classification-only (NOT scoring)
+// PATCH (Jan 2026 -> refined):
+// - Admit Queue is mounted higher INSIDE the LIVE page (near Print LIVE)
+// - Inline queue uses app.queue.js canonical API when present (do-no-harm fallback)
+// - Queue renders HORIZONTALLY above RN tiles (scrollable)
+// - Discharge Bin accepts drop ANYWHERE within the bin card
 // ---------------------------------------------------------
 
 (function () {
@@ -41,7 +34,6 @@
   function normalizeBucketFromClass(cls) {
     const c = String(cls || "").toLowerCase();
     if (!c) return "";
-    // common buckets
     if (c.includes("high") || c.includes("red")) return "red";
     if (c.includes("medium") || c.includes("yellow")) return "yellow";
     if (c.includes("good") || c.includes("green") || c.includes("low")) return "green";
@@ -49,17 +41,17 @@
   }
 
   function getThresholdsForLive(role) {
-    // Priority:
-    // 1) window.liveThresholds (explicit LIVE control)
-    // 2) window.unitPulseState.thresholds (shared config)
-    // 3) defaults
-    const live = (window.liveThresholds && typeof window.liveThresholds === "object") ? window.liveThresholds : null;
-    const ups = (window.unitPulseState?.thresholds && typeof window.unitPulseState.thresholds === "object") ? window.unitPulseState.thresholds : null;
+    const live =
+      window.liveThresholds && typeof window.liveThresholds === "object"
+        ? window.liveThresholds
+        : null;
+    const ups =
+      window.unitPulseState?.thresholds && typeof window.unitPulseState.thresholds === "object"
+        ? window.unitPulseState.thresholds
+        : null;
 
     const def =
-      role === "pca"
-        ? { greenMax: 14, yellowMax: 22, redMax: 32 }
-        : { greenMax: 10, yellowMax: 16, redMax: 26 };
+      role === "pca" ? { greenMax: 14, yellowMax: 22, redMax: 32 } : { greenMax: 10, yellowMax: 16, redMax: 26 };
 
     const pick = (src) => {
       if (!src) return null;
@@ -77,7 +69,6 @@
     return { greenMax: g, yellowMax: y, redMax: r };
   }
 
-  // Determine “strict bucket” from score + thresholds
   function bucketForScore(score, role) {
     const s = Number(score) || 0;
     const t = getThresholdsForLive(role === "pca" ? "pca" : "nurse");
@@ -88,16 +79,12 @@
     return "red";
   }
 
-  // Inline accent style so colors render even if CSS classes change
   function accentStyleForBucket(bucket) {
-    // Use very safe, subtle RGBA tones
     if (bucket === "red") return "border-left:6px solid rgba(239,68,68,0.85);";
     if (bucket === "yellow") return "border-left:6px solid rgba(245,158,11,0.90);";
     return "border-left:6px solid rgba(16,185,129,0.80);";
   }
 
-  // Preserve upstream CSS class, but enforce stricter bucket for the inline border accent.
-  // If upstream already flags yellow/red, we keep that bucket (don’t downgrade).
   function resolveLiveVisual(loadScore, role) {
     let upstreamClass = "";
     try {
@@ -109,17 +96,17 @@
     const upstreamBucket = normalizeBucketFromClass(upstreamClass);
     const strictBucket = bucketForScore(loadScore, role);
 
-    // If upstream is already “worse” (yellow/red), honor it for bucket.
-    // Otherwise use strict bucket.
     const bucket =
-      (upstreamBucket === "red") ? "red"
-      : (upstreamBucket === "yellow" && strictBucket !== "red") ? "yellow"
-      : strictBucket;
+      upstreamBucket === "red"
+        ? "red"
+        : upstreamBucket === "yellow" && strictBucket !== "red"
+        ? "yellow"
+        : strictBucket;
 
     return {
       upstreamClass,
       bucket,
-      accentStyle: accentStyleForBucket(bucket)
+      accentStyle: accentStyleForBucket(bucket),
     };
   }
 
@@ -139,8 +126,10 @@
   }
 
   function getActivePatientsForLive() {
-    try { if (typeof window.ensureDefaultPatients === "function") window.ensureDefaultPatients(); } catch {}
-    return safeArray(window.patients).filter(p => p && !p.isEmpty);
+    try {
+      if (typeof window.ensureDefaultPatients === "function") window.ensureDefaultPatients();
+    } catch {}
+    return safeArray(window.patients).filter((p) => p && !p.isEmpty);
   }
 
   // -----------------------------
@@ -159,6 +148,164 @@
     }
   }
   window.openPrintLive = openPrintLiveSafe;
+
+  // -----------------------------
+  // Inline Admit Queue (LIVE)
+  // -----------------------------
+  function callQueueAddNoPrompt(label) {
+    const name = (String(label || "").trim() || "New Admit").slice(0, 80);
+
+    // Preferred canonical API (app.queue.js) — we will implement this there:
+    // window.addAdmitToQueue(name)
+    try {
+      if (typeof window.addAdmitToQueue === "function") {
+        window.addAdmitToQueue(name);
+        return true;
+      }
+    } catch (e) {
+      console.warn("[queue] addAdmitToQueue failed", e);
+    }
+
+    // Back-compat legacy (app.admitQueue.js)
+    try {
+      if (typeof window.addToAdmitQueue === "function") {
+        window.addToAdmitQueue(name);
+        return true;
+      }
+    } catch (e) {
+      console.warn("[queue] addToAdmitQueue failed", e);
+    }
+
+    return false;
+  }
+
+  function callQueueRender() {
+    // Preferred canonical render in app.queue.js: window.renderAdmitQueueList()
+    try {
+      if (typeof window.renderAdmitQueueList === "function") {
+        window.renderAdmitQueueList();
+        return;
+      }
+    } catch (e) {
+      console.warn("[queue] renderAdmitQueueList failed", e);
+    }
+
+    // Back-compat legacy
+    try {
+      if (typeof window.renderQueueList === "function") {
+        window.renderQueueList();
+        return;
+      }
+    } catch (e) {
+      console.warn("[queue] renderQueueList failed", e);
+    }
+  }
+
+  // NEW: Admit queue inline host (dock near Print LIVE, horizontal list)
+  function ensureAdmitQueueInlineHost(liveTabEl, nurseContainerEl) {
+    if (!liveTabEl) return;
+
+    // Remove any duplicate queueList targets elsewhere (legacy panel usually creates one)
+    // Keep the one we control (inside admitQueueInlineHost).
+    const existingTargets = Array.from(document.querySelectorAll("#queueList"));
+    existingTargets.forEach((el) => {
+      const insideOurHost = !!el.closest("#admitQueueInlineHost");
+      if (!insideOurHost) {
+        try {
+          el.remove();
+        } catch (_) {}
+      }
+    });
+
+    // We want the queue bar ABOVE the RN cards, not floating in the title row.
+    // So we anchor it at the top of the RN container area when possible.
+    const anchor = nurseContainerEl || liveTabEl;
+
+    let host = document.getElementById("admitQueueInlineHost");
+    if (!host) {
+      host = document.createElement("div");
+      host.id = "admitQueueInlineHost";
+      host.style.cssText = `
+        width:100%;
+        margin: 0 0 12px 0;
+        pointer-events:auto;
+      `;
+    }
+
+    // Place host just before the RN container
+    if (nurseContainerEl && nurseContainerEl.parentNode) {
+      if (nurseContainerEl.previousSibling !== host) {
+        nurseContainerEl.parentNode.insertBefore(host, nurseContainerEl);
+      }
+    } else {
+      // Fallback: top of live tab
+      if (!liveTabEl.contains(host)) liveTabEl.insertBefore(host, liveTabEl.firstChild);
+    }
+
+    host.innerHTML = `
+      <div style="
+        display:flex;
+        align-items:center;
+        justify-content:space-between;
+        gap:12px;
+        padding:10px 12px;
+        border-radius:14px;
+        border:1px solid rgba(15,23,42,0.10);
+        background:rgba(255,255,255,0.92);
+        box-shadow: 0 6px 18px rgba(0,0,0,.08);
+      ">
+        <div style="display:flex;align-items:center;gap:10px;min-width:280px;">
+          <div style="font-weight:900;white-space:nowrap;">Admit Queue</div>
+          <input id="admitQueueNewLabel" type="text" placeholder="Add admit name…"
+            style="padding:9px 10px;border:1px solid rgba(15,23,42,0.15);border-radius:10px;min-width:190px;" />
+          <button id="btnAddAdmitQueue" type="button"
+            style="border:0;background:#111;color:#fff;padding:10px 12px;border-radius:10px;cursor:pointer;font-weight:900;">
+            + Add
+          </button>
+        </div>
+
+        <div style="flex:1;min-width:0;">
+          <div id="queueList" style="
+            display:flex;
+            gap:10px;
+            overflow:auto;
+            padding:2px 2px 2px 2px;
+            scroll-snap-type:x proximity;
+          "></div>
+        </div>
+      </div>
+    `;
+
+    const input = document.getElementById("admitQueueNewLabel");
+    const btn = document.getElementById("btnAddAdmitQueue");
+
+    if (btn && !btn.__wired) {
+      btn.__wired = true;
+
+      const doAdd = () => {
+        const label = (input && input.value ? String(input.value).trim() : "") || "New Admit";
+        const ok = callQueueAddNoPrompt(label);
+        if (!ok) {
+          alert("Admit Queue add is not available yet (queue module not loaded). Check script order / refresh.");
+        }
+        if (input) input.value = "";
+      };
+
+      btn.addEventListener("click", doAdd);
+
+      if (input) {
+        input.addEventListener("keydown", (e) => {
+          if (e.key === "Enter") {
+            e.preventDefault();
+            doAdd();
+          }
+        });
+      }
+    }
+
+    // Render into this host
+    callQueueRender();
+  }
 
   function ensureLivePrintButtonHost(nurseContainer) {
     if (!nurseContainer) return;
@@ -225,22 +372,18 @@
 
   function getOwnerEval(owner, evalMap) {
     if (!owner || !evalMap) return null;
-
     const key = owner?.name || owner?.label || null;
     if (key && evalMap[key]) return evalMap[key];
-
     if (key) {
       const keys = Object.keys(evalMap);
-      const found = keys.find(k => String(k).toLowerCase() === String(key).toLowerCase());
+      const found = keys.find((k) => String(k).toLowerCase() === String(key).toLowerCase());
       if (found) return evalMap[found];
     }
-
     return null;
   }
 
   function buildRuleTitle(ownerEval, roleLabel) {
     if (!ownerEval) return "";
-
     const v = safeArray(ownerEval.violations);
     const w = safeArray(ownerEval.warnings);
     if (!v.length && !w.length) return "";
@@ -250,14 +393,10 @@
     if (w.length) parts.push(`Unavoidable stacks (${w.length})`);
 
     const detail = [];
-    v.forEach(x => {
-      const line = x?.message || `${roleLabel} rule: ${x?.tag} stacked (${x?.mine} > ${x?.limit})`;
-      detail.push(line);
-    });
-    w.forEach(x => {
-      const line = x?.message || `${roleLabel} stack (likely unavoidable): ${x?.tag} (${x?.mine} > ${x?.limit})`;
-      detail.push(line);
-    });
+    v.forEach((x) => detail.push(x?.message || `${roleLabel} rule: ${x?.tag} stacked (${x?.mine} > ${x?.limit})`));
+    w.forEach((x) =>
+      detail.push(x?.message || `${roleLabel} stack (likely unavoidable): ${x?.tag} (${x?.mine} > ${x?.limit})`)
+    );
 
     const header = parts.join(" • ");
     const body = detail.length ? ` • ${detail.join(" • ")}` : "";
@@ -266,7 +405,6 @@
 
   function buildRuleIconHtml(ownerEval, roleLabel) {
     if (!ownerEval) return "";
-
     const v = safeArray(ownerEval.violations);
     const w = safeArray(ownerEval.warnings);
     if (!v.length && !w.length) return "";
@@ -277,7 +415,7 @@
   }
 
   // -----------------------------
-  // ✅ Empty-owner drop zone (LIVE)
+  // Empty-owner drop zone (LIVE)
   // -----------------------------
   function buildEmptyDropZoneHtml(boardKey, role, ownerId, label) {
     return `
@@ -303,12 +441,53 @@
   }
 
   // -----------------------------
-  // ✅ Discharge Bin injection fallback
+  // Discharge Bin: accept drop ANYWHERE in the bin card
+  // -----------------------------
+  function hardenDischargeBinDropTarget() {
+    const card = document.getElementById("dischargeBinCard");
+    const zone = document.getElementById("dischargeDropZone");
+    if (!card) return;
+
+    const onOver = (e) => {
+      try {
+        if (typeof window.onDischargeDragOver === "function") window.onDischargeDragOver(e);
+        else e.preventDefault();
+      } catch {
+        e.preventDefault();
+      }
+    };
+
+    const onDrop = (e) => {
+      try {
+        if (typeof window.onDischargeDrop === "function") window.onDischargeDrop(e);
+      } catch (err) {
+        console.warn("[discharge] drop failed", err);
+      }
+    };
+
+    if (!card.__dropHardened) {
+      card.__dropHardened = true;
+      card.ondragover = onOver;
+      card.ondrop = onDrop;
+    }
+
+    if (zone && !zone.__dropHardened) {
+      zone.__dropHardened = true;
+      zone.ondragover = onOver;
+      zone.ondrop = onDrop;
+      zone.style.minHeight = "140px";
+      zone.style.display = "flex";
+      zone.style.alignItems = "center";
+      zone.style.justifyContent = "center";
+    }
+  }
+
+  // -----------------------------
+  // Discharge Bin injection fallback
   // -----------------------------
   function injectDischargeBinFallback() {
     const slot = document.getElementById("rnGridSlot9");
     if (!slot) return;
-
     if (document.getElementById("dischargeBinCard")) return;
 
     slot.innerHTML = `
@@ -334,13 +513,17 @@
         </div>
       </div>
     `;
+
+    hardenDischargeBinDropTarget();
   }
 
   // -----------------------------
   // Live populate
   // -----------------------------
   function populateLiveAssignment(randomize = false) {
-    try { if (typeof window.ensureDefaultPatients === "function") window.ensureDefaultPatients(); } catch {}
+    try {
+      if (typeof window.ensureDefaultPatients === "function") window.ensureDefaultPatients();
+    } catch {}
 
     const currentNurses = safeArray(window.currentNurses);
     const currentPcas = safeArray(window.currentPcas);
@@ -360,8 +543,12 @@
     if (randomize) list.sort(() => Math.random() - 0.5);
     else list.sort((a, b) => getRoomNumberSafe(a) - getRoomNumberSafe(b));
 
-    currentNurses.forEach(n => { n.patients = []; });
-    currentPcas.forEach(p => { p.patients = []; });
+    currentNurses.forEach((n) => {
+      n.patients = [];
+    });
+    currentPcas.forEach((p) => {
+      p.patients = [];
+    });
 
     if (typeof window.distributePatientsEvenly === "function") {
       window.distributePatientsEvenly(currentNurses, list, { randomize, role: "nurse" });
@@ -383,10 +570,18 @@
     window.currentPcas = currentPcas;
 
     if (typeof window.renderLiveAssignments === "function") window.renderLiveAssignments();
-    try { if (typeof window.updateAcuityTiles === "function") window.updateAcuityTiles(); } catch {}
-    try { if (typeof window.renderPatientList === "function") window.renderPatientList(); } catch {}
-    try { if (typeof window.saveState === "function") window.saveState(); } catch {}
-    try { if (typeof window.updateDischargeCount === "function") window.updateDischargeCount(); } catch {}
+    try {
+      if (typeof window.updateAcuityTiles === "function") window.updateAcuityTiles();
+    } catch {}
+    try {
+      if (typeof window.renderPatientList === "function") window.renderPatientList();
+    } catch {}
+    try {
+      if (typeof window.saveState === "function") window.saveState();
+    } catch {}
+    try {
+      if (typeof window.updateDischargeCount === "function") window.updateDischargeCount();
+    } catch {}
   }
 
   // -----------------------------
@@ -403,7 +598,12 @@
     nurseContainer.innerHTML = "";
     pcaContainer.innerHTML = "";
 
+    // IMPORTANT: print host is positioned relative to the RN container
     ensureLivePrintButtonHost(nurseContainer);
+
+    // IMPORTANT: inline queue should render above RN tiles (scrollable row)
+    const liveTabEl = document.getElementById("liveAssignmentTab");
+    ensureAdmitQueueInlineHost(liveTabEl, nurseContainer);
 
     const rnEvalMap = getRuleEvalMap(currentNurses, "nurse");
     const pcaEvalMap = getRuleEvalMap(currentPcas, "pca");
@@ -411,16 +611,15 @@
     // ---- RNs ----
     currentNurses.forEach((nurse) => {
       const pts = safeArray(nurse.patients)
-        .map(id => getPatientByIdSafe(id))
-        .filter(p => p && !p.isEmpty)
+        .map((id) => getPatientByIdSafe(id))
+        .filter((p) => p && !p.isEmpty)
         .sort((a, b) => getRoomNumberSafe(a) - getRoomNumberSafe(b));
 
-      const loadScore = (typeof window.getNurseLoadScore === "function") ? window.getNurseLoadScore(nurse) : 0;
+      const loadScore = typeof window.getNurseLoadScore === "function" ? window.getNurseLoadScore(nurse) : 0;
 
-      // ✅ preserve upstream class + force visible color via inline accent
       const vis = resolveLiveVisual(loadScore, "nurse");
-      const loadClass = vis.upstreamClass;        // keep whatever your CSS already styles
-      const accentStyle = vis.accentStyle;        // guaranteed stripe color
+      const loadClass = vis.upstreamClass;
+      const accentStyle = vis.accentStyle;
 
       const ownerEval = getOwnerEval(nurse, rnEvalMap);
       const ruleIcon = buildRuleIconHtml(ownerEval, "RN");
@@ -441,9 +640,7 @@
         `;
       });
 
-      const emptyDrop = (!pts.length)
-        ? buildEmptyDropZoneHtml("live", "nurse", nurse.id, "RN")
-        : "";
+      const emptyDrop = !pts.length ? buildEmptyDropZoneHtml("live", "nurse", nurse.id, "RN") : "";
 
       nurseContainer.innerHTML += `
         <div class="assignment-card ${escapeHtml(loadClass)}" style="${accentStyle}">
@@ -493,16 +690,20 @@
       injectDischargeBinFallback();
     }
 
+    // Ensure bin is droppable anywhere even if it came from the “real” builder
+    try {
+      hardenDischargeBinDropTarget();
+    } catch (_) {}
+
     // ---- PCAs ----
     currentPcas.forEach((pca) => {
       const pts = safeArray(pca.patients)
-        .map(id => getPatientByIdSafe(id))
-        .filter(p => p && !p.isEmpty)
+        .map((id) => getPatientByIdSafe(id))
+        .filter((p) => p && !p.isEmpty)
         .sort((a, b) => getRoomNumberSafe(a) - getRoomNumberSafe(b));
 
-      const loadScore = (typeof window.getPcaLoadScore === "function") ? window.getPcaLoadScore(pca) : 0;
+      const loadScore = typeof window.getPcaLoadScore === "function" ? window.getPcaLoadScore(pca) : 0;
 
-      // ✅ preserve upstream class + force visible color via inline accent
       const vis = resolveLiveVisual(loadScore, "pca");
       const loadClass = vis.upstreamClass;
       const accentStyle = vis.accentStyle;
@@ -526,9 +727,7 @@
         `;
       });
 
-      const emptyDrop = (!pts.length)
-        ? buildEmptyDropZoneHtml("live", "pca", pca.id, "PCA")
-        : "";
+      const emptyDrop = !pts.length ? buildEmptyDropZoneHtml("live", "pca", pca.id, "PCA") : "";
 
       pcaContainer.innerHTML += `
         <div class="assignment-card ${escapeHtml(loadClass)}" style="${accentStyle}">
@@ -565,32 +764,34 @@
       `;
     });
 
-    try { if (typeof window.updateDischargeCount === "function") window.updateDischargeCount(); } catch {}
+    try {
+      if (typeof window.updateDischargeCount === "function") window.updateDischargeCount();
+    } catch {}
   }
 
   function autoPopulateLiveAssignments() {
-    try { if (typeof window.ensureDefaultPatients === "function") window.ensureDefaultPatients(); } catch {}
+    try {
+      if (typeof window.ensureDefaultPatients === "function") window.ensureDefaultPatients();
+    } catch {}
 
     const currentNurses = safeArray(window.currentNurses);
     const currentPcas = safeArray(window.currentPcas);
 
     const anyAssigned =
-      currentNurses.some(n => safeArray(n.patients).length > 0) ||
-      currentPcas.some(p => safeArray(p.patients).length > 0);
+      currentNurses.some((n) => safeArray(n.patients).length > 0) || currentPcas.some((p) => safeArray(p.patients).length > 0);
 
     if (anyAssigned) return;
 
-    const activePatients = safeArray(window.patients).filter(p => p && !p.isEmpty);
+    const activePatients = safeArray(window.patients).filter((p) => p && !p.isEmpty);
     if (!activePatients.length) return;
 
     populateLiveAssignment(false);
   }
 
-  // Expose globals
   window.populateLiveAssignment = populateLiveAssignment;
   window.autoPopulateLiveAssignments = autoPopulateLiveAssignments;
   window.renderLiveAssignments = renderLiveAssignments;
 
-  // Signature to verify the correct file is loaded
-  window.__liveAssignmentsBuild = "emptyDropZone+dischargeBinFallback+printLiveOverlay-v7-preserveGetLoadClass+inlineAccent";
+  window.__liveAssignmentsBuild =
+    "admitQueueInlineHostHorizontal+prefersAddAdmitToQueue+dischargeBinDropAnywhere-v9";
 })();

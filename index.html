@@ -100,18 +100,14 @@
       </div>
     </div>
 
-    <button class="tabButton" type="button" onclick="window.assignmentQuality && window.assignmentQuality.open()">
-      Assignment Quality Index
-    </button>
-
     <!-- Middle: Tabs -->
     <nav class="header-nav top-tabs" aria-label="Primary">
       <!-- ✅ Environment tab REMOVED (unit selector in header-right is the environment) -->
-      <button class="tabButton active header-tab" data-target="staffingTab">Staffing Details</button>
+      <button class="tabButton header-tab" data-target="staffingTab">Staffing Details</button>
       <button class="tabButton header-tab" data-target="patientDetailsTab">Patient Details</button>
-      <button class="tabButton header-tab" data-target="highRiskTab">High Risk Report</button>
       <button class="tabButton header-tab" data-target="liveAssignmentTab">LIVE Assignment</button>
       <button class="tabButton header-tab" data-target="oncomingAssignmentTab">Oncoming Assignment</button>
+      <button class="tabButton header-tab" data-target="highRiskTab">High Risk Report</button>
       <button class="tabButton header-tab" data-target="unitPulseTab">Unit Pulse</button>
       <button class="tabButton header-tab" data-target="unitMetricsTab">Unit Metrics</button>
     </nav>
@@ -326,8 +322,8 @@
       </p>
 
       <div class="actions-row">
-        <button onclick="renderPatientList()">Refresh Patient Grid</button>
-        <button onclick="resetAllPatients()">Reset All Patients</button>
+        <button type="button" onclick="window.activateAllRooms && window.activateAllRooms()">Add All Rooms</button>
+        <button type="button" onclick="window.emptyAllRooms && window.emptyAllRooms()">Empty All Rooms</button>
       </div>
 
       <div id="patientList" class="patient-grid"></div>
@@ -679,106 +675,96 @@
     </div>
   </div>
 
-  <div id="aqiModal" class="modal" style="display:none;">
-    <div id="aqiPanel" class="modal-content aqi-panel">
-      <div id="aqiDragHandle" class="aqi-header">
-        <div>
-          <div class="aqi-title">Assignment Quality Index</div>
-          <div class="aqi-subtitle">Hard rules + report sources + hallway comfort</div>
-        </div>
-        <button id="aqiClose" class="aqi-x" type="button">✕</button>
-      </div>
-
-      <div id="aqiBody" class="aqi-body"></div>
-    </div>
-  </div>
-
   <!-- =====================================================
        ✅ SCRIPT ORDER FIX
   ===================================================== -->
 
-  <!-- ✅ Supabase library FIRST -->
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+    <!-- ✅ Supabase library FIRST -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 
-  <!-- ✅ then your config + wrapper + auth -->
-  <script src="app/app.supabaseConfig.js"></script>
-  <script src="app/app.supabase.js"></script>
-  <script src="app/app.authUI.js"></script>
-  <script src="app/app.authGate.js"></script>
+    <!-- ✅ then your config + wrapper + auth -->
+    <script src="app/app.supabaseConfig.js"></script>
+    <script src="app/app.supabase.js"></script>
+    <script src="app/app.authUI.js"></script>
+    <script src="app/app.authGate.js"></script>
 
-  <!-- Core app state + UI modules -->
-  <script src="app/app.state.js"></script>
+    <!-- Core app state + UI modules -->
+    <script src="app/app.state.js"></script>
 
-  <!-- ✅ init MUST be before any module that logs events -->
-  <script src="app/app.init.js"></script>
+    <!-- ✅ init MUST be before any module that logs events -->
+    <script src="app/app.init.js"></script>
 
-  <script src="app/app.queue.js"></script>
-  <script src="app/app.staffing.js"></script>
-  <script src="app/app.patientsAcuity.js"></script>
+    <script src="app/app.queue.js"></script>
+    <script src="app/app.staffing.js"></script>
+    <script src="app/app.patientsAcuity.js"></script>
 
-  <!-- Explanation + rules + live/oncoming -->
-  <script src="app/app.explanations.js"></script>
-  <script src="app/app.assignmentRules.js?v=4"></script>
-  <script src="app/app.liveAssignments.js?v=9"></script>
+    <!-- Explanation + rules + admit queue + live/oncoming -->
+    <script src="app/app.explanations.js"></script>
+    <script src="app/app.assignmentRules.js?v=4"></script>
 
-  <!-- ✅ Oncoming render exports scoped rebalancers -->
-  <script src="app/app.assignmentsrender.js?v=4"></script>
+    <!-- ✅ Admit Queue MUST load before LIVE (defines window.addToAdmitQueue/renderQueueList) -->
+    <script src="app/app.admitQueue.js?v=2"></script>
 
-  <!-- ✅ Drag/drop can be after render (handlers needed at interaction time) -->
-  <script src="app/app.assignmentsDrag.js"></script>
+    <!-- ✅ LIVE (bump cache buster so new inline host logic loads) -->
+    <script src="app/app.liveAssignments.js?v=10"></script>
 
-  <!-- Modals + AQI + extras -->
-  <script src="app/app.modals.js"></script>
-  <script src="app/app.patientProfileUI.js"></script>
-  <script src="app/app.assignmentQuality.js"></script>
-  <script src="app/app.staffTypeahead.js"></script>
+    <!-- ✅ Oncoming render exports scoped rebalancers -->
+    <script src="app/app.assignmentsrender.js?v=4"></script>
 
-  <script src="app/app.shiftChange.js"></script>
+    <!-- ✅ Drag/drop can be after render (handlers needed at interaction time) -->
+    <script src="app/app.assignmentsDrag.js"></script>
 
-  <!-- ✅ Unit Metrics (historic) -->
-  <script src="app/app.unitMetrics.js"></script>
+    <!-- Modals + AQI + extras -->
+    <script src="app/app.modals.js"></script>
+    <script src="app/app.patientProfileUI.js?v=909"></script>
+    <script src="app/app.staffTypeahead.js"></script>
 
-  <!-- ✅ Unit Pulse (current shift) -->
-  <script src="app/app.unitPulse.js"></script>
+    <script src="app/app.shiftChange.js"></script>
 
-  <!-- ✅ PRINT MODULE -->
-  <script src="app/app.printOncoming.js?v=8"></script>
-  <script src="app/app.printLive.js?v=8"></script>
+    <!-- ✅ Unit Metrics (historic) -->
+    <script src="app/app.unitMetrics.js"></script>
 
-  <!-- OCR -->
-  <script src="https://unpkg.com/tesseract.js@5/dist/tesseract.min.js"></script>
+    <!-- ✅ Unit Pulse (current shift) -->
+    <script src="app/app.unitPulse.js"></script>
 
-  <!-- =====================================================
-       PDF.js (LOCAL, ES MODULE BUILD)
-  ===================================================== -->
+    <!-- ✅ PRINT MODULE -->
+    <script src="app/app.printOncoming.js?v=8"></script>
+    <script src="app/app.printLive.js?v=8"></script>
 
-  <script type="module">
-    import * as pdfjsLib from "./vendor/pdfjs/pdf.min.mjs";
+    <!-- OCR -->
+    <script src="https://unpkg.com/tesseract.js@5/dist/tesseract.min.js"></script>
 
-    // Expose globally so existing code continues to work
-    window.pdfjsLib = pdfjsLib;
+    <!-- =====================================================
+         PDF.js (LOCAL, ES MODULE BUILD)
+    ===================================================== -->
 
-    // REQUIRED: worker path
-    pdfjsLib.GlobalWorkerOptions.workerSrc =
-      "./vendor/pdfjs/pdf.worker.min.mjs";
+    <script type="module">
+      import * as pdfjsLib from "./vendor/pdfjs/pdf.min.mjs";
 
-    console.log("[PDF] pdfjsLib loaded (local ES module)", pdfjsLib.version);
-  </script>
+      // Expose globally so existing code continues to work
+      window.pdfjsLib = pdfjsLib;
 
-  <!-- PDF helper (depends on window.pdfjsLib) -->
-  <script src="app/app.scanPdf.js?v=9"></script>
+      // REQUIRED: worker path
+      pdfjsLib.GlobalWorkerOptions.workerSrc =
+        "./vendor/pdfjs/pdf.worker.min.mjs";
 
-  <!-- CSV import (structured) -->
-  <script src="app/app.csvNormalizer.js?v=16"></script>
-  <script src="app/app.importCsv.js?v=2"></script>
+      console.log("[PDF] pdfjsLib loaded (local ES module)", pdfjsLib.version);
+    </script>
 
-  <!-- Scan pipeline -->
-  <script src="app/app.scanOcr.js?v=99"></script>
-  <script src="app/app.scanParserTemplateV2.js?v=102"></script>
-  <script src="app/app.scanReviewApply.js?v=110"></script>
-  <script src="app/app.importScan.js?v=100"></script>
+    <!-- PDF helper (depends on window.pdfjsLib) -->
+    <script src="app/app.scanPdf.js?v=9"></script>
 
-  <!-- Keep LAST -->
-  <script src="script.js"></script>
-</body>
-</html>
+    <!-- CSV import (structured) -->
+    <script src="app/app.csvNormalizer.js?v=16"></script>
+    <script src="app/app.importCsv.js?v=2"></script>
+
+    <!-- Scan pipeline -->
+    <script src="app/app.scanOcr.js?v=99"></script>
+    <script src="app/app.scanParserTemplateV2.js?v=102"></script>
+    <script src="app/app.scanReviewApply.js?v=110"></script>
+    <script src="app/app.importScan.js?v=100"></script>
+
+    <!-- Keep LAST -->
+    <script src="script.js"></script>
+  </body>
+  </html>
