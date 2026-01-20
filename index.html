@@ -1,10 +1,95 @@
-<!-- CHECKPOINT: Jan 7, 2026 - Work Saved -->
+<!-- CHECKPOINT: Jan 20, 2026 - Work Saved -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
   <title> Zac Cupp - Acuity Engine </title>
   <link rel="stylesheet" href="style.css" />
+
+  <!-- ✅ Staffing Details v2 layout helpers (safe, scoped) -->
+  <style>
+    /* Only affects the Staffing Details tab layout */
+    .staffing-two-column {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+      align-items: start;
+    }
+
+    @media (max-width: 980px) {
+      .staffing-two-column {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    .staffing-col h2 { margin-top: 0; }
+
+    .leadership-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 10px;
+      align-items: end;
+      margin-bottom: 12px;
+    }
+
+    @media (max-width: 980px) {
+      .leadership-row { grid-template-columns: 1fr; }
+    }
+
+    .leadership-field label {
+      display: block;
+      font-weight: 800;
+      font-size: 12px;
+      opacity: 0.85;
+      margin-bottom: 6px;
+    }
+
+    .leadership-field input {
+      width: 100%;
+      box-sizing: border-box;
+    }
+
+    .totals-block {
+      margin-bottom: 12px;
+      padding: 12px;
+      border: 1px solid rgba(15, 23, 42, 0.12);
+      border-radius: 14px;
+      background: rgba(255,255,255,0.92);
+      box-shadow: 0 6px 18px rgba(0,0,0,0.06);
+    }
+
+    .totals-title {
+      font-weight: 900;
+      margin-bottom: 10px;
+    }
+
+    .totals-row {
+      display: grid;
+      grid-template-columns: auto 1fr auto;
+      gap: 10px;
+      align-items: center;
+      margin: 8px 0;
+    }
+
+    @media (max-width: 980px) {
+      .totals-row { grid-template-columns: 1fr; }
+    }
+
+    .totals-row select, .totals-row button {
+      width: 100%;
+      box-sizing: border-box;
+    }
+
+    .totals-row .totals-label {
+      font-weight: 800;
+      font-size: 12px;
+      opacity: 0.85;
+      white-space: nowrap;
+    }
+
+    /* Optional: hide legacy selects if you ever want later via CSS.
+       For now we keep them visible because you explicitly want “users can select totals”. */
+  </style>
 </head>
 <body>
 
@@ -164,7 +249,7 @@
             <input id="authNewPassword" type="password" class="auth-input" placeholder="At least 8 characters" autocomplete="new-password">
 
             <label class="auth-label" for="authNewPassword2">Confirm new password</label>
-            <input id="authNewPassword2" type="password" class="auth-input" placeholder="Repeat new password" autocomplete="new-password">
+            <input id="authNewPassword2" type="password" class="auth-input" placeholder="Repeat your password" autocomplete="new-password">
 
             <button id="btnSetNewPassword" class="auth-primary-btn" type="button">Save new password</button>
 
@@ -188,128 +273,167 @@
     </div>
   </header>
 
+  <!-- ✅ GLOBAL TOP-RIGHT UTILITY ZONE (NOT IN TABS) -->
+  <div id="globalTopRightTools" style="
+    width:100%;
+    display:flex;
+    justify-content:flex-end;
+    padding: 10px 18px 0 18px;
+    box-sizing:border-box;
+    pointer-events:none;
+  ">
+    <div id="globalDischargeBinHost" style="
+      width: 280px;
+      min-height: 280px;
+      pointer-events:auto;
+    "></div>
+  </div>
+
   <!-- MAIN CONTENT -->
   <main class="main-container">
-
-    <!-- ✅ ENVIRONMENT TAB REMOVED (unit selector in header-right is the environment) -->
 
     <!-- STAFFING TAB -->
     <section id="staffingTab" class="tab-section" style="display: block;">
       <h1>Staffing Details</h1>
 
-      <div class="staffing-three-column">
-        <!-- LEFT COLUMN: Leadership Team -->
-        <div class="staff-column staff-column--support">
-          <h2>Leadership Team</h2>
+      <!-- ✅ Staffing Details v2 -->
+      <div class="staffing-two-column" data-staffing-layout="v2">
 
-          <div class="staff-card leadership-card">
-            <div class="staff-role-row">
-              <label for="currentChargeName"><strong>Current Charge:</strong></label>
-              <input id="currentChargeName" type="text" placeholder="Name" />
-            </div>
-
-            <div class="staff-role-row">
-              <label for="currentMentorName"><strong>Current Clinical Mentor:</strong></label>
-              <input id="currentMentorName" type="text" placeholder="Name" />
-            </div>
-
-            <div class="staff-role-row">
-              <label for="currentCtaName"><strong>Current CTA:</strong></label>
-              <input id="currentCtaName" type="text" placeholder="Name" />
-            </div>
-
-            <hr class="leadership-divider" />
-
-            <div class="staff-role-row">
-              <label for="incomingChargeName"><strong>Oncoming Charge:</strong></label>
-              <input id="incomingChargeName" type="text" placeholder="Name" />
-            </div>
-
-            <div class="staff-role-row">
-              <label for="incomingMentorName"><strong>Oncoming Clinical Mentor:</strong></label>
-              <input id="incomingMentorName" type="text" placeholder="Name" />
-            </div>
-
-            <div class="staff-role-row">
-              <label for="incomingCtaName"><strong>Oncoming CTA:</strong></label>
-              <input id="incomingCtaName" type="text" placeholder="Name" />
-            </div>
-          </div>
-        </div>
-
-        <!-- MIDDLE COLUMN: Current Shift (existing) -->
-        <div class="staff-column">
+        <!-- =========================
+             CURRENT SHIFT COLUMN
+        ========================== -->
+        <div class="staffing-col">
           <h2>Current Shift</h2>
 
-          <div class="staff-card">
-            <div class="staff-card-header">Current RNs</div>
-            <div class="staff-inline-controls">
-              <label for="currentNurseCount">Current RNs:</label>
+          <!-- Leadership row (horizontal) -->
+          <div class="totals-block">
+            <div class="totals-title">Leadership Team</div>
+            <div class="leadership-row">
+              <div class="leadership-field">
+                <label for="currentChargeName">Charge</label>
+                <input id="currentChargeName" type="text" placeholder="Name" />
+              </div>
+              <div class="leadership-field">
+                <label for="currentMentorName">Resource / Clinical Mentor</label>
+                <input id="currentMentorName" type="text" placeholder="Name" />
+              </div>
+              <div class="leadership-field">
+                <label for="currentCtaName">CTA</label>
+                <input id="currentCtaName" type="text" placeholder="Name" />
+              </div>
+            </div>
+          </div>
+
+          <!-- Staffing totals -->
+          <div class="totals-block">
+            <div class="totals-title">Staffing Totals</div>
+
+            <div class="totals-row">
+              <div class="totals-label">Total RNs</div>
               <select id="currentNurseCount">
                 <option>1</option><option>2</option><option>3</option><option>4</option>
                 <option>5</option><option>6</option><option>7</option><option>8</option>
                 <option>9</option><option>10</option>
               </select>
-              <button onclick="setupCurrentNurses()">Update Current RNs</button>
+              <button type="button" onclick="setupCurrentNurses()">Update Current RNs</button>
             </div>
+
+            <div class="totals-row">
+              <div class="totals-label">PCA Shift</div>
+              <select id="pcaShift" onchange="updatePcaShift(this.value)">
+                <option value="day">Day</option>
+                <option value="night">Night</option>
+              </select>
+              <div></div>
+            </div>
+
+            <div class="totals-row">
+              <div class="totals-label">Total PCAs</div>
+              <select id="currentPcaCount">
+                <option>1</option><option>2</option><option>3</option>
+                <option>4</option><option>5</option><option>6</option><option>7</option>
+              </select>
+              <button type="button" onclick="setupCurrentPcas()">Update Current PCAs</button>
+            </div>
+          </div>
+
+          <!-- Existing lists (unchanged) -->
+          <div class="staff-card">
+            <div class="staff-card-header">Current RNs</div>
             <div class="staff-subtitle">Current RN List</div>
             <div id="currentNurseList" class="staffList"></div>
           </div>
 
           <div class="staff-card">
             <div class="staff-card-header">Current PCAs</div>
-            <div class="staff-inline-controls">
-              <label for="pcaShift">PCA Shift:</label>
-              <select id="pcaShift" onchange="updatePcaShift(this.value)">
-                <option value="day">Day</option>
-                <option value="night">Night</option>
-              </select>
-
-              <span>Current PCAs:</span>
-              <select id="currentPcaCount">
-                <option>1</option><option>2</option><option>3</option>
-                <option>4</option><option>5</option><option>6</option><option>7</option>
-              </select>
-              <button onclick="setupCurrentPcas()">Update Current PCAs</button>
-            </div>
             <div class="staff-subtitle">Current PCA List</div>
             <div id="currentPcaList" class="staffList"></div>
           </div>
         </div>
 
-        <!-- RIGHT COLUMN: Oncoming Shift (existing) -->
-        <div class="staff-column">
+        <!-- =========================
+             ONCOMING SHIFT COLUMN
+        ========================== -->
+        <div class="staffing-col">
           <h2>Oncoming Shift</h2>
 
-          <div class="staff-card">
-            <div class="staff-card-header">Oncoming RNs</div>
-            <div class="staff-inline-controls">
-              <label for="incomingNurseCount">Oncoming RNs:</label>
+          <!-- Leadership row (horizontal) -->
+          <div class="totals-block">
+            <div class="totals-title">Leadership Team</div>
+            <div class="leadership-row">
+              <div class="leadership-field">
+                <label for="incomingChargeName">Charge</label>
+                <input id="incomingChargeName" type="text" placeholder="Name" />
+              </div>
+              <div class="leadership-field">
+                <label for="incomingMentorName">Resource / Clinical Mentor</label>
+                <input id="incomingMentorName" type="text" placeholder="Name" />
+              </div>
+              <div class="leadership-field">
+                <label for="incomingCtaName">CTA</label>
+                <input id="incomingCtaName" type="text" placeholder="Name" />
+              </div>
+            </div>
+          </div>
+
+          <!-- Staffing totals -->
+          <div class="totals-block">
+            <div class="totals-title">Staffing Totals</div>
+
+            <div class="totals-row">
+              <div class="totals-label">Total RNs</div>
               <select id="incomingNurseCount">
                 <option>1</option><option>2</option><option>3</option><option>4</option>
                 <option>5</option><option>6</option><option>7</option><option>8</option>
-                 <option>9</option><option>10</option>
+                <option>9</option><option>10</option>
               </select>
-              <button onclick="setupIncomingNurses()">Update Oncoming RNs</button>
+              <button type="button" onclick="setupIncomingNurses()">Update Oncoming RNs</button>
             </div>
+
+            <div class="totals-row">
+              <div class="totals-label">Total PCAs</div>
+              <select id="incomingPcaCount">
+                <option>1</option><option>2</option><option>3</option>
+                <option>4</option><option>5</option><option>6</option><option>7</option>
+              </select>
+              <button type="button" onclick="setupIncomingPcas()">Update Oncoming PCAs</button>
+            </div>
+          </div>
+
+          <!-- Existing lists (unchanged) -->
+          <div class="staff-card">
+            <div class="staff-card-header">Oncoming RNs</div>
             <div class="staff-subtitle">Oncoming RN List</div>
             <div id="incomingNurseList" class="staffList"></div>
           </div>
 
           <div class="staff-card">
             <div class="staff-card-header">Oncoming PCAs</div>
-            <div class="staff-inline-controls">
-              <label for="incomingPcaCount">Oncoming PCAs:</label>
-              <select id="incomingPcaCount">
-                <option>1</option><option>2</option><option>3</option>
-                <option>4</option><option>5</option><option>6</option><option>7</option>
-              </select>
-              <button onclick="setupIncomingPcas()">Update Oncoming PCAs</button>
-            </div>
             <div class="staff-subtitle">Oncoming PCA List</div>
             <div id="incomingPcaList" class="staffList"></div>
           </div>
         </div>
+
       </div>
     </section>
 
@@ -352,7 +476,6 @@
       <div class="actions-row">
         <button onclick="window.populateLiveAssignment(false)">Populate Live Assignment</button>
 
-        <!-- ✅ NEW: Import paper assignment via phone photo -->
         <button type="button" onclick="window.openImportAssignmentScan && window.openImportAssignmentScan()">
           Import Assignment to LIVE (Photo)
         </button>
@@ -390,17 +513,14 @@
       <div class="actions-row" style="flex-wrap:wrap;">
         <button onclick="window.populateOncomingAssignment && window.populateOncomingAssignment(false)">Populate Oncoming Assignment</button>
 
-        <!-- ✅ NEW: Print Oncoming (one-page handoff) -->
         <button id="btnPrintOncoming" type="button"
                 onclick="window.printOncoming && window.printOncoming.open()">
           Print Oncoming (1-page)
         </button>
 
-        <!-- ✅ Scoped rebalances -->
         <button type="button" onclick="window.rebalanceOncomingRnOnly && window.rebalanceOncomingRnOnly()">Rebalance RN (Only)</button>
         <button type="button" onclick="window.rebalanceOncomingPcaOnly && window.rebalanceOncomingPcaOnly()">Rebalance PCA (Only)</button>
 
-        <!-- Optional: keep a “full rebalance” if you want -->
         <button onclick="window.rebalanceOncomingAssignment && window.rebalanceOncomingAssignment()">Rebalance (Both)</button>
 
         <button id="btnFinalizeShift" type="button" title="Publishes Oncoming snapshot + analytics, then swaps Live ← Oncoming">
@@ -428,7 +548,6 @@
         <div id="finalizeStatusMsg" style="margin-top:10px; font-size:12px; opacity:0.85;"></div>
       </div>
 
-      <!-- RN header + button on same line -->
       <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; margin-top: 12px;">
         <h2 style="margin:0;">Incoming RN Assignments</h2>
         <button type="button" onclick="window.rebalanceOncomingRnOnly && window.rebalanceOncomingRnOnly()">
@@ -437,7 +556,6 @@
       </div>
       <div id="assignmentOutput" class="assignment-grid two-column-grid"></div>
 
-      <!-- PCA header + button on same line -->
       <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; margin-top: 24px;">
         <h2 style="margin:0;">Incoming PCA Assignments</h2>
         <button type="button" onclick="window.rebalanceOncomingPcaOnly && window.rebalanceOncomingPcaOnly()">
@@ -675,96 +793,80 @@
     </div>
   </div>
 
+  <!-- ✅ Staffing warning modal (used by app.staffing.js) -->
+  <div id="staffingWarnModal" class="modal" style="display:none;">
+    <div class="modal-content" style="max-width:560px;">
+      <div class="modal-header">
+        <span id="staffingWarnTitle">Unable to lower staffing</span>
+        <button class="close-btn" type="button" onclick="window.closeStaffingWarnModal && window.closeStaffingWarnModal()">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div id="staffingWarnBody" style="font-size:14px; opacity:0.9; line-height:1.45;"></div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" onclick="window.closeStaffingWarnModal && window.closeStaffingWarnModal()">OK</button>
+      </div>
+    </div>
+  </div>
+
   <!-- =====================================================
        ✅ SCRIPT ORDER FIX
   ===================================================== -->
 
-    <!-- ✅ Supabase library FIRST -->
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 
-    <!-- ✅ then your config + wrapper + auth -->
     <script src="app/app.supabaseConfig.js"></script>
     <script src="app/app.supabase.js"></script>
     <script src="app/app.authUI.js"></script>
     <script src="app/app.authGate.js"></script>
 
-    <!-- Core app state + UI modules -->
     <script src="app/app.state.js"></script>
-
-    <!-- ✅ init MUST be before any module that logs events -->
     <script src="app/app.init.js"></script>
 
     <script src="app/app.queue.js"></script>
-    <script src="app/app.staffing.js"></script>
+    <script src="app/app.staffing.js?v=6"></script>
     <script src="app/app.patientsAcuity.js"></script>
 
-    <!-- Explanation + rules + admit queue + live/oncoming -->
     <script src="app/app.explanations.js"></script>
     <script src="app/app.assignmentRules.js?v=4"></script>
 
-    <!-- ✅ Admit Queue MUST load before LIVE (defines window.addToAdmitQueue/renderQueueList) -->
     <script src="app/app.admitQueue.js?v=2"></script>
-
-    <!-- ✅ LIVE (bump cache buster so new inline host logic loads) -->
-    <script src="app/app.liveAssignments.js?v=10"></script>
-
-    <!-- ✅ Oncoming render exports scoped rebalancers -->
+    <script src="app/app.liveAssignments.js?v=11.4"></script>
     <script src="app/app.assignmentsrender.js?v=4"></script>
-
-    <!-- ✅ Drag/drop can be after render (handlers needed at interaction time) -->
     <script src="app/app.assignmentsDrag.js"></script>
 
-    <!-- Modals + AQI + extras -->
     <script src="app/app.modals.js"></script>
     <script src="app/app.patientProfileUI.js?v=909"></script>
     <script src="app/app.staffTypeahead.js"></script>
 
     <script src="app/app.shiftChange.js"></script>
 
-    <!-- ✅ Unit Metrics (historic) -->
     <script src="app/app.unitMetrics.js"></script>
-
-    <!-- ✅ Unit Pulse (current shift) -->
     <script src="app/app.unitPulse.js"></script>
 
-    <!-- ✅ PRINT MODULE -->
     <script src="app/app.printOncoming.js?v=8"></script>
     <script src="app/app.printLive.js?v=8"></script>
 
-    <!-- OCR -->
     <script src="https://unpkg.com/tesseract.js@5/dist/tesseract.min.js"></script>
-
-    <!-- =====================================================
-         PDF.js (LOCAL, ES MODULE BUILD)
-    ===================================================== -->
 
     <script type="module">
       import * as pdfjsLib from "./vendor/pdfjs/pdf.min.mjs";
-
-      // Expose globally so existing code continues to work
       window.pdfjsLib = pdfjsLib;
-
-      // REQUIRED: worker path
       pdfjsLib.GlobalWorkerOptions.workerSrc =
         "./vendor/pdfjs/pdf.worker.min.mjs";
-
       console.log("[PDF] pdfjsLib loaded (local ES module)", pdfjsLib.version);
     </script>
 
-    <!-- PDF helper (depends on window.pdfjsLib) -->
     <script src="app/app.scanPdf.js?v=9"></script>
 
-    <!-- CSV import (structured) -->
     <script src="app/app.csvNormalizer.js?v=16"></script>
     <script src="app/app.importCsv.js?v=2"></script>
 
-    <!-- Scan pipeline -->
     <script src="app/app.scanOcr.js?v=99"></script>
     <script src="app/app.scanParserTemplateV2.js?v=102"></script>
     <script src="app/app.scanReviewApply.js?v=110"></script>
     <script src="app/app.importScan.js?v=100"></script>
 
-    <!-- Keep LAST -->
     <script src="script.js"></script>
   </body>
-  </html>
+</html>

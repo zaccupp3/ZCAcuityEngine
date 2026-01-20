@@ -15,18 +15,50 @@
 // - Auto-create staff record on name commit (blur/change)
 // - Roles are STRICT: "RN" or "PCA"
 //
-// ✅ NEW (THIS UPDATE):
-// - Persist staff_id onto each RN/PCA object (n.staff_id / p.staff_id)
-// - Name onchange now passes the INPUT element so we can read dataset.staffId
-//   from app.staffTypeahead.js selections.
+// ✅ NEW (Jan 2026):
+// - Two separate +/- widgets: one for CURRENT, one for ONCOMING (no toggle slider)
+// - Decrement is allowed ONLY when the last staff being removed has 0 patients assigned
+// - Hold bucket protection (LIVE "Needs to be assigned"): never renders in Staffing Details,
+//   and never becomes the template for rebuilding staff arrays.
 
 (function () {
+  // 🔎 BUILD STAMP (debug)
+  window.__staffingBuild = "staffing-plusminus-debug-v6";
+  console.log("[staffing] build loaded:", window.__staffingBuild);
+
+  // ✅ Max caps (used by +/- adjust logic)
+  // Keep in sync with your setup functions:
+  // - RNs max 10
+  // - PCAs max 7
+  const MAX_RN = 10;
+  const MAX_PCA = 7;
+
+  // ---------------------------------------------------------
+  // ✅ Warning modal API (for “cannot lower totals”)
+  // ---------------------------------------------------------
+  window.showStaffingWarnModal = function (title, body) {
+    try {
+      const modal = document.getElementById("staffingWarnModal");
+      const t = document.getElementById("staffingWarnTitle");
+      const b = document.getElementById("staffingWarnBody");
+      if (t) t.textContent = String(title || "Unable to lower staffing");
+      if (b) b.textContent = String(body || "This change is blocked by current assignment state.");
+      if (modal) modal.style.display = "block";
+    } catch (_) {}
+  };
+
+  window.closeStaffingWarnModal = function () {
+    try {
+      const modal = document.getElementById("staffingWarnModal");
+      if (modal) modal.style.display = "none";
+    } catch (_) {}
+  };
+
   // Use the canonical restriction helper from app.state.js if present
   const getDefaultRestrictions =
     (typeof window.defaultRestrictions === "function")
       ? window.defaultRestrictions
       : function defaultRestrictionsFallback(oldRestriction) {
-          // keep your old fallback behavior
           return { noNih: oldRestriction === "noNih", noIso: false };
         };
 
@@ -39,23 +71,108 @@
     window.pcaShift = pcaShift;
   }
 
+  function safeArray(v) {
+    return Array.isArray(v) ? v : [];
+  }
+
+  function safeInt(n, fallback) {
+    const x = parseInt(n, 10);
+    return Number.isFinite(x) ? x : fallback;
+  }
+
+  function clamp(n, min, max) {
+    n = safeInt(n, min);
+    if (n < min) return min;
+    if (n > max) return max;
+    return n;
+  }
+
+  function isHoldBucketStaff(o) {
+    if (!o) return false;
+    if (Number(o.id) === 0) return true;
+    if (o.__hold) return true;
+    if (String(o.type || "").toLowerCase() === "hold") return true;
+    if (String(o.name || "").trim().toLowerCase() === "needs to be assigned") return true;
+    return false;
+  }
+
+  function filterOutHoldBuckets(list) {
+    return safeArray(list).filter((x) => !isHoldBucketStaff(x));
+  }
+
+  function getHoldBucket(list) {
+    return safeArray(list).find(isHoldBucketStaff) || null;
+  }
+
+  function refreshAllViews() {
+    try {
+      if (typeof window.renderLiveAssignments === "function") window.renderLiveAssignments();
+    } catch {}
+    try {
+      if (typeof window.renderAssignmentOutput === "function") window.renderAssignmentOutput();
+    } catch {}
+    try {
+      if (typeof window.renderPcaAssignmentOutput === "function") window.renderPcaAssignmentOutput();
+    } catch {}
+    // Unit Pulse hooks vary by build; call best-effort if present
+    try {
+      if (typeof window.renderUnitPulse === "function") window.renderUnitPulse();
+      else if (window.unitPulse && typeof window.unitPulse.render === "function") window.unitPulse.render();
+      else if (typeof window.refreshUnitPulse === "function") window.refreshUnitPulse();
+    } catch {}
+  }
+
+  function reflectLegacySelects() {
+    const cn = filterOutHoldBuckets(currentNurses).length;
+    const inN = filterOutHoldBuckets(incomingNurses).length;
+    const cp = filterOutHoldBuckets(currentPcas).length;
+    const ip = filterOutHoldBuckets(incomingPcas).length;
+
+    const set = (id, val) => {
+      const el = document.getElementById(id);
+      if (!el) return;
+      try {
+        el.value = String(val);
+      } catch (_) {}
+    };
+
+    if (cn) set("currentNurseCount", cn);
+    if (inN) set("incomingNurseCount", inN);
+    if (cp) set("currentPcaCount", cp);
+    if (ip) set("incomingPcaCount", ip);
+  }
+
+  function canDecrementByLastHasNoPatients(listRaw) {
+    const list = filterOutHoldBuckets(listRaw);
+    if (list.length <= 1) return { ok: false, reason: "Minimum is 1." };
+
+    const last = list[list.length - 1];
+    const pts = safeArray(last?.patients);
+    if (pts.length > 0) {
+      return { ok: false, reason: "Cannot remove: last staff has patients assigned." };
+    }
+    return { ok: true };
+  }
+
   // -------------------------
   // RN SETUP – CURRENT / INCOMING
   // -------------------------
 
-  window.setupCurrentNurses = function () {
+  window.setupCurrentNurses = function (countOverride) {
     const sel = document.getElementById("currentNurseCount");
-    let count = parseInt(sel && sel.value, 10);
-    if (isNaN(count) || count < 1) count = 1;
+    let count =
+      (typeof countOverride === "number" && Number.isFinite(countOverride))
+        ? countOverride
+        : safeInt(sel && sel.value, 1);
 
-    // ✅ UPDATED: max RNs 8 -> 10
-    if (count > 10) count = 10;
-
+    count = clamp(count, 1, MAX_RN);
     if (sel) sel.value = count;
 
-    const old = Array.isArray(currentNurses) ? currentNurses : [];
-    const next = [];
+    const oldRaw = safeArray(currentNurses);
+    const old = filterOutHoldBuckets(oldRaw);
+    const hold = getHoldBucket(oldRaw);
 
+    const next = [];
     for (let i = 0; i < count; i++) {
       const prev = old[i];
       const prevRestrictions = prev?.restrictions || getDefaultRestrictions(prev?.restriction);
@@ -74,25 +191,26 @@
       });
     }
 
-    currentNurses = next;
+    currentNurses = hold ? [hold, ...next] : next;
     syncWindowRefs();
+    reflectLegacySelects();
 
     window.renderCurrentNurseList();
-    if (typeof window.renderLiveAssignments === "function") window.renderLiveAssignments();
+    refreshAllViews();
     if (typeof window.saveState === "function") window.saveState();
   };
 
-  window.setupIncomingNurses = function () {
+  window.setupIncomingNurses = function (countOverride) {
     const sel = document.getElementById("incomingNurseCount");
-    let count = parseInt(sel && sel.value, 10);
-    if (isNaN(count) || count < 1) count = 1;
+    let count =
+      (typeof countOverride === "number" && Number.isFinite(countOverride))
+        ? countOverride
+        : safeInt(sel && sel.value, 1);
 
-    // ✅ UPDATED: max RNs 8 -> 10
-    if (count > 10) count = 10;
-
+    count = clamp(count, 1, MAX_RN);
     if (sel) sel.value = count;
 
-    const old = Array.isArray(incomingNurses) ? incomingNurses : [];
+    const old = filterOutHoldBuckets(incomingNurses);
     const next = [];
 
     for (let i = 0; i < count; i++) {
@@ -115,9 +233,10 @@
 
     incomingNurses = next;
     syncWindowRefs();
+    reflectLegacySelects();
 
     window.renderIncomingNurseList();
-    if (typeof window.renderAssignmentOutput === "function") window.renderAssignmentOutput();
+    refreshAllViews();
     if (typeof window.saveState === "function") window.saveState();
   };
 
@@ -126,7 +245,7 @@
     if (!container) return;
     container.innerHTML = "";
 
-    (Array.isArray(currentNurses) ? currentNurses : []).forEach((n, index) => {
+    filterOutHoldBuckets(currentNurses).forEach((n, index) => {
       const r = n.restrictions || getDefaultRestrictions();
       container.innerHTML += `
         <div class="nurseRow">
@@ -166,7 +285,7 @@
     if (!container) return;
     container.innerHTML = "";
 
-    (Array.isArray(incomingNurses) ? incomingNurses : []).forEach((n, index) => {
+    filterOutHoldBuckets(incomingNurses).forEach((n, index) => {
       const r = n.restrictions || getDefaultRestrictions();
       container.innerHTML += `
         <div class="nurseRow">
@@ -204,34 +323,37 @@
   // -------------------------
   // RN UPDATE HELPERS
   // -------------------------
+  function getCurrentNurseByFilteredIndex(index) {
+    const list = filterOutHoldBuckets(currentNurses);
+    return list[index] || null;
+  }
+  function getIncomingNurseByFilteredIndex(index) {
+    const list = filterOutHoldBuckets(incomingNurses);
+    return list[index] || null;
+  }
 
   window.updateCurrentNurseType = function (index, value) {
-    const n = currentNurses && currentNurses[index];
+    const n = getCurrentNurseByFilteredIndex(index);
     if (!n) return;
     n.type = value;
     n.maxPatients = value === "tele" ? 4 : 5;
-
     syncWindowRefs();
-
-    if (typeof window.renderLiveAssignments === "function") window.renderLiveAssignments();
+    refreshAllViews();
     if (typeof window.saveState === "function") window.saveState();
   };
 
   window.updateIncomingNurseType = function (index, value) {
-    const n = incomingNurses && incomingNurses[index];
+    const n = getIncomingNurseByFilteredIndex(index);
     if (!n) return;
     n.type = value;
     n.maxPatients = value === "tele" ? 4 : 5;
-
     syncWindowRefs();
-
-    if (typeof window.renderAssignmentOutput === "function") window.renderAssignmentOutput();
+    refreshAllViews();
     if (typeof window.saveState === "function") window.saveState();
   };
 
-  // ✅ Updated to accept input element OR raw string
   window.updateCurrentNurseName = function (index, elOrValue) {
-    const n = currentNurses && currentNurses[index];
+    const n = getCurrentNurseByFilteredIndex(index);
     if (!n) return;
 
     const el = (elOrValue && typeof elOrValue === "object") ? elOrValue : null;
@@ -241,14 +363,12 @@
     n.staff_id = el ? (String(el.dataset.staffId || "").trim() || null) : (n.staff_id || null);
 
     syncWindowRefs();
-
-    if (typeof window.renderLiveAssignments === "function") window.renderLiveAssignments();
+    refreshAllViews();
     if (typeof window.saveState === "function") window.saveState();
   };
 
-  // ✅ Updated to accept input element OR raw string
   window.updateIncomingNurseName = function (index, elOrValue) {
-    const n = incomingNurses && incomingNurses[index];
+    const n = getIncomingNurseByFilteredIndex(index);
     if (!n) return;
 
     const el = (elOrValue && typeof elOrValue === "object") ? elOrValue : null;
@@ -258,32 +378,29 @@
     n.staff_id = el ? (String(el.dataset.staffId || "").trim() || null) : (n.staff_id || null);
 
     syncWindowRefs();
-
-    if (typeof window.renderAssignmentOutput === "function") window.renderAssignmentOutput();
+    refreshAllViews();
     if (typeof window.saveState === "function") window.saveState();
   };
 
   window.updateCurrentNurseRestriction = function (index, key, checked) {
-    const n = currentNurses && currentNurses[index];
+    const n = getCurrentNurseByFilteredIndex(index);
     if (!n) return;
     if (!n.restrictions) n.restrictions = getDefaultRestrictions();
     n.restrictions[key] = !!checked;
 
     syncWindowRefs();
-
-    if (typeof window.renderLiveAssignments === "function") window.renderLiveAssignments();
+    refreshAllViews();
     if (typeof window.saveState === "function") window.saveState();
   };
 
   window.updateIncomingNurseRestriction = function (index, key, checked) {
-    const n = incomingNurses && incomingNurses[index];
+    const n = getIncomingNurseByFilteredIndex(index);
     if (!n) return;
     if (!n.restrictions) n.restrictions = getDefaultRestrictions();
     n.restrictions[key] = !!checked;
 
     syncWindowRefs();
-
-    if (typeof window.renderAssignmentOutput === "function") window.renderAssignmentOutput();
+    refreshAllViews();
     if (typeof window.saveState === "function") window.saveState();
   };
 
@@ -295,27 +412,28 @@
     pcaShift = value === "night" ? "night" : "day";
     const max = pcaShift === "day" ? 8 : 9;
 
-    (Array.isArray(currentPcas) ? currentPcas : []).forEach(p => (p.maxPatients = max));
-    (Array.isArray(incomingPcas) ? incomingPcas : []).forEach(p => (p.maxPatients = max));
+    filterOutHoldBuckets(currentPcas).forEach(p => (p.maxPatients = max));
+    filterOutHoldBuckets(incomingPcas).forEach(p => (p.maxPatients = max));
 
     syncWindowRefs();
-
-    if (typeof window.renderLiveAssignments === "function") window.renderLiveAssignments();
-    if (typeof window.renderPcaAssignmentOutput === "function") window.renderPcaAssignmentOutput();
+    refreshAllViews();
     if (typeof window.saveState === "function") window.saveState();
   };
 
-  window.setupCurrentPcas = function () {
+  window.setupCurrentPcas = function (countOverride) {
     const sel = document.getElementById("currentPcaCount");
-    let count = parseInt(sel && sel.value, 10);
-    if (isNaN(count) || count < 1) count = 1;
+    let count =
+      (typeof countOverride === "number" && Number.isFinite(countOverride))
+        ? countOverride
+        : safeInt(sel && sel.value, 1);
 
-    // ✅ UPDATED: max PCAs 6 -> 7
-    if (count > 7) count = 7;
-
+    count = clamp(count, 1, MAX_PCA);
     if (sel) sel.value = count;
 
-    const old = Array.isArray(currentPcas) ? currentPcas : [];
+    const oldRaw = safeArray(currentPcas);
+    const old = filterOutHoldBuckets(oldRaw);
+    const hold = getHoldBucket(oldRaw);
+
     const max = pcaShift === "day" ? 8 : 9;
     const next = [];
 
@@ -331,25 +449,26 @@
       });
     }
 
-    currentPcas = next;
+    currentPcas = hold ? [hold, ...next] : next;
     syncWindowRefs();
+    reflectLegacySelects();
 
     window.renderCurrentPcaList();
-    if (typeof window.renderLiveAssignments === "function") window.renderLiveAssignments();
+    refreshAllViews();
     if (typeof window.saveState === "function") window.saveState();
   };
 
-  window.setupIncomingPcas = function () {
+  window.setupIncomingPcas = function (countOverride) {
     const sel = document.getElementById("incomingPcaCount");
-    let count = parseInt(sel && sel.value, 10);
-    if (isNaN(count) || count < 1) count = 1;
+    let count =
+      (typeof countOverride === "number" && Number.isFinite(countOverride))
+        ? countOverride
+        : safeInt(sel && sel.value, 1);
 
-    // ✅ UPDATED: max PCAs 6 -> 7
-    if (count > 7) count = 7;
-
+    count = clamp(count, 1, MAX_PCA);
     if (sel) sel.value = count;
 
-    const old = Array.isArray(incomingPcas) ? incomingPcas : [];
+    const old = filterOutHoldBuckets(incomingPcas);
     const max = pcaShift === "day" ? 8 : 9;
     const next = [];
 
@@ -367,9 +486,10 @@
 
     incomingPcas = next;
     syncWindowRefs();
+    reflectLegacySelects();
 
     window.renderIncomingPcaList();
-    if (typeof window.renderPcaAssignmentOutput === "function") window.renderPcaAssignmentOutput();
+    refreshAllViews();
     if (typeof window.saveState === "function") window.saveState();
   };
 
@@ -378,7 +498,7 @@
     if (!container) return;
     container.innerHTML = "";
 
-    (Array.isArray(currentPcas) ? currentPcas : []).forEach((p, index) => {
+    filterOutHoldBuckets(currentPcas).forEach((p, index) => {
       const r = p.restrictions || { noIso: false };
       container.innerHTML += `
         <div class="pcaRow">
@@ -406,7 +526,7 @@
     if (!container) return;
     container.innerHTML = "";
 
-    (Array.isArray(incomingPcas) ? incomingPcas : []).forEach((p, index) => {
+    filterOutHoldBuckets(incomingPcas).forEach((p, index) => {
       const r = p.restrictions || { noIso: false };
       container.innerHTML += `
         <div class="pcaRow">
@@ -429,9 +549,17 @@
     });
   };
 
-  // ✅ Updated to accept input element OR raw string
+  function getCurrentPcaByFilteredIndex(index) {
+    const list = filterOutHoldBuckets(currentPcas);
+    return list[index] || null;
+  }
+  function getIncomingPcaByFilteredIndex(index) {
+    const list = filterOutHoldBuckets(incomingPcas);
+    return list[index] || null;
+  }
+
   window.updateCurrentPcaName = function (index, elOrValue) {
-    const p = currentPcas && currentPcas[index];
+    const p = getCurrentPcaByFilteredIndex(index);
     if (!p) return;
 
     const el = (elOrValue && typeof elOrValue === "object") ? elOrValue : null;
@@ -441,14 +569,12 @@
     p.staff_id = el ? (String(el.dataset.staffId || "").trim() || null) : (p.staff_id || null);
 
     syncWindowRefs();
-
-    if (typeof window.renderLiveAssignments === "function") window.renderLiveAssignments();
+    refreshAllViews();
     if (typeof window.saveState === "function") window.saveState();
   };
 
-  // ✅ Updated to accept input element OR raw string
   window.updateIncomingPcaName = function (index, elOrValue) {
-    const p = incomingPcas && incomingPcas[index];
+    const p = getIncomingPcaByFilteredIndex(index);
     if (!p) return;
 
     const el = (elOrValue && typeof elOrValue === "object") ? elOrValue : null;
@@ -458,33 +584,94 @@
     p.staff_id = el ? (String(el.dataset.staffId || "").trim() || null) : (p.staff_id || null);
 
     syncWindowRefs();
-
-    if (typeof window.renderPcaAssignmentOutput === "function") window.renderPcaAssignmentOutput();
+    refreshAllViews();
     if (typeof window.saveState === "function") window.saveState();
   };
 
   window.updateCurrentPcaRestriction = function (index, checked) {
-    const p = currentPcas && currentPcas[index];
+    const p = getCurrentPcaByFilteredIndex(index);
     if (!p) return;
     if (!p.restrictions) p.restrictions = { noIso: false };
     p.restrictions.noIso = !!checked;
 
     syncWindowRefs();
-
-    if (typeof window.renderLiveAssignments === "function") window.renderLiveAssignments();
+    refreshAllViews();
     if (typeof window.saveState === "function") window.saveState();
   };
 
   window.updateIncomingPcaRestriction = function (index, checked) {
-    const p = incomingPcas && incomingPcas[index];
+    const p = getIncomingPcaByFilteredIndex(index);
     if (!p) return;
     if (!p.restrictions) p.restrictions = { noIso: false };
     p.restrictions.noIso = !!checked;
 
     syncWindowRefs();
-
-    if (typeof window.renderPcaAssignmentOutput === "function") window.renderPcaAssignmentOutput();
+    refreshAllViews();
     if (typeof window.saveState === "function") window.saveState();
+  };
+
+  // =========================================================
+  // ✅ Staffing Controls API (used by +/- UI)
+  // =========================================================
+  function adjustArray(shift, role, delta) {
+    const s = String(shift || "").toLowerCase();
+    const r = String(role || "").toUpperCase();
+    const d = safeInt(delta, 0);
+    if (!d) return { ok: false, reason: "No change." };
+
+    const isRn = r === "RN";
+    const isPca = r === "PCA";
+    if (!isRn && !isPca) return { ok: false, reason: "Invalid role." };
+
+    const isIncoming = (s === "incoming" || s === "oncoming");
+    const max = isRn ? MAX_RN : MAX_PCA;
+
+    if (isIncoming) {
+      const list = isRn ? incomingNurses : incomingPcas;
+      const count = filterOutHoldBuckets(list).length || 0;
+
+      if (d < 0) {
+        const chk = canDecrementByLastHasNoPatients(list);
+        if (!chk.ok) return chk;
+      }
+      const nextCount = clamp(count + d, 1, max);
+      if (nextCount === count) return { ok: false, reason: "Limit reached." };
+
+      if (isRn) window.setupIncomingNurses(nextCount);
+      else window.setupIncomingPcas(nextCount);
+
+      return { ok: true, count: nextCount };
+    }
+
+    // CURRENT
+    const list = isRn ? currentNurses : currentPcas;
+    const count = filterOutHoldBuckets(list).length || 0;
+
+    if (d < 0) {
+      const chk = canDecrementByLastHasNoPatients(list);
+      if (!chk.ok) return chk;
+    }
+    const nextCount = clamp(count + d, 1, max);
+    if (nextCount === count) return { ok: false, reason: "Limit reached." };
+
+    if (isRn) window.setupCurrentNurses(nextCount);
+    else window.setupCurrentPcas(nextCount);
+
+    return { ok: true, count: nextCount };
+  }
+
+  window.staffingControls = {
+    adjust: adjustArray,
+    getCounts: () => ({
+      current: {
+        rn: filterOutHoldBuckets(currentNurses).length,
+        pca: filterOutHoldBuckets(currentPcas).length
+      },
+      incoming: {
+        rn: filterOutHoldBuckets(incomingNurses).length,
+        pca: filterOutHoldBuckets(incomingPcas).length
+      }
+    })
   };
 
   // =========================================================
@@ -580,7 +767,6 @@
   }
 
   function rescan() {
-    // RN fields
     ["currentNurseList", "incomingNurseList", "currentPcaList", "incomingPcaList"].forEach(id => {
       const root = document.getElementById(id);
       if (!root) return;
@@ -588,7 +774,7 @@
     });
   }
 
-  // Wrap render/setup functions so after they rebuild DOM, we wire inputs again
+  // Wrap render/setup functions so after they rebuild DOM, we wire inputs
   function wrap(fnName) {
     const fn = window[fnName];
     if (typeof fn !== "function" || fn.__staffWrapped) return;
@@ -612,13 +798,158 @@
     "renderIncomingPcaList"
   ].forEach(wrap);
 
-  // Expose debug hook
-  window.staffTypeahead = {
-    rescan,
-    ensureStaff
-  };
+  window.staffTypeahead = { rescan, ensureStaff };
+
+  // =========================================================
+  // ✅ Delegated +/- wiring (kept)
+  // - If UI includes data-staff-ctrl buttons, we still support it
+  // - When blocked, we show the warning modal instead of silent console
+  // =========================================================
+
+  if (!window.oncomingUnassigned) {
+    window.oncomingUnassigned = { rn: [], pca: [] }; // patient ids
+  }
+
+  function uniq(arr) {
+    const out = [];
+    const seen = new Set();
+    (Array.isArray(arr) ? arr : []).forEach(x => {
+      const k = String(x);
+      if (!seen.has(k)) { seen.add(k); out.push(x); }
+    });
+    return out;
+  }
+
+  function refreshAfterStaffingChange(shift) {
+    try { if (typeof window.saveState === "function") window.saveState(); } catch (_) {}
+
+    if (shift === "current") {
+      try { if (typeof window.renderLiveAssignments === "function") window.renderLiveAssignments(); } catch (_) {}
+      try { if (typeof window.renderUnitPulseTab === "function") window.renderUnitPulseTab(); } catch (_) {}
+    } else {
+      try { if (typeof window.renderAssignmentOutput === "function") window.renderAssignmentOutput(); } catch (_) {}
+      try { if (typeof window.renderPcaAssignmentOutput === "function") window.renderPcaAssignmentOutput(); } catch (_) {}
+    }
+  }
+
+  function moveIncomingRemovedOwnerPatientsToUnassigned(roleUpper, ownerObj) {
+    const ids = safeArray(ownerObj && ownerObj.patients);
+    if (!ids.length) return;
+
+    const key = (roleUpper === "PCA") ? "pca" : "rn";
+    window.oncomingUnassigned[key] = uniq(safeArray(window.oncomingUnassigned[key]).concat(ids));
+    ownerObj.patients = [];
+  }
+
+  function decrementIncomingSafely(roleUpper) {
+    if (roleUpper === "RN") {
+      const arr = safeArray(window.incomingNurses);
+      if (arr.length <= 1) return { ok: false, reason: "Incoming RNs cannot go below 1." };
+
+      const last = arr[arr.length - 1];
+      moveIncomingRemovedOwnerPatientsToUnassigned("RN", last);
+
+      if (typeof window.setupIncomingNurses === "function") {
+        window.setupIncomingNurses(arr.length - 1);
+      } else if (window.staffingControls?.adjust) {
+        window.staffingControls.adjust("incoming", "RN", -1);
+      }
+      return { ok: true };
+    }
+
+    const arr = safeArray(window.incomingPcas);
+    if (arr.length <= 1) return { ok: false, reason: "Incoming PCAs cannot go below 1." };
+
+    const last = arr[arr.length - 1];
+    moveIncomingRemovedOwnerPatientsToUnassigned("PCA", last);
+
+    if (typeof window.setupIncomingPcas === "function") {
+      window.setupIncomingPcas(arr.length - 1);
+    } else if (window.staffingControls?.adjust) {
+      window.staffingControls.adjust("incoming", "PCA", -1);
+    }
+    return { ok: true };
+  }
+
+  function incrementShift(roleUpper, shiftLower) {
+    if (!window.staffingControls?.adjust) return { ok: false, reason: "staffingControls missing." };
+    const res = window.staffingControls.adjust(shiftLower, roleUpper, +1);
+    return res && res.ok ? { ok: true } : { ok: false, reason: res?.reason || "Unable to increment." };
+  }
+
+  function wireStaffingPlusMinusDelegatedOnce() {
+    const root =
+      document.getElementById("staffingTab") ||
+      document.getElementById("staffingDetailsTab") ||
+      document.querySelector(".tab-section#staffingTab");
+
+    if (!root || root.__staffingPlusMinusDelegated) return;
+    root.__staffingPlusMinusDelegated = true;
+
+    root.addEventListener("click", (e) => {
+      const btn = e.target?.closest?.('button[data-staff-ctrl="1"]');
+      if (!btn) return;
+
+      const shift = String(btn.dataset.shift || "").toLowerCase(); // current | incoming
+      const role = String(btn.dataset.role || "").toUpperCase();   // RN | PCA
+      const delta = parseInt(btn.dataset.delta || "0", 10);
+
+      if (!shift || !role || !delta) return;
+
+      if (shift === "current" && delta < 0) {
+        window.showStaffingWarnModal(
+          "Cannot lower Current staff here",
+          "Current decrement is blocked in Staffing Details. Remove staff via the LIVE board (X) workflow so patients aren’t orphaned."
+        );
+        return;
+      }
+
+      if (shift === "incoming" && delta < 0) {
+        const out = decrementIncomingSafely(role);
+        if (!out.ok) {
+          window.showStaffingWarnModal("Unable to lower Oncoming staff", out.reason || "This change is blocked.");
+          return;
+        }
+        refreshAfterStaffingChange("incoming");
+        return;
+      }
+
+      if (delta > 0) {
+        const out = incrementShift(role, shift);
+        if (!out.ok) {
+          window.showStaffingWarnModal("Unable to increase staffing", out.reason || "This change is blocked.");
+          return;
+        }
+        refreshAfterStaffingChange(shift);
+      }
+    });
+  }
 
   window.addEventListener("DOMContentLoaded", () => {
+    setTimeout(wireStaffingPlusMinusDelegatedOnce, 250);
+  });
+
+  // ---------------------------------------------------------
+  // ✅ Remove old injected “Staffing Totals” panels if we’re on layout v2
+  // (Prevents duplicates + UI fighting)
+  // ---------------------------------------------------------
+  function isStaffingLayoutV2() {
+    try {
+      return !!document.querySelector('#staffingTab [data-staffing-layout="v2"]');
+    } catch (_) {
+      return false;
+    }
+  }
+
+  // Keep these light touches:
+  window.addEventListener("DOMContentLoaded", () => {
     setTimeout(rescan, 400);
+    setTimeout(reflectLegacySelects, 520);
+
+    // If legacy builds try to inject panels, we simply do nothing by not installing them.
+    if (!isStaffingLayoutV2()) {
+      // (No-op: previously you were installing two panels + observers here.
+      // We intentionally skip that on v2 layout to avoid duplicates.)
+    }
   });
 })();
