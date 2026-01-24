@@ -22,6 +22,12 @@
 // ✅ Role-specific acuity changes:
 //    - BG-related acuity changes affect RN only (not PCA)
 //    - Defaults acuity-change attribution to RN-only unless payload explicitly says PCA
+//
+// PERF / REFRESH CONTRACT (Jan 2026 - light touch):
+// ✅ Remove function-wrapping hooks (saveState/renderLive/appendEvent wrapping) to avoid global fan-out
+// ✅ Use event-bus + visibility + optional polling only
+// ✅ Coalesce refresh calls (single in-flight; trailing one if changes happen mid-refresh)
+// ✅ Skip work when tab hidden or Unit Pulse root not mounted
 // ---------------------------------------------------------
 
 (function () {
@@ -32,7 +38,7 @@
 
   function safeArray(v) { return Array.isArray(v) ? v : []; }
 
-  // ✅ NEW: robust converter for NodeList / HTMLCollection / array-like
+  // ✅ robust converter for NodeList / HTMLCollection / array-like
   function toArray(v) {
     if (Array.isArray(v)) return v;
     try { return Array.from(v || []); } catch { return []; }
@@ -283,7 +289,7 @@
     return "green";
   }
 
-  // ✅ NEW: allow runtime overrides without touching code
+  // ✅ allow runtime overrides without touching code
   // window.unitPulseState.thresholds = {
   //   nurse: { greenMax, yellowMax, redMax },
   //   pca:   { greenMax, yellowMax, redMax }
@@ -292,9 +298,7 @@
     const st = window.unitPulseState || {};
     const overrides = st.thresholds || {};
 
-    // 🔥 New defaults (less forgiving):
-    // RN: green up to 8, yellow up to 13, red max 20
-    // PCA: green up to 12, yellow up to 18, red max 26
+    // Defaults (less forgiving):
     const defaults =
       role === "pca"
         ? { greenMax: 12, yellowMax: 18, redMax: 26 }
@@ -303,7 +307,6 @@
     const o = (role === "pca" ? overrides.pca : overrides.nurse) || null;
     const merged = { ...defaults, ...(o && typeof o === "object" ? o : {}) };
 
-    // Defensive: enforce ordering
     const g = Math.max(0, Number(merged.greenMax) || defaults.greenMax);
     const y = Math.max(g + 0.1, Number(merged.yellowMax) || defaults.yellowMax);
     const r = Math.max(y + 0.1, Number(merged.redMax) || defaults.redMax);
@@ -331,8 +334,7 @@
     return "red";
   }
 
-  // Map a "score" into tier Y (0..3) where:
-  // 0..1 = green band, 1..2 = yellow band, 2..3 = red band
+  // Map a "score" into tier Y (0..3)
   function scoreToTierY(score, role) {
     const t = getThresholds(role);
     const s = clamp(Number(score) || 0, 0, t.redMax);
@@ -508,11 +510,10 @@
     return t.includes("bg") || t.includes("blood glucose") || t.includes("accucheck") || t.includes("fsbs");
   }
 
-  // ✅ NEW: detect “shift-killers” from tag text (best-effort, parser-safe)
   function shiftKillerFlagsFromEvent(ev) {
     const t = getTagTextFromEvent(ev);
 
-    const flags = {
+    return {
       sitter: t.includes("sitter"),
       drip: t.includes("drip") || t.includes("gtt") || t.includes("infus"),
       nih: t.includes("nih"),
@@ -520,8 +521,6 @@
       bg: isBgRelatedAcuity(ev),
       iso: t.includes("iso") || t.includes("isolation"),
     };
-
-    return flags;
   }
 
   function buildChangeLine(ev, nowTs) {
@@ -559,7 +558,7 @@
   }
 
   // -----------------------------
-  // Attribution map (NOW includes events list per staff)
+  // Attribution map (includes events list per staff)
   // -----------------------------
   function buildPatientOwnerMaps(nurses, pcas) {
     const byPatient = new Map(); // patientId -> { rnNames:Set, pcaNames:Set }
@@ -640,9 +639,7 @@
         return;
       }
 
-      // Acuity changes:
-      // - Defaults RN-only unless payload explicitly says PCA
-      // - BG always RN-only
+      // Acuity changes: RN-only by default; BG always RN-only
       if (isAcuity) {
         const rnOnly = isBgRelatedAcuity(ev) || (roleHint && roleHint === "nurse") || (!roleHint);
         const pcaOnly = (roleHint === "pca") && !isBgRelatedAcuity(ev);
@@ -728,7 +725,7 @@
   }
 
   // -----------------------------
-  // NEW: Event-driven series builder (tiered line over time)
+  // Event-driven series builder (tiered line over time)
   // -----------------------------
   function getShiftKillerWeights() {
     // Allow overrides:
@@ -736,7 +733,6 @@
     const st = window.unitPulseState || {};
     const o = (st.shiftKillerWeights && typeof st.shiftKillerWeights === "object") ? st.shiftKillerWeights : {};
 
-    // Defaults tuned “harsher” so the trend line reacts when shift-killers appear
     return {
       sitter: Number(o.sitter ?? 1.6),
       drip: Number(o.drip ?? 1.4),
@@ -752,20 +748,15 @@
     const acuity = isAcuityChangeEvent(ev);
     const reassign = isReassignEvent(ev);
 
-    // Base deltas (slightly stronger than before)
     if (kind === "admit") return role === "pca" ? 2.3 : 3.4;
     if (kind === "discharge") return role === "pca" ? -1.2 : -2.2;
 
     if (acuity) {
-      // RN-only BG (already enforced at attribution); keep PCA at 0 for BG
       const flags = shiftKillerFlagsFromEvent(ev);
       const k = getShiftKillerWeights();
 
-      // Base acuity bump (a little stronger)
       let base = role === "pca" ? 0.7 : 1.15;
 
-      // Apply multipliers for “shift-killers” (RN only unless explicitly PCA-tagged upstream)
-      // (Trend line doesn’t change assignment; it just makes impact visible.)
       if (flags.sitter) base *= k.sitter;
       if (flags.drip) base *= k.drip;
       if (flags.nih) base *= k.nih;
@@ -777,7 +768,6 @@
         base *= k.bg;
       }
 
-      // Clamp to prevent extreme spikes from noisy text
       return clamp(base, -4, 6);
     }
 
@@ -935,7 +925,6 @@
       total: rnCounts.total + pcaCounts.total
     };
 
-    // ✅ Defensive: ensure state exists
     window.unitPulseState = window.unitPulseState || {};
     window.unitPulseState._summaryOpen = window.unitPulseState._summaryOpen || {};
     const openMap = window.unitPulseState._summaryOpen;
@@ -1121,7 +1110,7 @@
       };
     }
 
-    // ✅ FIX: Bind dropdown toggles (NodeList → Array)
+    // Bind dropdown toggles
     try {
       const toggles = toArray(root.querySelectorAll(".up-sumtoggle"));
       toggles.forEach((btnEl) => {
@@ -1143,149 +1132,165 @@
   }
 
   // -----------------------------
+  // Refresh gating / scheduling (PERF)
+  // -----------------------------
+  function isPulseMounted() {
+    return !!$("unitPulseRoot");
+  }
+
+  function isPulseVisible() {
+    if (!isPulseMounted()) return false;
+    if (document.hidden) return false;
+    return true;
+  }
+
+  let __upDebounceT = null;
+  let __refreshInFlight = false;
+  let __refreshQueued = false;
+  let __lastScheduleReason = "";
+
+  function scheduleRefresh(reason = "") {
+    if (!isPulseMounted()) return;
+    if (document.hidden) return;
+
+    __lastScheduleReason = reason || __lastScheduleReason || "scheduleRefresh";
+
+    if (__upDebounceT) clearTimeout(__upDebounceT);
+    __upDebounceT = setTimeout(() => {
+      __upDebounceT = null;
+      try { window.unitPulse.refresh(); } catch (e) { console.warn("[Unit Pulse] scheduled refresh failed", __lastScheduleReason, e); }
+    }, 250);
+  }
+
+  // -----------------------------
   // Main refresh pipeline
   // -----------------------------
   async function refresh() {
     ensureStyles();
 
-    const root = $("unitPulseRoot");
-    if (!root) return;
+    if (!isPulseVisible()) return;
 
-    const hours = Number(window.unitPulseState?.windowHours) || 12;
-    const sourceMode = String(window.unitPulseState?.sourceMode || "auto");
+    // In-flight coalescing: never run multiple refreshes concurrently.
+    if (__refreshInFlight) {
+      __refreshQueued = true;
+      return;
+    }
+    __refreshInFlight = true;
 
-    const unitId = getActiveUnitIdSafe();
-    const sinceMs = nowMs() - (hours * 60 * 60 * 1000);
-    const untilMs = nowMs();
-    const sinceIso = toIso(sinceMs);
+    try {
+      const hours = Number(window.unitPulseState?.windowHours) || 12;
+      const sourceMode = String(window.unitPulseState?.sourceMode || "auto");
 
-    const roster = getRoster();
-    const nurses = roster.nurses;
-    const pcas = roster.pcas;
+      const unitId = getActiveUnitIdSafe();
+      const sinceMs = nowMs() - (hours * 60 * 60 * 1000);
+      const untilMs = nowMs();
+      const sinceIso = toIso(sinceMs);
 
-    let eventSource = "local";
-    let events = [];
+      const roster = getRoster();
+      const nurses = roster.nurses;
+      const pcas = roster.pcas;
 
-    const wantsSupabase =
-      sourceMode === "supabase" ||
-      (sourceMode === "auto" && !!window.sb?.client && !!unitId);
+      let eventSource = "local";
+      let events = [];
 
-    if (wantsSupabase) {
-      const r = await fetchEventsSupabase({ unitId, sinceIso });
-      if (r.ok) {
-        eventSource = "supabase";
-        events = r.events;
-      } else if (sourceMode === "supabase") {
-        eventSource = "supabase (failed → local)";
-        events = fetchEventsLocal({ sinceMs }).events;
+      const wantsSupabase =
+        sourceMode === "supabase" ||
+        (sourceMode === "auto" && !!window.sb?.client && !!unitId);
+
+      if (wantsSupabase) {
+        const r = await fetchEventsSupabase({ unitId, sinceIso });
+        if (r.ok) {
+          eventSource = "supabase";
+          events = r.events;
+        } else if (sourceMode === "supabase") {
+          eventSource = "supabase (failed → local)";
+          events = fetchEventsLocal({ sinceMs }).events;
+        } else {
+          events = fetchEventsLocal({ sinceMs }).events;
+        }
       } else {
         events = fetchEventsLocal({ sinceMs }).events;
       }
-    } else {
-      events = fetchEventsLocal({ sinceMs }).events;
-    }
 
-    const windowedEvents = safeArray(events).slice().sort((a, b) => pickEventTsMs(b) - pickEventTsMs(a));
+      const windowedEvents = safeArray(events).slice().sort((a, b) => pickEventTsMs(b) - pickEventTsMs(a));
+      const attribution = buildAttribution(windowedEvents, nurses, pcas);
 
-    const attribution = buildAttribution(windowedEvents, nurses, pcas);
+      const samples = Number(window.unitPulseState?.seriesSamples) || 28;
 
-    const samples = Number(window.unitPulseState?.seriesSamples) || 28;
-
-    const seriesMapRn = new Map();
-    nurses.forEach(s => {
-      const k = String(s.name || "").toLowerCase().trim();
-      const rec = attribution.get(k);
-      const currentScore = computeLoadScore(s);
-      const series = buildTierSeries({
-        role: "nurse",
-        currentScore,
-        events: rec?.events || [],
-        sinceMs,
-        untilMs,
-        samples
+      const seriesMapRn = new Map();
+      nurses.forEach(s => {
+        const k = String(s.name || "").toLowerCase().trim();
+        const rec = attribution.get(k);
+        const currentScore = computeLoadScore(s);
+        const series = buildTierSeries({
+          role: "nurse",
+          currentScore,
+          events: rec?.events || [],
+          sinceMs,
+          untilMs,
+          samples
+        });
+        seriesMapRn.set(k, series);
       });
-      seriesMapRn.set(k, series);
-    });
 
-    const seriesMapPca = new Map();
-    pcas.forEach(s => {
-      const k = String(s.name || "").toLowerCase().trim();
-      const rec = attribution.get(k);
-      const currentScore = computeLoadScore(s);
-      const series = buildTierSeries({
-        role: "pca",
-        currentScore,
-        events: rec?.events || [],
-        sinceMs,
-        untilMs,
-        samples
+      const seriesMapPca = new Map();
+      pcas.forEach(s => {
+        const k = String(s.name || "").toLowerCase().trim();
+        const rec = attribution.get(k);
+        const currentScore = computeLoadScore(s);
+        const series = buildTierSeries({
+          role: "pca",
+          currentScore,
+          events: rec?.events || [],
+          sinceMs,
+          untilMs,
+          samples
+        });
+        seriesMapPca.set(k, series);
       });
-      seriesMapPca.set(k, series);
-    });
 
-    const tilesRn = nurses.map(s => buildTile(s, attribution, seriesMapRn));
-    const tilesPca = pcas.map(s => buildTile(s, attribution, seriesMapPca));
+      const tilesRn = nurses.map(s => buildTile(s, attribution, seriesMapRn));
+      const tilesPca = pcas.map(s => buildTile(s, attribution, seriesMapPca));
 
-    const seriesRnAvg = avgSeriesFromTiles(tilesRn, "nurse", sinceMs, untilMs, samples);
-    const seriesPcaAvg = avgSeriesFromTiles(tilesPca, "pca", sinceMs, untilMs, samples);
+      const seriesRnAvg = avgSeriesFromTiles(tilesRn, "nurse", sinceMs, untilMs, samples);
+      const seriesPcaAvg = avgSeriesFromTiles(tilesPca, "pca", sinceMs, untilMs, samples);
 
-    const overallTiles = tilesRn.concat(tilesPca);
-    const seriesOverallAvg = avgSeriesFromTiles(overallTiles, "nurse", sinceMs, untilMs, samples);
+      const overallTiles = tilesRn.concat(tilesPca);
+      const seriesOverallAvg = avgSeriesFromTiles(overallTiles, "nurse", sinceMs, untilMs, samples);
 
-    renderAll({
-      hours,
-      eventSource,
-      events: windowedEvents,
-      tilesRn,
-      tilesPca,
-      seriesRnAvg,
-      seriesPcaAvg,
-      seriesOverallAvg
-    });
-  }
+      if (!isPulseMounted()) return; // tab navigated away mid-refresh
 
-  // -----------------------------
-  // Auto-refresh hooks (debounced)
-  // -----------------------------
-  let __upDebounceT = null;
-  function scheduleRefresh(reason = "") {
-    if (!$("unitPulseRoot")) return;
-    if (__upDebounceT) clearTimeout(__upDebounceT);
-    __upDebounceT = setTimeout(() => {
-      try { window.unitPulse.refresh(); } catch (e) { console.warn("[Unit Pulse] auto-refresh failed", reason, e); }
-    }, 250);
-  }
+      renderAll({
+        hours,
+        eventSource,
+        events: windowedEvents,
+        tilesRn,
+        tilesPca,
+        seriesRnAvg,
+        seriesPcaAvg,
+        seriesOverallAvg
+      });
+    } finally {
+      __refreshInFlight = false;
 
-  function wrapOnce(obj, key, wrapperName, afterFn) {
-    try {
-      if (!obj || !key) return;
-      const orig = obj[key];
-      if (typeof orig !== "function") return;
-      if (orig.__wrappedByUnitPulse) return;
-
-      function wrapped() {
-        const res = orig.apply(this, arguments);
-        try { afterFn(); } catch {}
-        return res;
+      if (__refreshQueued) {
+        __refreshQueued = false;
+        // trailing refresh (single) to catch changes that happened mid-flight
+        scheduleRefresh("trailing_refresh");
       }
-      wrapped.__wrappedByUnitPulse = true;
-      wrapped.__wrapperName = wrapperName;
-
-      obj[key] = wrapped;
-    } catch {}
+    }
   }
 
+  // -----------------------------
+  // Auto-refresh hooks (event-driven only)
+  // -----------------------------
   function installAutoHooks() {
-    wrapOnce(window, "saveState", "saveState", () => scheduleRefresh("saveState"));
-    wrapOnce(window, "renderLiveAssignments", "renderLiveAssignments", () => scheduleRefresh("renderLiveAssignments"));
-    wrapOnce(window, "populateLiveAssignment", "populateLiveAssignment", () => scheduleRefresh("populateLiveAssignment"));
-    wrapOnce(window, "appendEvent", "appendEvent", () => scheduleRefresh("appendEvent"));
-
     try {
       window.addEventListener("cupp:audit_event", () => scheduleRefresh("cupp:audit_event"));
       window.addEventListener("cupp:state_dirty", () => scheduleRefresh("cupp:state_dirty"));
     } catch {}
 
+    // Compatibility: some modules may still emit these
     try {
       window.addEventListener("unit_state_updated", () => scheduleRefresh("unit_state_updated"));
       window.addEventListener("assignments_updated", () => scheduleRefresh("assignments_updated"));
@@ -1294,20 +1299,23 @@
   }
 
   // -----------------------------
-  // Polling for Supabase source
+  // Polling for Supabase source (optional + visibility-gated)
   // -----------------------------
   let __upPollTimer = null;
 
-  function isPulseVisible() {
-    const root = $("unitPulseRoot");
-    if (!root) return false;
-    return !document.hidden;
+  function shouldPoll() {
+    const unitId = getActiveUnitIdSafe();
+    const hasSb = !!window.sb?.client && !!unitId;
+    if (!hasSb) return false;
+
+    const mode = String(window.unitPulseState?.sourceMode || "auto");
+    if (mode !== "auto" && mode !== "supabase") return false;
+
+    return true;
   }
 
   function startPolling() {
-    const unitId = getActiveUnitIdSafe();
-    const hasSb = !!window.sb?.client && !!unitId;
-    if (!hasSb) return;
+    if (!shouldPoll()) return;
 
     const ms = Number(window.unitPulseState?.pollMs) || 10000;
 
@@ -1342,7 +1350,7 @@
     seriesSamples: 28,
     _summaryOpen: {},
 
-    // ✅ Optional: tune without code changes
+    // Optional: tune without code changes
     // thresholds: { nurse:{greenMax:8,yellowMax:13,redMax:20}, pca:{greenMax:12,yellowMax:18,redMax:26} },
     // shiftKillerWeights: { sitter:1.6, drip:1.4, nih:1.2, ciwa:1.3, bg:1.15, iso:1.05 },
   };
@@ -1359,5 +1367,6 @@
     try { refresh(); } catch (e) { console.warn("[Unit Pulse] initial refresh failed", e); }
   }, 60);
 
-  window.__unitPulseBuild = "tieredTrendLines+dropdownShiftSummary+eventBus-v3-harsherTiers+shiftKillerWeights";
+  window.__unitPulseBuild =
+    "tieredTrendLines+dropdownShiftSummary+eventBus-v4-perf-coalesce-no-wraps";
 })();

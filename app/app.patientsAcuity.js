@@ -30,18 +30,37 @@
 //   restraints, feeders, etc.) so “ghost tags” cannot survive.
 // - Keep alias fields in sync in togglePatientFlag + savePatientProfile.
 // - Remove Gender row from Patient Details + Patient Profile modal.
+//
+// ✅ PERF (Jan 2026 - Refresh fan-out reduction v1.1):
+// - Coalesce refresh calls into a single render pass per tick (correct skip-flag merge)
+// - Prefer window.requestGlobalRefresh when available (canonical refresh path)
+// - Guard room schema re-application to avoid repeated resort/remap work
 // ---------------------------------------------------------
 
 (function () {
   // =========================
   // Helpers (canonical)
   // =========================
-
   function safeArray(v) { return Array.isArray(v) ? v : []; }
 
   // Version marker for debugging
   window.__patientsAcuityLoaded =
-    "v2_staff_attribution_2026-01-02__role_tele_scoring_2026-01-08__rn_tiers_shiftkillers_2026-01-13__bulk_controls_2026-01-18__ghost_tags_kill_v1_2026-01-18";
+    "v2_staff_attribution_2026-01-02__role_tele_scoring_2026-01-08__rn_tiers_shiftkillers_2026-01-13__bulk_controls_2026-01-18__ghost_tags_kill_v1_2026-01-18__refresh_batch_v1_1_2026-01-24";
+
+  // -------------------------
+  // Room schema apply guards
+  // -------------------------
+  let __lastRoomSchemaKey = null;
+
+  function computeRoomSchemaKey() {
+    try {
+      const beds = window.unitSettings?.room_schema?.beds;
+      if (!Array.isArray(beds) || !beds.length) return null;
+      return beds.map(b => String(b).trim()).filter(Boolean).join("|");
+    } catch (_) {
+      return null;
+    }
+  }
 
   function ensurePatientsReady() {
     if (typeof window.ensureDefaultPatients === "function") {
@@ -57,6 +76,7 @@
       }
     }
 
+    // Apply room schema mapping only when it actually changes
     applyRoomSchemaToPatients();
   }
 
@@ -79,41 +99,106 @@
   // =========================
   // Global refresh helper (ALL TABS)
   // =========================
+  // PERF: coalesce refresh calls in the same tick into one render pass.
+  // Correct merge rule for skip flags across multiple callers:
+  //   - We ONLY skip a section if *all* callers asked to skip it.
+  // This preserves the common expectation that "most calls want full refresh."
+  let __refreshQueued = false;
+  let __refreshMergedSkips = null;
+  let __refreshLastReason = null;
+
+  function __newSkipAccumulator() {
+    // Start as "skip everything" and AND across calls.
+    // Any call that does NOT request skipX (or sets skipX=false) will force skipX=false.
+    return {
+      skipSave: true,
+      skipPatientGrid: true,
+      skipHighRisk: true,
+      skipLive: true,
+      skipOncoming: true,
+      skipUnitPulse: true
+    };
+  }
+
+  function __mergeSkips(acc, opts) {
+    const o = opts || {};
+    // If caller doesn't set skip flag, treat it as false (i.e., do not skip).
+    const s = (k) => (o[k] === true);
+
+    acc.skipSave = acc.skipSave && s("skipSave");
+    acc.skipPatientGrid = acc.skipPatientGrid && s("skipPatientGrid");
+    acc.skipHighRisk = acc.skipHighRisk && s("skipHighRisk");
+    acc.skipLive = acc.skipLive && s("skipLive");
+    acc.skipOncoming = acc.skipOncoming && s("skipOncoming");
+    acc.skipUnitPulse = acc.skipUnitPulse && s("skipUnitPulse");
+
+    return acc;
+  }
 
   function refreshAllTabs(opts = {}) {
-    const o = opts || {};
+    __refreshLastReason = opts?.reason || __refreshLastReason || "patientsAcuity_refreshAllTabs";
 
-    // Persist first so other tabs read the latest
-    if (!o.skipSave && typeof window.saveState === "function") {
-      try { window.saveState(); } catch (_) {}
-    }
+    if (!__refreshMergedSkips) __refreshMergedSkips = __newSkipAccumulator();
+    __mergeSkips(__refreshMergedSkips, opts);
 
-    // Patient Details
-    if (!o.skipPatientGrid && typeof window.renderPatientList === "function") {
-      try { window.renderPatientList(); } catch (_) {}
-    }
+    if (__refreshQueued) return;
+    __refreshQueued = true;
 
-    // High Risk
-    if (!o.skipHighRisk && typeof window.updateAcuityTiles === "function") {
-      try { window.updateAcuityTiles(); } catch (_) {}
-    }
+    Promise.resolve().then(() => {
+      __refreshQueued = false;
 
-    // LIVE / Oncoming
-    if (!o.skipLive && typeof window.renderLiveAssignments === "function") {
-      try { window.renderLiveAssignments(); } catch (_) {}
-    }
-    if (!o.skipOncoming && typeof window.renderAssignmentOutput === "function") {
-      try { window.renderAssignmentOutput(); } catch (_) {}
-    }
-    if (!o.skipOncoming && typeof window.renderPcaAssignmentOutput === "function") {
-      try { window.renderPcaAssignmentOutput(); } catch (_) {}
-    }
+      const skips = __refreshMergedSkips || __newSkipAccumulator();
+      __refreshMergedSkips = null;
 
-    // Unit Pulse (optional hook)
-    // NOTE: your Unit Pulse module also listens to audit events; this is just a safety refresh.
-    if (!o.skipUnitPulse && typeof window.renderUnitPulseTab === "function") {
-      try { window.renderUnitPulseTab(); } catch (_) {}
-    }
+      // Persist first so other tabs read the latest
+      if (!skips.skipSave && typeof window.saveState === "function") {
+        try { window.saveState(); } catch (_) {}
+      }
+
+      const wantPatientGrid = !skips.skipPatientGrid;
+      const wantHighRisk = !skips.skipHighRisk;
+      const wantLive = !skips.skipLive;
+      const wantOncoming = !skips.skipOncoming;
+      const wantUnitPulse = !skips.skipUnitPulse;
+
+      // Prefer canonical global refresh if present AND we want the core full-pass sections.
+      // (This avoids a lot of redundant fan-out if other modules also refresh.)
+      const canUseGlobal =
+        typeof window.requestGlobalRefresh === "function" &&
+        wantPatientGrid && wantHighRisk && wantLive && wantOncoming;
+
+      if (canUseGlobal) {
+        try { window.requestGlobalRefresh(__refreshLastReason || "patientsAcuity_global"); } catch (_) {}
+      } else {
+        // Patient Details
+        if (wantPatientGrid && typeof window.renderPatientList === "function") {
+          try { window.renderPatientList(); } catch (_) {}
+        }
+
+        // High Risk
+        if (wantHighRisk && typeof window.updateAcuityTiles === "function") {
+          try { window.updateAcuityTiles(); } catch (_) {}
+        }
+
+        // LIVE / Oncoming
+        if (wantLive && typeof window.renderLiveAssignments === "function") {
+          try { window.renderLiveAssignments(); } catch (_) {}
+        }
+
+        if (wantOncoming && typeof window.renderAssignmentOutput === "function") {
+          try { window.renderAssignmentOutput(); } catch (_) {}
+        }
+        if (wantOncoming && typeof window.renderPcaAssignmentOutput === "function") {
+          try { window.renderPcaAssignmentOutput(); } catch (_) {}
+        }
+      }
+
+      // Unit Pulse (optional hook)
+      // NOTE: Unit Pulse primarily listens to audit events; this is a safety refresh.
+      if (wantUnitPulse && typeof window.renderUnitPulseTab === "function") {
+        try { window.renderUnitPulseTab(); } catch (_) {}
+      }
+    });
   }
 
   // Expose (useful for debugging or other modules)
@@ -124,9 +209,10 @@
   // =========================
 
   function findAssignedNurse(patientId) {
-    // Prefer canonical helpers if they exist
-    if (typeof window.findAssignedNurse === "function") {
-      try { return window.findAssignedNurse(patientId); } catch {}
+    // Prefer canonical helpers if they exist (from state module), but avoid self-recursion.
+    const ext = window.__stateFindAssignedNurse || null;
+    if (typeof ext === "function") {
+      try { return ext(patientId); } catch {}
     }
 
     const pid = Number(patientId);
@@ -135,8 +221,9 @@
   }
 
   function findAssignedPca(patientId) {
-    if (typeof window.findAssignedPca === "function") {
-      try { return window.findAssignedPca(patientId); } catch {}
+    const ext = window.__stateFindAssignedPca || null;
+    if (typeof ext === "function") {
+      try { return ext(patientId); } catch {}
     }
 
     const pid = Number(patientId);
@@ -168,8 +255,6 @@
   const RN_ONLY_KEYS = new Set(["drip","nih","bg","ciwa","restraint","sitter","vpo"]);
   const PCA_ONLY_KEYS = new Set(["chg","foley","q2turns","heavy","feeder"]);
   const SHARED_KEYS = new Set(["tele","isolation","admit","lateDc"]); // shared meaning: affects both RN/PCA analytics
-
-  // Gender isn't really PCA workload; treat as RN-side attribution by default
   const RN_META_KEYS = new Set(["gender"]);
 
   function computeImpactFromChanges(changes) {
@@ -203,11 +288,8 @@
       const pid = (p.patientId != null ? Number(p.patientId) : null);
       if (pid) {
         const ctx = getAssignmentContextForPatient(pid);
-
-        // Determine which roles this change should count toward
         const impact = computeImpactFromChanges(p.changes);
 
-        // Always include ids so schema is stable (even if null)
         p.rnId = ctx.rnId;
         p.pcaId = ctx.pcaId;
         p.rnStaffId = ctx.rnStaffId;
@@ -215,7 +297,6 @@
         p.rnName = ctx.rnName;
         p.pcaName = ctx.pcaName;
 
-        // Nested object for analytics friendliness
         p.attribution = {
           affects: impact,
           rn: impact.affectsRn ? { id: ctx.rnId, staff_id: ctx.rnStaffId, name: ctx.rnName } : null,
@@ -223,7 +304,6 @@
         };
       }
 
-      // Always pass meta with version/source so you can debug load order
       const nextMeta = Object.assign({ v: 2, source: "app.patientsAcuity.js" }, (meta || {}));
       window.appendEvent(type, p, nextMeta);
     } catch (e) {
@@ -280,7 +360,14 @@
 
   function applyRoomSchemaToPatients() {
     const beds = getRoomSchemaBeds();
-    if (!beds) return;
+    const key = computeRoomSchemaKey();
+
+    // If no schema, nothing to do
+    if (!beds || !key) return;
+
+    // Guard: only re-apply if schema changed
+    if (__lastRoomSchemaKey && __lastRoomSchemaKey === key) return;
+    __lastRoomSchemaKey = key;
 
     const pArr = safeArray(window.patients).slice().sort((a, b) => Number(a?.id) - Number(b?.id));
 
@@ -321,7 +408,6 @@
     const k = String(key || "");
     if (!k) return;
 
-    // Keep legacy aliases in sync anytime canonical changes
     if (k === "bg") {
       p.bgChecks = !!p.bg;
     }
@@ -419,15 +505,12 @@
   }
 
   function clearPidFromAllAssignments(pid) {
-    // Current (LIVE)
     window.currentNurses = removePidFromOwnerLists(window.currentNurses, pid);
     window.currentPcas = removePidFromOwnerLists(window.currentPcas, pid);
 
-    // Oncoming
     window.incomingNurses = removePidFromOwnerLists(window.incomingNurses, pid);
     window.incomingPcas = removePidFromOwnerLists(window.incomingPcas, pid);
 
-    // Legacy bare globals (if present)
     try {
       if (typeof currentNurses !== "undefined") currentNurses = window.currentNurses;
       if (typeof currentPcas !== "undefined") currentPcas = window.currentPcas;
@@ -447,13 +530,11 @@
     const beforeEmpty = !!p.isEmpty;
 
     if (makeEmpty) {
-      // ✅ Ghost-tag kill: clear canonical + ALL aliases
       clearAllAcuityFieldsAndAliases(p);
 
       p.isEmpty = true;
       p.recentlyDischarged = false;
 
-      // IMPORTANT: remove from LIVE + Oncoming assignments immediately
       if (!opts.skipAssignmentClear) {
         clearPidFromAllAssignments(Number(p.id));
       }
@@ -466,7 +547,7 @@
     logBedStateChange(p, beforeEmpty, afterEmpty, opts.source || "patient_details");
 
     if (!opts.suppressRefresh) {
-      refreshAllTabs();
+      refreshAllTabs({ reason: "bed_state_change" });
     }
   }
 
@@ -485,13 +566,12 @@
 
     const rows = safeArray(window.patients).slice(0, 32);
 
-    // Do not clear tags; just ensure all beds are active.
     rows.forEach(p => {
       if (!p) return;
       setBedEmptyStateInternal(Number(p.id), false, { suppressRefresh: true, source: "patient_details_bulk" });
     });
 
-    refreshAllTabs();
+    refreshAllTabs({ reason: "bulk_activate_all_rooms" });
   }
 
   function emptyAllRooms() {
@@ -501,7 +581,6 @@
 
     const rows = safeArray(window.patients).slice(0, 32);
 
-    // Bulk-empty all beds + clear assignments per bed
     rows.forEach(p => {
       if (!p) return;
       setBedEmptyStateInternal(Number(p.id), true, {
@@ -511,7 +590,7 @@
       });
     });
 
-    refreshAllTabs();
+    refreshAllTabs({ reason: "bulk_empty_all_rooms" });
   }
 
   // =========================
@@ -546,13 +625,13 @@
 
     if (p.isEmpty) {
       alert("This bed is marked EMPTY. Uncheck Empty Bed first to edit patient details.");
-      refreshAllTabs({ skipHighRisk: true, skipLive: true, skipOncoming: true, skipUnitPulse: true, skipSave: true });
+      refreshAllTabs({ skipHighRisk: true, skipLive: true, skipOncoming: true, skipUnitPulse: true, skipSave: true, reason: "blocked_gender_empty_bed" });
       return;
     }
 
     if (value && !canSetGenderFallback(p, value)) {
       alert("Roommate has a different gender. Mixed-gender room not allowed for this bed.");
-      refreshAllTabs({ skipHighRisk: true, skipLive: true, skipOncoming: true, skipUnitPulse: true, skipSave: true });
+      refreshAllTabs({ skipHighRisk: true, skipLive: true, skipOncoming: true, skipUnitPulse: true, skipSave: true, reason: "blocked_gender_roommate" });
       return;
     }
 
@@ -561,7 +640,7 @@
     recomputeIsEmpty(p);
 
     logAcuityChange(p, "gender", before, p.gender || "", "patient_details");
-    refreshAllTabs();
+    refreshAllTabs({ reason: "gender_changed" });
   }
 
   function togglePatientFlag(id, key, checked) {
@@ -570,23 +649,20 @@
 
     if (p.isEmpty) {
       alert("This bed is marked EMPTY. Uncheck Empty Bed first to edit patient tags.");
-      refreshAllTabs({ skipHighRisk: true, skipLive: true, skipOncoming: true, skipUnitPulse: true, skipSave: true });
+      refreshAllTabs({ skipHighRisk: true, skipLive: true, skipOncoming: true, skipUnitPulse: true, skipSave: true, reason: "blocked_tag_empty_bed" });
       return;
     }
 
     const before = !!p[key];
 
-    // TELE is intentionally shared single-source-of-truth.
-    // (If any UI toggles Tele, it just sets p.tele)
     p[key] = checked;
 
-    // ✅ Ghost-tag fix: sync aliases whenever canonical flips
     syncLegacyAliasesFromCanonical(p, key);
 
     recomputeIsEmpty(p);
 
     logAcuityChange(p, String(key), before, !!checked, "patient_details");
-    refreshAllTabs();
+    refreshAllTabs({ reason: "tag_toggled" });
   }
 
   // =========================
@@ -708,12 +784,9 @@
   // Scoring & load helpers
   // =========================
 
-  // Role-specific weights (centralized so we don't scatter magic numbers)
-  const TELE_WEIGHT_RN = 0;  // Tele has minimal RN workflow impact in your unit practice
-  const TELE_WEIGHT_PCA = 3; // Tele adds recurring workload (e.g., q4 vitals) for PCAs
+  const TELE_WEIGHT_RN = 0;
+  const TELE_WEIGHT_PCA = 3;
 
-  // Keep the original patient score available for any other consumers that might rely on it.
-  // Note: This remains a "generic acuity-ish" score.
   function getPatientScore(p) {
     let score = 0;
     if (p.tele) score += 2;
@@ -736,42 +809,33 @@
     return score;
   }
 
-  // RN-specific patient score used for RN load scoring (Tele intentionally de-emphasized)
   function getRnPatientScore(p) {
     let score = 0;
 
-    // TELE: role-specific
     if (p.tele) score += TELE_WEIGHT_RN;
 
-    // RN drivers (tuned shift-killers)
-    if (p.drip) score += 7;        // was 6
-    if (p.nih) score += 5;         // was 4
+    if (p.drip) score += 7;
+    if (p.nih) score += 5;
     if (p.bg) score += 2;
-    if (p.ciwa) score += 5;        // was 4
+    if (p.ciwa) score += 5;
     if (p.restraint) score += 6;
-    if (p.sitter) score += 7;      // was 5
+    if (p.sitter) score += 7;
     if (p.vpo) score += 4;
     if (p.isolation) score += 3;
     if (p.admit) score += 4;
     if (p.lateDc) score += 2;
 
-    // NOTE: RN load intentionally does not include PCA-only drivers (chg/foley/q2/heavy/feeder)
     return score;
   }
 
-  // NEW: small per-patient combo bonus (realism gain; keeps stacking rules intact)
   function computeRnPerPatientComboBonus(p) {
     if (!p || p.isEmpty) return 0;
 
     let b = 0;
-
-    // "shift-killer" combos
     if (p.sitter && p.restraint) b += 3;
     if (p.ciwa && p.sitter) b += 3;
     if (p.drip && p.ciwa) b += 3;
     if (p.drip && p.sitter) b += 4;
-
-    // busy-work combos
     if (p.nih && p.bg) b += 2;
 
     return b;
@@ -830,7 +894,6 @@
       .map(id => getPatientById(id))
       .filter(p => p && !p.isEmpty);
 
-    // RN load score uses RN-specific scoring (Tele weight = 0)
     const base = pts.reduce((sum, p) => sum + getRnPatientScore(p), 0);
     const combo = pts.reduce((sum, p) => sum + computeRnPerPatientComboBonus(p), 0);
     const bonus = computeRnStackingBonus(pts);
@@ -846,10 +909,8 @@
     const base = pts.reduce((sum, p) => {
       let score = 0;
 
-      // TELE: role-specific (meaningful for PCA)
       if (p.tele) score += TELE_WEIGHT_PCA;
 
-      // PCA drivers
       if (p.isolation) score += 3;
       if (p.admit) score += 3;
       if (p.lateDc) score += 2;
@@ -876,13 +937,11 @@
       return "load-high";
     }
 
-    // RN tighter thresholds (so 12–13 stops reading as GREEN)
-    if (s <= 10) return "load-good";     // green
-    if (s <= 14) return "load-medium";   // yellow
-    return "load-high";                  // red
+    if (s <= 10) return "load-good";
+    if (s <= 14) return "load-medium";
+    return "load-high";
   }
 
-  // Debug/compat helper (you were trying getLoadCategory earlier)
   function getLoadCategory(score, role = "nurse") {
     const cls = getLoadClass(score, role);
     if (cls === "load-good") return "green";
@@ -928,8 +987,6 @@
 
   function getPcaDriversSummaryFromPatientIds(patientIds) {
     const ids = safeArray(patientIds);
-
-    // ✅ Tele added to explainability drivers for PCA since it now impacts PCA load
     const counts = { Tele:0, Heavy:0, Q2:0, ISO:0, CHG:0, Foley:0, Feeder:0, Admit:0, "Late DC":0 };
 
     ids.forEach(id => {
@@ -1218,7 +1275,6 @@
     ];
 
     if (bodyEl) {
-      // ✅ Gender row removed
       bodyEl.innerHTML = `
         <div class="pp-grid">
           <div class="pp-col">
@@ -1281,10 +1337,8 @@
       return !!(el && el.checked);
     };
 
-    // Shared/Tele is single-source-of-truth:
     p.tele = getCheck("profTele") || getCheck("profTelePca");
 
-    // RN-only
     p.drip = getCheck("profDrip");
     p.nih = getCheck("profNih");
 
@@ -1301,7 +1355,6 @@
     p.sitter = getCheck("profSitter");
     p.vpo = getCheck("profVpo");
 
-    // Shared
     p.isolation = getCheck("profIso") || getCheck("profIsoPca");
     p.iso = p.isolation;
 
@@ -1311,7 +1364,6 @@
     p.lateDC = p.lateDc;
     p.latedc = p.lateDc;
 
-    // PCA-only
     p.chg = getCheck("profChg");
     p.foley = getCheck("profFoley");
 
@@ -1343,7 +1395,7 @@
 
     logBulkAcuityChanges(p, changes, "patient_profile");
 
-    refreshAllTabs();
+    refreshAllTabs({ reason: "patient_profile_saved" });
     closePatientProfileModal();
   }
 
@@ -1369,7 +1421,6 @@
   window.getPcaLoadScore = getPcaLoadScore;
   window.getLoadClass = getLoadClass;
 
-  // ✅ new helper for debugging + compatibility with your console checks
   window.getLoadCategory = window.getLoadCategory || getLoadCategory;
 
   window.getRnDriversSummaryFromPatientIds = getRnDriversSummaryFromPatientIds;
@@ -1385,7 +1436,6 @@
   window.closePatientProfileModal = closePatientProfileModal;
   window.savePatientProfile = savePatientProfile;
 
-  // ✅ New bulk controls
   window.activateAllRooms = activateAllRooms;
   window.emptyAllRooms = emptyAllRooms;
 })();

@@ -23,9 +23,11 @@
 // - Rebalance buttons use window.rebalanceOwnersSafely (if available)
 // - If applied:false, keep baseline and show "Unable to rebalance safely"
 //
-// PERF (Jan 2026):
-// - Cache Prev RN/PCA owner maps once per render (removes many .find scans)
+// PERF (Jan 2026 -> refined v2):
+// - Cache Prev RN/PCA owner maps ONCE per render cycle (RN+PCA share it)
 // - Cache hard-rule eval maps once per render
+// - Batch RN+PCA render where possible to reduce duplicate DOM work
+// - Replace per-row hover IIFEs with a single lightweight global handler
 // ---------------------------------------------------------
 
 if (window.__assignmentsRenderLoaded) {
@@ -88,7 +90,7 @@ if (window.__assignmentsRenderLoaded) {
   __syncIncomingGlobals();
 
   // -----------------------------
-  // Helpers: build prev-owner maps ONCE per render (PERF)
+  // Helpers: build prev-owner maps ONCE per render cycle (PERF)
   // -----------------------------
   function buildPrevOwnerMaps() {
     const prevRnByPid = new Map();
@@ -118,6 +120,25 @@ if (window.__assignmentsRenderLoaded) {
       if (v) set.add(v);
     });
     return set.size;
+  }
+
+  // Render-cycle cache (RN + PCA share)
+  // This prevents RN render + PCA render from recomputing maps back-to-back.
+  const __renderCycleCache = {
+    token: 0,
+    prevMaps: null
+  };
+
+  function __beginRenderCycle() {
+    __renderCycleCache.token = (Number(__renderCycleCache.token) || 0) + 1;
+    __renderCycleCache.prevMaps = null;
+    return __renderCycleCache.token;
+  }
+
+  function __getPrevMapsForCycle() {
+    if (__renderCycleCache.prevMaps) return __renderCycleCache.prevMaps;
+    __renderCycleCache.prevMaps = buildPrevOwnerMaps();
+    return __renderCycleCache.prevMaps;
   }
 
   // -----------------------------
@@ -434,6 +455,33 @@ if (window.__assignmentsRenderLoaded) {
     }
   };
 
+  // ✅ Lightweight pin hover handler (replaces per-row IIFEs)
+  if (!window.__cuppPinHoverHandler) {
+    window.__cuppPinHoverHandler = function (ev, enter) {
+      try {
+        const tr = ev?.currentTarget || ev?.target;
+        if (!tr) return;
+        const btn = tr.querySelector && tr.querySelector('button[data-pinbtn="1"]');
+        if (!btn) return;
+
+        const pinned = btn.getAttribute("data-pinned") === "1";
+        if (pinned) {
+          btn.style.opacity = "1";
+          btn.style.pointerEvents = "auto";
+          return;
+        }
+
+        if (enter) {
+          btn.style.opacity = "0.55";
+          btn.style.pointerEvents = "auto";
+        } else {
+          btn.style.opacity = "0";
+          btn.style.pointerEvents = "none";
+        }
+      } catch (_) {}
+    };
+  }
+
   // -----------------------------
   // ✅ Empty drop-row helper
   // -----------------------------
@@ -522,7 +570,7 @@ if (window.__assignmentsRenderLoaded) {
   // =========================================================
   // RN Oncoming Render
   // =========================================================
-  function renderAssignmentOutput() {
+  function __renderAssignmentOutputWithCache(prevMaps) {
     __syncIncomingGlobals();
 
     const container = document.getElementById("assignmentOutput");
@@ -533,8 +581,7 @@ if (window.__assignmentsRenderLoaded) {
     let html = "";
     const allOwners = __getIncomingNurses();
 
-    // ✅ PERF: build once
-    const { prevRnByPid } = buildPrevOwnerMaps();
+    const { prevRnByPid } = prevMaps || buildPrevOwnerMaps();
 
     // ✅ PERF: rules map once
     const rnRuleMap = safeGetRuleEvalMap(allOwners, "nurse");
@@ -565,8 +612,8 @@ if (window.__assignmentsRenderLoaded) {
           <div class="assignment-header">
             <div style="display:flex;align-items:flex-start;gap:10px;">
               <div>
-                <strong>${nurse.name}</strong> (${(nurse.type || "").toUpperCase()})
-                ${drivers ? `<div style="font-size:12px;opacity:0.75;margin-top:2px;"><strong>Drivers:</strong> ${drivers}</div>` : ""}
+                <strong>${escapeHtml(nurse.name)}</strong> (${escapeHtml((nurse.type || "").toUpperCase())})
+                ${drivers ? `<div style="font-size:12px;opacity:0.75;margin-top:2px;"><strong>Drivers:</strong> ${escapeHtml(drivers)}</div>` : ""}
                 <div style="font-size:12px;opacity:0.75;margin-top:2px;"><strong>Report sources:</strong> ${reportSources}</div>
               </div>
 
@@ -618,8 +665,10 @@ if (window.__assignmentsRenderLoaded) {
           <button
             type="button"
             aria-label="Pin patient to this RN"
-            title="${pinned ? "Pinned to this RN (click to unpin)" : "Pin to this RN (preserve on regenerate)"}"
+            title="${escapeHtml(pinned ? "Pinned to this RN (click to unpin)" : "Pin to this RN (preserve on regenerate)")}"
             onclick="window.toggleIncomingRnPin(${p.id}, ${nurse.id})"
+            data-pinbtn="1"
+            data-pinned="${pinned ? "1" : "0"}"
             style="
               margin-left:8px;
               border:none;
@@ -631,7 +680,6 @@ if (window.__assignmentsRenderLoaded) {
               opacity:${pinned ? "1" : "0"};
               pointer-events:${pinned ? "auto" : "none"};
             "
-            data-pinbtn="1"
           >📌</button>
         `;
 
@@ -641,14 +689,14 @@ if (window.__assignmentsRenderLoaded) {
             ondragstart="onRowDragStart(event, 'incoming', 'nurse', ${nurse.id}, ${p.id})"
             ondragend="onRowDragEnd(event)"
             ondblclick="openPatientProfileFromRoom(${p.id})"
-            onmouseenter="(function(tr){var b=tr.querySelector('button[data-pinbtn]'); if(b && b.style.opacity==='0'){b.style.opacity='0.55'; b.style.pointerEvents='auto';}})(this)"
-            onmouseleave="(function(tr){var b=tr.querySelector('button[data-pinbtn]'); if(b && !(${pinned})){b.style.opacity='0'; b.style.pointerEvents='none';}})(this)"
+            onmouseenter="window.__cuppPinHoverHandler(event, true)"
+            onmouseleave="window.__cuppPinHoverHandler(event, false)"
             style="${pinned ? "opacity:0.98;" : ""}"
           >
-            <td>${bedLabel} ${pinControl}</td>
+            <td>${escapeHtml(bedLabel)} ${pinControl}</td>
             <td>${p.tele ? "Tele" : "MS"}</td>
-            <td>${rnTagString(p)}</td>
-            <td>${prevName || "-"}</td>
+            <td>${typeof rnTagString === "function" ? rnTagString(p) : ""}</td>
+            <td>${escapeHtml(prevName || "-")}</td>
           </tr>
         `;
       });
@@ -666,7 +714,7 @@ if (window.__assignmentsRenderLoaded) {
   // =========================================================
   // PCA Oncoming Render
   // =========================================================
-  function renderPcaAssignmentOutput() {
+  function __renderPcaAssignmentOutputWithCache(prevMaps) {
     __syncIncomingGlobals();
 
     const container = document.getElementById("pcaAssignmentOutput");
@@ -677,8 +725,7 @@ if (window.__assignmentsRenderLoaded) {
     let html = "";
     const allOwners = __getIncomingPcas();
 
-    // ✅ PERF: build once
-    const { prevPcaByPid } = buildPrevOwnerMaps();
+    const { prevPcaByPid } = prevMaps || buildPrevOwnerMaps();
 
     // ✅ PERF: rules map once
     const pcaRuleMap = safeGetRuleEvalMap(allOwners, "pca");
@@ -709,8 +756,8 @@ if (window.__assignmentsRenderLoaded) {
           <div class="assignment-header">
             <div style="display:flex;align-items:flex-start;gap:10px;">
               <div>
-                <strong>${pca.name}</strong> (PCA)
-                ${drivers ? `<div style="font-size:12px;opacity:0.75;margin-top:2px;"><strong>Drivers:</strong> ${drivers}</div>` : ""}
+                <strong>${escapeHtml(pca.name)}</strong> (PCA)
+                ${drivers ? `<div style="font-size:12px;opacity:0.75;margin-top:2px;"><strong>Drivers:</strong> ${escapeHtml(drivers)}</div>` : ""}
                 <div style="font-size:12px;opacity:0.75;margin-top:2px;"><strong>Report sources:</strong> ${reportSources}</div>
               </div>
 
@@ -762,10 +809,10 @@ if (window.__assignmentsRenderLoaded) {
             ondragend="onRowDragEnd(event)"
             ondblclick="openPatientProfileFromRoom(${p.id})"
           >
-            <td>${bedLabel}</td>
+            <td>${escapeHtml(bedLabel)}</td>
             <td>${p.tele ? "Tele" : "MS"}</td>
-            <td>${pcaTagString(p)}</td>
-            <td>${prevName || "-"}</td>
+            <td>${typeof pcaTagString === "function" ? pcaTagString(p) : ""}</td>
+            <td>${escapeHtml(prevName || "-")}</td>
           </tr>
         `;
       });
@@ -778,6 +825,27 @@ if (window.__assignmentsRenderLoaded) {
     });
 
     container.innerHTML = html;
+  }
+
+  // Batch render (RN + PCA share the same prev maps)
+  function renderOncomingAll() {
+    __beginRenderCycle();
+    const prevMaps = __getPrevMapsForCycle();
+    __renderAssignmentOutputWithCache(prevMaps);
+    __renderPcaAssignmentOutputWithCache(prevMaps);
+  }
+
+  // Public render fns (keep API stable)
+  function renderAssignmentOutput() {
+    __beginRenderCycle();
+    const prevMaps = __getPrevMapsForCycle();
+    __renderAssignmentOutputWithCache(prevMaps);
+  }
+
+  function renderPcaAssignmentOutput() {
+    __beginRenderCycle();
+    const prevMaps = __getPrevMapsForCycle();
+    __renderPcaAssignmentOutputWithCache(prevMaps);
   }
 
   // =========================================================
@@ -833,8 +901,8 @@ if (window.__assignmentsRenderLoaded) {
       window.repairAssignmentsInPlace(pcas, "pca", null, { maxIters: 18 });
     }
 
-    renderAssignmentOutput();
-    renderPcaAssignmentOutput();
+    // ✅ batched render
+    renderOncomingAll();
 
     if (typeof window.saveState === "function") window.saveState();
     if (typeof window.updateDischargeCount === "function") window.updateDischargeCount();
@@ -878,6 +946,7 @@ if (window.__assignmentsRenderLoaded) {
       rnRes.applied ? "RN rebalance applied." : rnRes.reason
     );
 
+    // ✅ only RN render (keep behavior)
     renderAssignmentOutput();
 
     if (typeof window.saveState === "function") window.saveState();
@@ -895,6 +964,7 @@ if (window.__assignmentsRenderLoaded) {
       pcaRes.applied ? "PCA rebalance applied." : pcaRes.reason
     );
 
+    // ✅ only PCA render (keep behavior)
     renderPcaAssignmentOutput();
 
     if (typeof window.saveState === "function") window.saveState();
@@ -931,8 +1001,8 @@ if (window.__assignmentsRenderLoaded) {
       pcaRes.applied ? "PCA rebalance applied." : pcaRes.reason
     );
 
-    renderAssignmentOutput();
-    renderPcaAssignmentOutput();
+    // ✅ batched render
+    renderOncomingAll();
 
     if (typeof window.saveState === "function") window.saveState();
     if (typeof window.updateDischargeCount === "function") window.updateDischargeCount();
@@ -941,8 +1011,14 @@ if (window.__assignmentsRenderLoaded) {
   // Expose globally (CRITICAL for index.html onclick)
   window.renderAssignmentOutput = renderAssignmentOutput;
   window.renderPcaAssignmentOutput = renderPcaAssignmentOutput;
+  window.renderOncomingAll = renderOncomingAll;
+
   window.populateOncomingAssignment = populateOncomingAssignment;
   window.rebalanceOncomingRnOnly = rebalanceOncomingRnOnly;
   window.rebalanceOncomingPcaOnly = rebalanceOncomingPcaOnly;
   window.rebalanceOncomingAssignment = rebalanceOncomingAssignment;
+
+  // Version marker
+  window.__assignmentsRenderBuild =
+    "v2026-01-24__batchedPrevMaps+batchedOncomingRender+pinHoverHandler";
 }

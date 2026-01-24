@@ -41,6 +41,10 @@
 // NOTE: eventLog/auditEvents are local-only for now (NOT included in cloud unit_state snapshot).
 
 window.addEventListener("DOMContentLoaded", async () => {
+  // Defensive: prevent double-run if script is accidentally loaded twice.
+  if (window.__cuppInitRan) return;
+  window.__cuppInitRan = true;
+
   console.log("APP INIT: Starting initialization…");
 
   // -----------------------------
@@ -403,8 +407,35 @@ window.addEventListener("DOMContentLoaded", async () => {
     try { if (typeof window.updateDischargeCount === "function") window.updateDischargeCount(); } catch {}
   }
 
+  // -----------------------------
+  // ✅ NEW: Canonical batched refresh entrypoint (reduces render fan-out)
+  // - Collapses multiple refresh requests in the same tick into ONE refreshAllUI()
+  // - Keeps refreshAllUI() unchanged and still callable
+  // -----------------------------
+  let __refreshQueued = false;
+  let __refreshLastReason = null;
+
+  window.requestGlobalRefresh = window.requestGlobalRefresh || function requestGlobalRefresh(reason = "unspecified") {
+    __refreshLastReason = reason || __refreshLastReason;
+    if (__refreshQueued) return;
+    __refreshQueued = true;
+
+    Promise.resolve().then(() => {
+      __refreshQueued = false;
+      try { refreshAllUI(); } catch {}
+    });
+  };
+
   // ✅ Give other modules a single “refresh everything” entrypoint.
-  window.refreshUI = window.refreshUI || refreshAllUI;
+  // Keep name stable (many files call refreshUI)
+  window.refreshUI = window.refreshUI || function refreshUI() {
+    window.requestGlobalRefresh("refreshUI");
+  };
+
+  // Debug hook (optional)
+  window.__debugRefreshInit = window.__debugRefreshInit || function () {
+    return { queued: __refreshQueued, lastReason: __refreshLastReason };
+  };
 
   // -----------------------------
   // ✅ Sync status pill UI
@@ -727,8 +758,10 @@ window.addEventListener("DOMContentLoaded", async () => {
 
           withPublishMuted(() => {
             applySnapshotToWindow(st.state || st);
-            refreshAllUI();
           });
+
+          // ✅ batched refresh to avoid fan-out if multiple events land close together
+          window.requestGlobalRefresh("cloud_realtime_apply");
 
           setSyncStatus("synced", { lastSyncedAt: new Date() });
 
@@ -884,7 +917,7 @@ window.addEventListener("DOMContentLoaded", async () => {
 
   // Initial renders
   bootStep(97, "Rendering UI…");
-  refreshAllUI();
+  window.requestGlobalRefresh("boot_render");
 
   // Tab fix
   const firstTabBtn = document.querySelector('.tabButton[data-target="staffingTab"]');
