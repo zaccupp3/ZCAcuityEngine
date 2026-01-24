@@ -38,6 +38,10 @@
 //     window.auditEvents (older)
 //   Some modules still read auditEvents; without this, console checks + Unit Pulse may show undefined.
 //
+// ✅ DEV-ONLY (Jan 2026):
+// - Optional refresh/render profiler counters (window.DEBUG_RENDER = true)
+//   Helps detect accidental multi-refresh fan-out and slow render paths.
+//
 // NOTE: eventLog/auditEvents are local-only for now (NOT included in cloud unit_state snapshot).
 
 window.addEventListener("DOMContentLoaded", async () => {
@@ -46,6 +50,30 @@ window.addEventListener("DOMContentLoaded", async () => {
   window.__cuppInitRan = true;
 
   console.log("APP INIT: Starting initialization…");
+
+  // -----------------------------
+  // ✅ DEV-ONLY: Refresh/render profiler
+  // Enable via: window.DEBUG_RENDER = true; location.reload();
+  // -----------------------------
+  const __DBG = !!window.DEBUG_RENDER;
+
+  window.__dbgRefresh = window.__dbgRefresh || {
+    req: 0,
+    run: 0,
+    reasons: {},
+    lastRunMs: 0,
+    lastRunAt: null
+  };
+
+  function __dbgLog(...args) {
+    if (!__DBG) return;
+    try { console.log(...args); } catch (_) {}
+  }
+
+  function __dbgCount(label) {
+    if (!__DBG) return;
+    try { console.count(label); } catch (_) {}
+  }
 
   // -----------------------------
   // ✅ Event Log (LIVE only) bootstrap (helper + session key)
@@ -256,8 +284,6 @@ window.addEventListener("DOMContentLoaded", async () => {
         event_type: evt.type || "UNKNOWN", // text
         payload: evt.payload || {},        // jsonb
         meta: evt.meta || {}               // jsonb
-        // actor_user_id is default auth.uid() on insert (per your schema)
-        // created_at is default now()
       };
 
       const { error } = await window.sb.client
@@ -398,13 +424,23 @@ window.addEventListener("DOMContentLoaded", async () => {
   }
 
   function refreshAllUI() {
-    try { if (typeof window.renderPatientList === "function") window.renderPatientList(); } catch {}
-    try { if (typeof window.updateAcuityTiles === "function") window.updateAcuityTiles(); } catch {}
-    try { if (typeof window.renderLiveAssignments === "function") window.renderLiveAssignments(); } catch {}
-    try { if (typeof window.renderAssignmentOutput === "function") window.renderAssignmentOutput(); } catch {}
-    try { if (typeof window.renderPcaAssignmentOutput === "function") window.renderPcaAssignmentOutput(); } catch {}
-    try { if (typeof window.renderQueueList === "function") window.renderQueueList(); } catch {}
-    try { if (typeof window.updateDischargeCount === "function") window.updateDischargeCount(); } catch {}
+    const t0 = __DBG ? performance.now() : 0;
+    if (__DBG) __dbgCount("refreshAllUI()");
+
+    try { if (__DBG) __dbgCount("renderPatientList()"); if (typeof window.renderPatientList === "function") window.renderPatientList(); } catch {}
+    try { if (__DBG) __dbgCount("updateAcuityTiles()"); if (typeof window.updateAcuityTiles === "function") window.updateAcuityTiles(); } catch {}
+    try { if (__DBG) __dbgCount("renderLiveAssignments()"); if (typeof window.renderLiveAssignments === "function") window.renderLiveAssignments(); } catch {}
+    try { if (__DBG) __dbgCount("renderAssignmentOutput()"); if (typeof window.renderAssignmentOutput === "function") window.renderAssignmentOutput(); } catch {}
+    try { if (__DBG) __dbgCount("renderPcaAssignmentOutput()"); if (typeof window.renderPcaAssignmentOutput === "function") window.renderPcaAssignmentOutput(); } catch {}
+    try { if (__DBG) __dbgCount("renderQueueList()"); if (typeof window.renderQueueList === "function") window.renderQueueList(); } catch {}
+    try { if (__DBG) __dbgCount("updateDischargeCount()"); if (typeof window.updateDischargeCount === "function") window.updateDischargeCount(); } catch {}
+
+    if (__DBG) {
+      const t1 = performance.now();
+      window.__dbgRefresh.lastRunMs = (t1 - t0);
+      window.__dbgRefresh.lastRunAt = new Date().toISOString();
+      __dbgLog(`[REFRESH] refreshAllUI() finished in ${window.__dbgRefresh.lastRunMs.toFixed(1)}ms`);
+    }
   }
 
   // -----------------------------
@@ -417,11 +453,25 @@ window.addEventListener("DOMContentLoaded", async () => {
 
   window.requestGlobalRefresh = window.requestGlobalRefresh || function requestGlobalRefresh(reason = "unspecified") {
     __refreshLastReason = reason || __refreshLastReason;
+
+    if (__DBG) {
+      window.__dbgRefresh.req++;
+      const r = String(reason || "unspecified");
+      window.__dbgRefresh.reasons[r] = (window.__dbgRefresh.reasons[r] || 0) + 1;
+      __dbgLog(`[REFRESH] request #${window.__dbgRefresh.req} reason=${r} queued=${__refreshQueued ? "yes" : "no"}`);
+    }
+
     if (__refreshQueued) return;
     __refreshQueued = true;
 
     Promise.resolve().then(() => {
       __refreshQueued = false;
+
+      if (__DBG) {
+        window.__dbgRefresh.run++;
+        __dbgLog(`[REFRESH] RUN #${window.__dbgRefresh.run} lastReason=${String(__refreshLastReason || "")}`);
+      }
+
       try { refreshAllUI(); } catch {}
     });
   };
@@ -434,7 +484,12 @@ window.addEventListener("DOMContentLoaded", async () => {
 
   // Debug hook (optional)
   window.__debugRefreshInit = window.__debugRefreshInit || function () {
-    return { queued: __refreshQueued, lastReason: __refreshLastReason };
+    return {
+      queued: __refreshQueued,
+      lastReason: __refreshLastReason,
+      dbgEnabled: __DBG,
+      dbg: window.__dbgRefresh
+    };
   };
 
   // -----------------------------

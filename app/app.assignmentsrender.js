@@ -4,7 +4,6 @@
 // Adds "Prev. RN / Prev. PCA" columns by referencing LIVE assignments.
 //
 // Adds:
-// - 💡 Lightbulb icon (plain-language explanation per RN/PCA)
 // - ! icon (yellow warning vs red violation) based on hard-rule checks
 //
 // NEW (Dec 2025):
@@ -28,6 +27,12 @@
 // - Cache hard-rule eval maps once per render
 // - Batch RN+PCA render where possible to reduce duplicate DOM work
 // - Replace per-row hover IIFEs with a single lightweight global handler
+//
+// UI PATCH (Jan 2026 - Oncoming header refresh):
+// - Remove lightbulb icons (no 💡 buttons)
+// - Put Drivers + Report sources on SAME LINE, spread apart (space-between)
+// - Improve rebalance feedback: banner includes before/after deltas
+// - Add in-flight guards to prevent double-click thrash / duplicate apply
 // ---------------------------------------------------------
 
 if (window.__assignmentsRenderLoaded) {
@@ -445,6 +450,7 @@ if (window.__assignmentsRenderLoaded) {
       .replace(/'/g, "&#039;");
   }
 
+  // Keep this API (even though we removed 💡 buttons)
   window.__openOwnerExplain = function (btnEl) {
     try {
       const text = btnEl?.getAttribute("data-explain") || btnEl?.title || "";
@@ -549,7 +555,7 @@ if (window.__assignmentsRenderLoaded) {
     } else if (kind === "warn") {
       border = "rgba(245,158,11,0.45)";
       bg = "rgba(245,158,11,0.10)";
-      title = "Unable to rebalance safely";
+      title = "No safe improvement found";
     } else if (kind === "bad") {
       border = "rgba(239,68,68,0.45)";
       bg = "rgba(239,68,68,0.10)";
@@ -565,6 +571,99 @@ if (window.__assignmentsRenderLoaded) {
   function __clearBanners() {
     __setBanner("assignmentOutput", "oncomingStatusRn", "", "");
     __setBanner("pcaAssignmentOutput", "oncomingStatusPca", "", "");
+  }
+
+  // =========================================================
+  // ✅ UI helpers (Drivers + Report sources on one line)
+  // =========================================================
+  function __buildMetaRowHtml(driversText, reportSources) {
+    const d = driversText ? escapeHtml(driversText) : "—";
+    const rs = (reportSources === undefined || reportSources === null) ? "—" : String(reportSources);
+
+    return `
+      <div style="
+        display:flex;
+        align-items:baseline;
+        justify-content:space-between;
+        gap:12px;
+        width:100%;
+        margin-top:2px;
+        font-size:12px;
+        opacity:0.80;
+      ">
+        <div style="min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
+          <strong>Drivers:</strong> ${d}
+        </div>
+        <div style="white-space:nowrap;">
+          <strong>Report sources:</strong> ${escapeHtml(rs)}
+        </div>
+      </div>
+    `;
+  }
+
+  // =========================================================
+  // ✅ Rebalance visibility helpers (before/after deltas)
+  // =========================================================
+  function __snapshotOwners(owners) {
+    const snap = new Map();
+    (owners || []).forEach(o => {
+      const id = Number(o?.id);
+      const pts = Array.isArray(o?.patients) ? o.patients.slice() : [];
+      if (Number.isFinite(id)) snap.set(id, pts.map(Number));
+    });
+    return snap;
+  }
+
+  function __countMovesFromSnapshots(beforeSnap, ownersAfter) {
+    try {
+      let moves = 0;
+      (ownersAfter || []).forEach(o => {
+        const id = Number(o?.id);
+        const after = Array.isArray(o?.patients) ? o.patients.map(Number) : [];
+        const before = beforeSnap?.get(id) || [];
+        if (before.length !== after.length) {
+          moves += Math.abs(before.length - after.length);
+          return;
+        }
+        // same length: count membership changes
+        const b = new Set(before);
+        const a = new Set(after);
+        let diff = 0;
+        before.forEach(pid => { if (!a.has(pid)) diff++; });
+        after.forEach(pid => { if (!b.has(pid)) diff++; });
+        moves += diff;
+      });
+      // moves above double-counts across two owners; normalize
+      return Math.max(0, Math.round(moves / 2));
+    } catch {
+      return 0;
+    }
+  }
+
+  function __reportStatsForOwners(owners, role, prevMap) {
+    const list = Array.isArray(owners) ? owners : [];
+    const counts = list.map(o => (Array.isArray(o?.patients) ? o.patients.length : 0));
+    const maxCount = counts.length ? Math.max(...counts) : 0;
+    const minCount = counts.length ? Math.min(...counts) : 0;
+
+    const reportCounts = list.map(o => uniqueCountFromMap(o?.patients || [], prevMap));
+    const maxReport = reportCounts.length ? Math.max(...reportCounts) : 0;
+    const sumReport = reportCounts.reduce((a, b) => a + (Number(b) || 0), 0);
+
+    const avoid = getAvoidableViolationCount(list, role);
+
+    return {
+      minCount,
+      maxCount,
+      maxReport,
+      sumReport,
+      avoid
+    };
+  }
+
+  function __formatDeltaLine(label, before, after) {
+    if (before === after) return `${label}: ${before}`;
+    return `${label}: ${before} → ${after}`;
   }
 
   // =========================================================
@@ -600,7 +699,6 @@ if (window.__assignmentsRenderLoaded) {
         : "";
 
       const reportSources = uniqueCountFromMap(nurse.patients || [], prevRnByPid);
-      const explainText = safeGetPerOwnerExplain(nurse, allOwners, "nurse") || "";
 
       const ruleEval = getOwnerRuleEvalFromMap(nurse, rnRuleMap);
       const vCount = ruleEval?.violations?.length || 0;
@@ -611,24 +709,21 @@ if (window.__assignmentsRenderLoaded) {
         <div class="assignment-card ${loadClass}">
           <div class="assignment-header">
             <div style="display:flex;align-items:flex-start;gap:10px;">
-              <div>
-                <strong>${escapeHtml(nurse.name)}</strong> (${escapeHtml((nurse.type || "").toUpperCase())})
-                ${drivers ? `<div style="font-size:12px;opacity:0.75;margin-top:2px;"><strong>Drivers:</strong> ${escapeHtml(drivers)}</div>` : ""}
-                <div style="font-size:12px;opacity:0.75;margin-top:2px;"><strong>Report sources:</strong> ${reportSources}</div>
-              </div>
+              <div style="min-width:0;flex:1;">
+                <div style="display:flex;align-items:baseline;justify-content:space-between;gap:12px;">
+                  <div style="min-width:0;">
+                    <strong>${escapeHtml(nurse.name)}</strong> (${escapeHtml((nurse.type || "").toUpperCase())})
+                  </div>
+                  ${
+                    (vCount || wCount)
+                      ? `<button class="icon-btn ${vCount ? "flag-bad" : "flag-warn"}" type="button"
+                          title="${escapeHtml(ruleTip || "Rule flag(s) present")}"
+                          style="flex:0 0 auto;">!</button>`
+                      : ``
+                  }
+                </div>
 
-              <div class="icon-row">
-                <button class="icon-btn icon-bulb" type="button"
-                  data-explain="${escapeHtml(explainText || "Quick take: trying to keep big acuity tags spread out and keep your report sources as low as possible.")}"
-                  title="Quick explanation"
-                  onclick="window.__openOwnerExplain(this)">💡</button>
-
-                ${
-                  (vCount || wCount)
-                    ? `<button class="icon-btn ${vCount ? "flag-bad" : "flag-warn"}" type="button"
-                        title="${escapeHtml(ruleTip || "Rule flag(s) present")}">!</button>`
-                    : ``
-                }
+                ${__buildMetaRowHtml(drivers, reportSources)}
               </div>
             </div>
 
@@ -744,7 +839,6 @@ if (window.__assignmentsRenderLoaded) {
         : "";
 
       const reportSources = uniqueCountFromMap(pca.patients || [], prevPcaByPid);
-      const explainText = safeGetPerOwnerExplain(pca, allOwners, "pca") || "";
 
       const ruleEval = getOwnerRuleEvalFromMap(pca, pcaRuleMap);
       const vCount = ruleEval?.violations?.length || 0;
@@ -755,24 +849,21 @@ if (window.__assignmentsRenderLoaded) {
         <div class="assignment-card ${loadClass}">
           <div class="assignment-header">
             <div style="display:flex;align-items:flex-start;gap:10px;">
-              <div>
-                <strong>${escapeHtml(pca.name)}</strong> (PCA)
-                ${drivers ? `<div style="font-size:12px;opacity:0.75;margin-top:2px;"><strong>Drivers:</strong> ${escapeHtml(drivers)}</div>` : ""}
-                <div style="font-size:12px;opacity:0.75;margin-top:2px;"><strong>Report sources:</strong> ${reportSources}</div>
-              </div>
+              <div style="min-width:0;flex:1;">
+                <div style="display:flex;align-items:baseline;justify-content:space-between;gap:12px;">
+                  <div style="min-width:0;">
+                    <strong>${escapeHtml(pca.name)}</strong> (PCA)
+                  </div>
+                  ${
+                    (vCount || wCount)
+                      ? `<button class="icon-btn ${vCount ? "flag-bad" : "flag-warn"}" type="button"
+                          title="${escapeHtml(ruleTip || "Rule flag(s) present")}"
+                          style="flex:0 0 auto;">!</button>`
+                      : ``
+                  }
+                </div>
 
-              <div class="icon-row">
-                <button class="icon-btn icon-bulb" type="button"
-                  data-explain="${escapeHtml(explainText || "Quick take: trying to keep CHG/foley/Q2/heavy/feeders spread evenly, and avoid stacking ISO/admit/late DC when we can.")}"
-                  title="Quick explanation"
-                  onclick="window.__openOwnerExplain(this)">💡</button>
-
-                ${
-                  (vCount || wCount)
-                    ? `<button class="icon-btn ${vCount ? "flag-bad" : "flag-warn"}" type="button"
-                        title="${escapeHtml(ruleTip || "Rule flag(s) present")}">!</button>`
-                    : ``
-                }
+                ${__buildMetaRowHtml(drivers, reportSources)}
               </div>
             </div>
 
@@ -852,60 +943,67 @@ if (window.__assignmentsRenderLoaded) {
   // Generator (Oncoming populate + rebalance)
   // =========================================================
   function populateOncomingAssignment(randomize = false) {
-    __syncIncomingGlobals();
-    __clearBanners();
+    if (window.__oncomingPopulateInFlight) return;
+    window.__oncomingPopulateInFlight = true;
 
-    if (typeof ensureDefaultPatients === "function") ensureDefaultPatients();
+    try {
+      __syncIncomingGlobals();
+      __clearBanners();
 
-    const nurses = __getIncomingNurses();
-    const pcas = __getIncomingPcas();
-    const ptsAll = __getPatients();
+      if (typeof ensureDefaultPatients === "function") ensureDefaultPatients();
 
-    if (!nurses.length || !pcas.length) {
-      alert("Please set up ONCOMING RNs and PCAs on the Staffing Details tab first.");
-      return;
+      const nurses = __getIncomingNurses();
+      const pcas = __getIncomingPcas();
+      const ptsAll = __getPatients();
+
+      if (!nurses.length || !pcas.length) {
+        alert("Please set up ONCOMING RNs and PCAs on the Staffing Details tab first.");
+        return;
+      }
+
+      const activePatients = ptsAll.filter(p => p && !p.isEmpty);
+      if (!activePatients.length) {
+        alert("No active patients found.");
+        return;
+      }
+
+      nurses.forEach(n => { n.patients = []; });
+      pcas.forEach(p => { p.patients = []; });
+
+      cleanupRnPinsAgainstRoster();
+
+      let list = activePatients.slice();
+      if (randomize) list.sort(() => Math.random() - 0.5);
+      else list.sort(safeSortPatientsForDisplay);
+
+      const { unlockedPool } = applyRnPinsBeforeDistribute(list);
+
+      if (typeof window.distributePatientsEvenly === "function") {
+        window.distributePatientsEvenly(nurses, unlockedPool, { randomize, role: "nurse", preserveExisting: true });
+        window.distributePatientsEvenly(pcas, list, { randomize, role: "pca", preserveExisting: true });
+      } else {
+        alert("ERROR: distributePatientsEvenly is not loaded. Check script order + app.assignmentRules.js loading.");
+        console.error("distributePatientsEvenly missing — check index.html script order and app.assignmentRules.js.");
+        return;
+      }
+
+      // keep these passes reasonable to avoid UI lag
+      balanceCountsWithoutCreatingNewAvoidableViolations(nurses, "nurse", { maxPasses: 50 });
+      balanceCountsWithoutCreatingNewAvoidableViolations(pcas, "pca", { maxPasses: 50 });
+
+      if (typeof window.repairAssignmentsInPlace === "function") {
+        window.repairAssignmentsInPlace(nurses, "nurse", null, { maxIters: 18 });
+        window.repairAssignmentsInPlace(pcas, "pca", null, { maxIters: 18 });
+      }
+
+      // ✅ batched render
+      renderOncomingAll();
+
+      if (typeof window.saveState === "function") window.saveState();
+      if (typeof window.updateDischargeCount === "function") window.updateDischargeCount();
+    } finally {
+      window.__oncomingPopulateInFlight = false;
     }
-
-    const activePatients = ptsAll.filter(p => p && !p.isEmpty);
-    if (!activePatients.length) {
-      alert("No active patients found.");
-      return;
-    }
-
-    nurses.forEach(n => { n.patients = []; });
-    pcas.forEach(p => { p.patients = []; });
-
-    cleanupRnPinsAgainstRoster();
-
-    let list = activePatients.slice();
-    if (randomize) list.sort(() => Math.random() - 0.5);
-    else list.sort(safeSortPatientsForDisplay);
-
-    const { unlockedPool } = applyRnPinsBeforeDistribute(list);
-
-    if (typeof window.distributePatientsEvenly === "function") {
-      window.distributePatientsEvenly(nurses, unlockedPool, { randomize, role: "nurse", preserveExisting: true });
-      window.distributePatientsEvenly(pcas, list, { randomize, role: "pca", preserveExisting: true });
-    } else {
-      alert("ERROR: distributePatientsEvenly is not loaded. Check script order + app.assignmentRules.js loading.");
-      console.error("distributePatientsEvenly missing — check index.html script order and app.assignmentRules.js.");
-      return;
-    }
-
-    // keep these passes reasonable to avoid UI lag
-    balanceCountsWithoutCreatingNewAvoidableViolations(nurses, "nurse", { maxPasses: 50 });
-    balanceCountsWithoutCreatingNewAvoidableViolations(pcas, "pca", { maxPasses: 50 });
-
-    if (typeof window.repairAssignmentsInPlace === "function") {
-      window.repairAssignmentsInPlace(nurses, "nurse", null, { maxIters: 18 });
-      window.repairAssignmentsInPlace(pcas, "pca", null, { maxIters: 18 });
-    }
-
-    // ✅ batched render
-    renderOncomingAll();
-
-    if (typeof window.saveState === "function") window.saveState();
-    if (typeof window.updateDischargeCount === "function") window.updateDischargeCount();
   }
 
   function __runSafeRebalance(owners, role) {
@@ -923,89 +1021,192 @@ if (window.__assignmentsRenderLoaded) {
   }
 
   function rebalanceOncomingRnOnly() {
-    __syncIncomingGlobals();
-    __clearBanners();
-
-    const nurses = __getIncomingNurses();
-    const ptsAll = __getPatients();
+    if (window.__oncomingRebalanceRnInFlight) return;
+    window.__oncomingRebalanceRnInFlight = true;
 
     try {
-      cleanupRnPinsAgainstRoster();
-      nurses.forEach(rn => {
-        rn.patients = Array.isArray(rn.patients) ? rn.patients : [];
-        rn.patients = rn.patients.filter(pid => !isPatientPinnedToIncomingRn(pid, rn.id));
-      });
-      const active = ptsAll.filter(p => p && !p.isEmpty);
-      applyRnPinsBeforeDistribute(active);
-    } catch (e) {
-      console.warn("[rebalance RN] pin placement pre-pass failed", e);
+      __syncIncomingGlobals();
+      __clearBanners();
+
+      const nurses = __getIncomingNurses();
+      const ptsAll = __getPatients();
+
+      // stats baseline (for visibility)
+      const prevMaps = __getPrevMapsForCycle();
+      const { prevRnByPid } = prevMaps || buildPrevOwnerMaps();
+      const beforeSnap = __snapshotOwners(nurses);
+      const beforeStats = __reportStatsForOwners(nurses, "nurse", prevRnByPid);
+
+      try {
+        cleanupRnPinsAgainstRoster();
+        nurses.forEach(rn => {
+          rn.patients = Array.isArray(rn.patients) ? rn.patients : [];
+          rn.patients = rn.patients.filter(pid => !isPatientPinnedToIncomingRn(pid, rn.id));
+        });
+        const active = ptsAll.filter(p => p && !p.isEmpty);
+        applyRnPinsBeforeDistribute(active);
+      } catch (e) {
+        console.warn("[rebalance RN] pin placement pre-pass failed", e);
+      }
+
+      const rnRes = __runSafeRebalance(nurses, "nurse");
+
+      const afterStats = __reportStatsForOwners(nurses, "nurse", prevRnByPid);
+      const moves = __countMovesFromSnapshots(beforeSnap, nurses);
+
+      const msgOk = [
+        `Applied ${moves} move${moves === 1 ? "" : "s"}.`,
+        __formatDeltaLine("Max report sources", beforeStats.maxReport, afterStats.maxReport),
+        __formatDeltaLine("Report-source total", beforeStats.sumReport, afterStats.sumReport),
+        __formatDeltaLine("Avoidable violations", beforeStats.avoid, afterStats.avoid),
+        __formatDeltaLine("Count spread", `${beforeStats.minCount}-${beforeStats.maxCount}`, `${afterStats.minCount}-${afterStats.maxCount}`)
+      ].join(" ");
+
+      const msgNo = rnRes.reason || "Unable to rebalance safely.";
+
+      __setBanner(
+        "assignmentOutput",
+        "oncomingStatusRn",
+        rnRes.applied ? "ok" : "warn",
+        rnRes.applied ? msgOk : msgNo
+      );
+
+      // ✅ only RN render (keep behavior)
+      renderAssignmentOutput();
+
+      if (typeof window.saveState === "function") window.saveState();
+      if (typeof window.updateDischargeCount === "function") window.updateDischargeCount();
+    } finally {
+      window.__oncomingRebalanceRnInFlight = false;
     }
-
-    const rnRes = __runSafeRebalance(nurses, "nurse");
-    __setBanner("assignmentOutput", "oncomingStatusRn", rnRes.applied ? "ok" : "warn",
-      rnRes.applied ? "RN rebalance applied." : rnRes.reason
-    );
-
-    // ✅ only RN render (keep behavior)
-    renderAssignmentOutput();
-
-    if (typeof window.saveState === "function") window.saveState();
-    if (typeof window.updateDischargeCount === "function") window.updateDischargeCount();
   }
 
   function rebalanceOncomingPcaOnly() {
-    __syncIncomingGlobals();
-    __clearBanners();
+    if (window.__oncomingRebalancePcaInFlight) return;
+    window.__oncomingRebalancePcaInFlight = true;
 
-    const pcas = __getIncomingPcas();
-    const pcaRes = __runSafeRebalance(pcas, "pca");
+    try {
+      __syncIncomingGlobals();
+      __clearBanners();
 
-    __setBanner("pcaAssignmentOutput", "oncomingStatusPca", pcaRes.applied ? "ok" : "warn",
-      pcaRes.applied ? "PCA rebalance applied." : pcaRes.reason
-    );
+      const pcas = __getIncomingPcas();
 
-    // ✅ only PCA render (keep behavior)
-    renderPcaAssignmentOutput();
+      // stats baseline (for visibility)
+      const prevMaps = __getPrevMapsForCycle();
+      const { prevPcaByPid } = prevMaps || buildPrevOwnerMaps();
+      const beforeSnap = __snapshotOwners(pcas);
+      const beforeStats = __reportStatsForOwners(pcas, "pca", prevPcaByPid);
 
-    if (typeof window.saveState === "function") window.saveState();
-    if (typeof window.updateDischargeCount === "function") window.updateDischargeCount();
+      const pcaRes = __runSafeRebalance(pcas, "pca");
+
+      const afterStats = __reportStatsForOwners(pcas, "pca", prevPcaByPid);
+      const moves = __countMovesFromSnapshots(beforeSnap, pcas);
+
+      const msgOk = [
+        `Applied ${moves} move${moves === 1 ? "" : "s"}.`,
+        __formatDeltaLine("Max report sources", beforeStats.maxReport, afterStats.maxReport),
+        __formatDeltaLine("Report-source total", beforeStats.sumReport, afterStats.sumReport),
+        __formatDeltaLine("Avoidable violations", beforeStats.avoid, afterStats.avoid),
+        __formatDeltaLine("Count spread", `${beforeStats.minCount}-${beforeStats.maxCount}`, `${afterStats.minCount}-${afterStats.maxCount}`)
+      ].join(" ");
+
+      __setBanner(
+        "pcaAssignmentOutput",
+        "oncomingStatusPca",
+        pcaRes.applied ? "ok" : "warn",
+        pcaRes.applied ? msgOk : (pcaRes.reason || "Unable to rebalance safely.")
+      );
+
+      // ✅ only PCA render (keep behavior)
+      renderPcaAssignmentOutput();
+
+      if (typeof window.saveState === "function") window.saveState();
+      if (typeof window.updateDischargeCount === "function") window.updateDischargeCount();
+    } finally {
+      window.__oncomingRebalancePcaInFlight = false;
+    }
   }
 
   function rebalanceOncomingAssignment() {
-    __syncIncomingGlobals();
-    __clearBanners();
-
-    const nurses = __getIncomingNurses();
-    const pcas = __getIncomingPcas();
-    const ptsAll = __getPatients();
+    if (window.__oncomingRebalanceBothInFlight) return;
+    window.__oncomingRebalanceBothInFlight = true;
 
     try {
-      cleanupRnPinsAgainstRoster();
-      nurses.forEach(rn => {
-        rn.patients = Array.isArray(rn.patients) ? rn.patients : [];
-        rn.patients = rn.patients.filter(pid => !isPatientPinnedToIncomingRn(pid, rn.id));
-      });
-      const active = ptsAll.filter(p => p && !p.isEmpty);
-      applyRnPinsBeforeDistribute(active);
-    } catch (e) {
-      console.warn("[rebalance BOTH] pin placement pre-pass failed", e);
+      __syncIncomingGlobals();
+      __clearBanners();
+
+      const nurses = __getIncomingNurses();
+      const pcas = __getIncomingPcas();
+      const ptsAll = __getPatients();
+
+      // stats baseline (for visibility)
+      const prevMaps = __getPrevMapsForCycle();
+      const { prevRnByPid, prevPcaByPid } = prevMaps || buildPrevOwnerMaps();
+
+      const beforeSnapRn = __snapshotOwners(nurses);
+      const beforeSnapPca = __snapshotOwners(pcas);
+      const beforeStatsRn = __reportStatsForOwners(nurses, "nurse", prevRnByPid);
+      const beforeStatsPca = __reportStatsForOwners(pcas, "pca", prevPcaByPid);
+
+      try {
+        cleanupRnPinsAgainstRoster();
+        nurses.forEach(rn => {
+          rn.patients = Array.isArray(rn.patients) ? rn.patients : [];
+          rn.patients = rn.patients.filter(pid => !isPatientPinnedToIncomingRn(pid, rn.id));
+        });
+        const active = ptsAll.filter(p => p && !p.isEmpty);
+        applyRnPinsBeforeDistribute(active);
+      } catch (e) {
+        console.warn("[rebalance BOTH] pin placement pre-pass failed", e);
+      }
+
+      const rnRes = __runSafeRebalance(nurses, "nurse");
+      const pcaRes = __runSafeRebalance(pcas, "pca");
+
+      const afterStatsRn = __reportStatsForOwners(nurses, "nurse", prevRnByPid);
+      const afterStatsPca = __reportStatsForOwners(pcas, "pca", prevPcaByPid);
+
+      const movesRn = __countMovesFromSnapshots(beforeSnapRn, nurses);
+      const movesPca = __countMovesFromSnapshots(beforeSnapPca, pcas);
+
+      const msgOkRn = [
+        `Applied ${movesRn} move${movesRn === 1 ? "" : "s"}.`,
+        __formatDeltaLine("Max report sources", beforeStatsRn.maxReport, afterStatsRn.maxReport),
+        __formatDeltaLine("Report-source total", beforeStatsRn.sumReport, afterStatsRn.sumReport),
+        __formatDeltaLine("Avoidable violations", beforeStatsRn.avoid, afterStatsRn.avoid),
+        __formatDeltaLine("Count spread", `${beforeStatsRn.minCount}-${beforeStatsRn.maxCount}`, `${afterStatsRn.minCount}-${afterStatsRn.maxCount}`)
+      ].join(" ");
+
+      const msgOkPca = [
+        `Applied ${movesPca} move${movesPca === 1 ? "" : "s"}.`,
+        __formatDeltaLine("Max report sources", beforeStatsPca.maxReport, afterStatsPca.maxReport),
+        __formatDeltaLine("Report-source total", beforeStatsPca.sumReport, afterStatsPca.sumReport),
+        __formatDeltaLine("Avoidable violations", beforeStatsPca.avoid, afterStatsPca.avoid),
+        __formatDeltaLine("Count spread", `${beforeStatsPca.minCount}-${beforeStatsPca.maxCount}`, `${afterStatsPca.minCount}-${afterStatsPca.maxCount}`)
+      ].join(" ");
+
+      __setBanner(
+        "assignmentOutput",
+        "oncomingStatusRn",
+        rnRes.applied ? "ok" : "warn",
+        rnRes.applied ? msgOkRn : (rnRes.reason || "Unable to rebalance safely.")
+      );
+
+      __setBanner(
+        "pcaAssignmentOutput",
+        "oncomingStatusPca",
+        pcaRes.applied ? "ok" : "warn",
+        pcaRes.applied ? msgOkPca : (pcaRes.reason || "Unable to rebalance safely.")
+      );
+
+      // ✅ batched render
+      renderOncomingAll();
+
+      if (typeof window.saveState === "function") window.saveState();
+      if (typeof window.updateDischargeCount === "function") window.updateDischargeCount();
+    } finally {
+      window.__oncomingRebalanceBothInFlight = false;
     }
-
-    const rnRes = __runSafeRebalance(nurses, "nurse");
-    const pcaRes = __runSafeRebalance(pcas, "pca");
-
-    __setBanner("assignmentOutput", "oncomingStatusRn", rnRes.applied ? "ok" : "warn",
-      rnRes.applied ? "RN rebalance applied." : rnRes.reason
-    );
-    __setBanner("pcaAssignmentOutput", "oncomingStatusPca", pcaRes.applied ? "ok" : "warn",
-      pcaRes.applied ? "PCA rebalance applied." : pcaRes.reason
-    );
-
-    // ✅ batched render
-    renderOncomingAll();
-
-    if (typeof window.saveState === "function") window.saveState();
-    if (typeof window.updateDischargeCount === "function") window.updateDischargeCount();
   }
 
   // Expose globally (CRITICAL for index.html onclick)
@@ -1020,5 +1221,5 @@ if (window.__assignmentsRenderLoaded) {
 
   // Version marker
   window.__assignmentsRenderBuild =
-    "v2026-01-24__batchedPrevMaps+batchedOncomingRender+pinHoverHandler";
+    "v2026-01-24__uiMetaRowNoBulb+rebalanceDeltas+inFlightGuards";
 }
