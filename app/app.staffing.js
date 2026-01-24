@@ -5,7 +5,7 @@
 // IMPORTANT:
 // - app.state.js owns the core arrays and exposes live getters/setters on window.
 // - Do NOT reinitialize window.currentNurses/currentPcas/etc in this file.
-// - Just read/write currentNurses/currentPcas/incomingNurses/incomingPcas/pcaShift directly.
+// - Just read/write currentNurses/currentPcas/incomingNurses/incomingPcas directly.
 // - CRITICAL FIX: whenever we mutate/replace arrays, we ALSO mirror them back onto window.*
 //   so saveState() persists the true source of truth.
 //
@@ -20,10 +20,15 @@
 // - Decrement is allowed ONLY when the last staff being removed has 0 patients assigned
 // - Hold bucket protection (LIVE "Needs to be assigned"): never renders in Staffing Details,
 //   and never becomes the template for rebuilding staff arrays.
+//
+// ✅ CHANGE (Jan 2026 - Staffing UI v2):
+// - PCA Shift dropdown removed from Staffing Totals (handled in HTML layout v2).
+// - This file no longer depends on #pcaShift.
+// - updatePcaShift is kept as a safe no-op for backward compatibility (do-no-harm).
 
 (function () {
   // 🔎 BUILD STAMP (debug)
-  window.__staffingBuild = "staffing-plusminus-debug-v6";
+  window.__staffingBuild = "staffing-plusminus-debug-v7-no-pcashift";
   console.log("[staffing] build loaded:", window.__staffingBuild);
 
   // ✅ Max caps (used by +/- adjust logic)
@@ -32,6 +37,10 @@
   // - PCAs max 7
   const MAX_RN = 10;
   const MAX_PCA = 7;
+
+  // ✅ PCA max-patient cap (shift dropdown removed; keep stable default)
+  // If you later want this dynamic again, do it via state/config, not a Staffing UI select.
+  const PCA_MAX_PATIENTS_DEFAULT = 8;
 
   // ---------------------------------------------------------
   // ✅ Warning modal API (for “cannot lower totals”)
@@ -68,7 +77,14 @@
     window.incomingNurses = incomingNurses;
     window.currentPcas = currentPcas;
     window.incomingPcas = incomingPcas;
-    window.pcaShift = pcaShift;
+
+    // Back-compat: some legacy code may read window.pcaShift.
+    // The Staffing UI no longer owns/changes it, but we keep whatever exists.
+    try {
+      if (typeof window.pcaShift === "undefined" && typeof pcaShift !== "undefined") {
+        window.pcaShift = pcaShift;
+      }
+    } catch (_) {}
   }
 
   function safeArray(v) {
@@ -408,16 +424,22 @@
   // PCA SETUP – CURRENT / INCOMING
   // -------------------------
 
-  window.updatePcaShift = function (value) {
-    pcaShift = value === "night" ? "night" : "day";
-    const max = pcaShift === "day" ? 8 : 9;
-
-    filterOutHoldBuckets(currentPcas).forEach(p => (p.maxPatients = max));
-    filterOutHoldBuckets(incomingPcas).forEach(p => (p.maxPatients = max));
-
-    syncWindowRefs();
-    refreshAllViews();
-    if (typeof window.saveState === "function") window.saveState();
+  // Back-compat: old UI used this. New v2 layout removes the dropdown.
+  // Keep as safe no-op so nothing breaks if something still calls it.
+  window.updatePcaShift = function (_value) {
+    try {
+      // No longer owned here. If someone still wants a different cap,
+      // do it via config/state (future) — not a UI shift toggle.
+      filterOutHoldBuckets(currentPcas).forEach(p => {
+        if (!Number.isFinite(Number(p.maxPatients))) p.maxPatients = PCA_MAX_PATIENTS_DEFAULT;
+      });
+      filterOutHoldBuckets(incomingPcas).forEach(p => {
+        if (!Number.isFinite(Number(p.maxPatients))) p.maxPatients = PCA_MAX_PATIENTS_DEFAULT;
+      });
+      syncWindowRefs();
+      refreshAllViews();
+      if (typeof window.saveState === "function") window.saveState();
+    } catch (_) {}
   };
 
   window.setupCurrentPcas = function (countOverride) {
@@ -434,17 +456,18 @@
     const old = filterOutHoldBuckets(oldRaw);
     const hold = getHoldBucket(oldRaw);
 
-    const max = pcaShift === "day" ? 8 : 9;
     const next = [];
-
     for (let i = 0; i < count; i++) {
       const prev = old[i];
+      const prevMax = Number(prev?.maxPatients);
+      const maxPatients = Number.isFinite(prevMax) ? prevMax : PCA_MAX_PATIENTS_DEFAULT;
+
       next.push({
         id: i + 1,
         staff_id: prev?.staff_id || null,
         name: prev?.name || `Current PCA ${i + 1}`,
         restrictions: { noIso: !!(prev && prev.restrictions && prev.restrictions.noIso) },
-        maxPatients: max,
+        maxPatients,
         patients: Array.isArray(prev?.patients) ? prev.patients.slice() : []
       });
     }
@@ -469,17 +492,19 @@
     if (sel) sel.value = count;
 
     const old = filterOutHoldBuckets(incomingPcas);
-    const max = pcaShift === "day" ? 8 : 9;
     const next = [];
 
     for (let i = 0; i < count; i++) {
       const prev = old[i];
+      const prevMax = Number(prev?.maxPatients);
+      const maxPatients = Number.isFinite(prevMax) ? prevMax : PCA_MAX_PATIENTS_DEFAULT;
+
       next.push({
         id: i + 1,
         staff_id: prev?.staff_id || null,
         name: prev?.name || `Incoming PCA ${i + 1}`,
         restrictions: { noIso: !!(prev && prev.restrictions && prev.restrictions.noIso) },
-        maxPatients: max,
+        maxPatients,
         patients: Array.isArray(prev?.patients) ? prev.patients.slice() : []
       });
     }

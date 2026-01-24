@@ -23,6 +23,10 @@
 //    - BG-related acuity changes affect RN only (not PCA)
 //    - Defaults acuity-change attribution to RN-only unless payload explicitly says PCA
 //
+// UI CLEANUP (Jan 2026):
+// ✅ Do NOT render placeholder “Needs to be assigned (HOLD)” or “Needs to be assigned (PCA)” as tiles
+// ✅ Remove the Unit Pulse “?” help / quick explanation button + alert
+//
 // PERF / REFRESH CONTRACT (Jan 2026 - light touch):
 // ✅ Remove function-wrapping hooks (saveState/renderLive/appendEvent wrapping) to avoid global fan-out
 // ✅ Use event-bus + visibility + optional polling only
@@ -132,12 +136,6 @@
         background:rgba(2,132,199,0.9); color:white;
       }
       .up-btn:hover{ filter:brightness(1.05); }
-      .up-help{
-        border:1px solid rgba(148,163,184,0.35);
-        background:rgba(255,255,255,0.85);
-        border-radius:12px; width:34px; height:34px;
-        font-weight:950; cursor:pointer;
-      }
       .up-meta{ font-size:12px; color:#475569; font-weight:800; white-space:nowrap; }
 
       .up-summary{ display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:12px; margin-top:12px; }
@@ -358,22 +356,58 @@
   // -----------------------------
   // Staff list (driven by current assignments)
   // -----------------------------
-  function getRoster() {
-    const nurses = safeArray(window.currentNurses).map(n => ({
-      id: Number(n.id),
-      name: n.name || `RN ${n.id}`,
-      role: "nurse",
-      type: (n.type || "").toUpperCase(),
-      patientIds: safeArray(n.patients).map(Number),
-    }));
+  function isPlaceholderStaffName(name) {
+    const n = String(name || "").trim();
+    if (!n) return false;
 
-    const pcas = safeArray(window.currentPcas).map(p => ({
-      id: Number(p.id),
-      name: p.name || `PCA ${p.id}`,
-      role: "pca",
-      type: "PCA",
-      patientIds: safeArray(p.patients).map(Number),
-    }));
+    const low = n.toLowerCase();
+
+    // ✅ Explicit: these are NOT real staff — they are placeholder buckets
+    if (/\bneeds to be assigned\b/.test(low)) return true;
+    if (/\(hold\)/.test(low)) return true;
+
+    // Common variants seen in the app:
+    if (low === "hold" || low === "unassigned" || low === "unassigned pca") return true;
+
+    return false;
+  }
+
+  function isPlaceholderStaffObj(obj) {
+    const id = Number(obj?.id);
+    const name = String(obj?.name || "").trim();
+    const type = String(obj?.type || "").trim().toLowerCase();
+
+    // If the bucket uses a sentinel id, treat as placeholder
+    if (Number.isFinite(id) && id <= 0) return true;
+
+    // Some implementations mark HOLD via type
+    if (type === "hold" || type === "unassigned") return true;
+
+    if (isPlaceholderStaffName(name)) return true;
+
+    return false;
+  }
+
+  function getRoster() {
+    const nurses = safeArray(window.currentNurses)
+      .filter(n => !isPlaceholderStaffObj(n))
+      .map(n => ({
+        id: Number(n.id),
+        name: n.name || `RN ${n.id}`,
+        role: "nurse",
+        type: (n.type || "").toUpperCase(),
+        patientIds: safeArray(n.patients).map(Number),
+      }));
+
+    const pcas = safeArray(window.currentPcas)
+      .filter(p => !isPlaceholderStaffObj(p))
+      .map(p => ({
+        id: Number(p.id),
+        name: p.name || `PCA ${p.id}`,
+        role: "pca",
+        type: "PCA",
+        patientIds: safeArray(p.patients).map(Number),
+      }));
 
     return { nurses, pcas };
   }
@@ -880,7 +914,7 @@
   // -----------------------------
   // Summary series (average tier line)
   // -----------------------------
-  function avgSeriesFromTiles(tiles, role, sinceMs, untilMs, samples) {
+  function avgSeriesFromTiles(tiles) {
     if (!tiles || !tiles.length) return [];
 
     const N = (tiles[0]?.series || []).length;
@@ -898,7 +932,7 @@
       });
       const y = c ? (sum / c) : 0;
       const frac = N === 1 ? 1 : (i / (N - 1));
-      out.push({ x: frac, y, t: sinceMs + frac * (untilMs - sinceMs) });
+      out.push({ x: frac, y });
     }
     return out;
   }
@@ -942,7 +976,6 @@
 
             <div class="up-right">
               <button id="upRefresh" class="up-btn" type="button">Refresh</button>
-              <button id="upHelp" class="up-help" type="button" title="What is this?">?</button>
               <div class="up-meta">events: ${escapeHtml(String(events.length))} • source: ${escapeHtml(String(eventSource))}</div>
             </div>
           </div>
@@ -1092,23 +1125,7 @@
     `;
 
     const btn = $("upRefresh");
-    const help = $("upHelp");
-
     if (btn) btn.onclick = () => window.unitPulse.refresh();
-
-    if (help) {
-      help.onclick = () => {
-        alert(
-          "Unit Pulse shows workload tier trends over time (Green → Yellow → Red) and a Shift Summary.\n\n" +
-          "Trend lines are event-driven right now (fast + live): admits/discharges/acuity/reassign events push the line up/down.\n\n" +
-          "Attribution rules:\n" +
-          "• Admits/Discharges → RN + PCA assigned to that patient.\n" +
-          "• Acuity changes → RN-only by default.\n" +
-          "• BG acuity changes → RN-only (never PCA).\n\n" +
-          "Later (with shift snapshots), this can become a true historical score replay."
-        );
-      };
-    }
 
     // Bind dropdown toggles
     try {
@@ -1252,11 +1269,11 @@
       const tilesRn = nurses.map(s => buildTile(s, attribution, seriesMapRn));
       const tilesPca = pcas.map(s => buildTile(s, attribution, seriesMapPca));
 
-      const seriesRnAvg = avgSeriesFromTiles(tilesRn, "nurse", sinceMs, untilMs, samples);
-      const seriesPcaAvg = avgSeriesFromTiles(tilesPca, "pca", sinceMs, untilMs, samples);
+      const seriesRnAvg = avgSeriesFromTiles(tilesRn);
+      const seriesPcaAvg = avgSeriesFromTiles(tilesPca);
 
       const overallTiles = tilesRn.concat(tilesPca);
-      const seriesOverallAvg = avgSeriesFromTiles(overallTiles, "nurse", sinceMs, untilMs, samples);
+      const seriesOverallAvg = avgSeriesFromTiles(overallTiles);
 
       if (!isPulseMounted()) return; // tab navigated away mid-refresh
 
@@ -1368,5 +1385,5 @@
   }, 60);
 
   window.__unitPulseBuild =
-    "tieredTrendLines+dropdownShiftSummary+eventBus-v4-perf-coalesce-no-wraps";
+    "remove-placeholder-tiles+no-help-button+tieredTrendLines+dropdownShiftSummary+eventBus-v5";
 })();

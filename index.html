@@ -86,9 +86,6 @@
       opacity: 0.85;
       white-space: nowrap;
     }
-
-    /* Optional: hide legacy selects if you ever want later via CSS.
-       For now we keep them visible because you explicitly want “users can select totals”. */
   </style>
 </head>
 <body>
@@ -187,7 +184,6 @@
 
     <!-- Middle: Tabs -->
     <nav class="header-nav top-tabs" aria-label="Primary">
-      <!-- ✅ Environment tab REMOVED (unit selector in header-right is the environment) -->
       <button class="tabButton header-tab" data-target="staffingTab">Staffing Details</button>
       <button class="tabButton header-tab" data-target="patientDetailsTab">Patient Details</button>
       <button class="tabButton header-tab" data-target="liveAssignmentTab">LIVE Assignment</button>
@@ -199,7 +195,6 @@
 
     <!-- Right: Unit Switch + Compact Auth Menu -->
     <div class="header-right">
-      <!-- ✅ Minimal unit switcher hook (wired in JS) -->
       <div class="unit-switcher" style="display:flex; align-items:center; gap:8px; margin-right:10px;">
         <span style="font-size:12px; opacity:0.75;">Unit</span>
         <select id="unitSwitcher" style="max-width:220px;">
@@ -241,7 +236,7 @@
             </div>
           </div>
 
-          <!-- ✅ Password Recovery / Set New Password (shows when recovery link is opened) -->
+          <!-- ✅ Password Recovery / Set New Password -->
           <div id="authRecovery" class="auth-block" style="display:none; margin-top:10px;">
             <div style="font-weight:800; font-size:13px; color:#0f172a;">Set New Password</div>
 
@@ -278,13 +273,12 @@
     width:100%;
     display:flex;
     justify-content:flex-end;
-    padding: 10px 18px 0 18px;
+    padding: 18px 18px 0 18px;
     box-sizing:border-box;
     pointer-events:none;
   ">
     <div id="globalDischargeBinHost" style="
       width: 280px;
-      min-height: 280px;
       pointer-events:auto;
     "></div>
   </div>
@@ -299,13 +293,10 @@
       <!-- ✅ Staffing Details v2 -->
       <div class="staffing-two-column" data-staffing-layout="v2">
 
-        <!-- =========================
-             CURRENT SHIFT COLUMN
-        ========================== -->
+        <!-- CURRENT SHIFT COLUMN -->
         <div class="staffing-col">
           <h2>Current Shift</h2>
 
-          <!-- Leadership row (horizontal) -->
           <div class="totals-block">
             <div class="totals-title">Leadership Team</div>
             <div class="leadership-row">
@@ -324,7 +315,6 @@
             </div>
           </div>
 
-          <!-- Staffing totals -->
           <div class="totals-block">
             <div class="totals-title">Staffing Totals</div>
 
@@ -339,15 +329,6 @@
             </div>
 
             <div class="totals-row">
-              <div class="totals-label">PCA Shift</div>
-              <select id="pcaShift" onchange="updatePcaShift(this.value)">
-                <option value="day">Day</option>
-                <option value="night">Night</option>
-              </select>
-              <div></div>
-            </div>
-
-            <div class="totals-row">
               <div class="totals-label">Total PCAs</div>
               <select id="currentPcaCount">
                 <option>1</option><option>2</option><option>3</option>
@@ -357,7 +338,6 @@
             </div>
           </div>
 
-          <!-- Existing lists (unchanged) -->
           <div class="staff-card">
             <div class="staff-card-header">Current RNs</div>
             <div class="staff-subtitle">Current RN List</div>
@@ -371,13 +351,10 @@
           </div>
         </div>
 
-        <!-- =========================
-             ONCOMING SHIFT COLUMN
-        ========================== -->
+        <!-- ONCOMING SHIFT COLUMN -->
         <div class="staffing-col">
           <h2>Oncoming Shift</h2>
 
-          <!-- Leadership row (horizontal) -->
           <div class="totals-block">
             <div class="totals-title">Leadership Team</div>
             <div class="leadership-row">
@@ -396,7 +373,6 @@
             </div>
           </div>
 
-          <!-- Staffing totals -->
           <div class="totals-block">
             <div class="totals-title">Staffing Totals</div>
 
@@ -420,7 +396,6 @@
             </div>
           </div>
 
-          <!-- Existing lists (unchanged) -->
           <div class="staff-card">
             <div class="staff-card-header">Oncoming RNs</div>
             <div class="staff-subtitle">Oncoming RN List</div>
@@ -481,20 +456,12 @@
         </button>
       </div>
 
-      <div class="live-layout live-layout--rn-with-queue">
-        <div class="live-column live-column--rn">
+      <!-- ✅ Option A: remove the legacy Admit Queue column.
+           LIVE injects the horizontal Admit Queue inline above RN tiles. -->
+      <div class="live-layout live-layout--rn-only">
+        <div class="live-column">
           <h2>Current RN Assignments</h2>
           <div id="liveNurseAssignments" class="assignment-grid live-grid live-grid-nurse"></div>
-        </div>
-
-        <div class="live-column live-column--queue">
-          <h2>Admit Queue</h2>
-
-          <div class="actions-row">
-            <button onclick="promptAddAdmit()">+ Add Admit</button>
-          </div>
-
-          <div id="queueList" class="queue-list queue-list--compact"></div>
         </div>
       </div>
 
@@ -793,7 +760,6 @@
     </div>
   </div>
 
-  <!-- ✅ Staffing warning modal (used by app.staffing.js) -->
   <div id="staffingWarnModal" class="modal" style="display:none;">
     <div class="modal-content" style="max-width:560px;">
       <div class="modal-header">
@@ -824,25 +790,23 @@
   <script src="app/app.init.js?v=1"></script>
 
   <script src="app/app.queue.js?v=1"></script>
-  <script src="app/app.staffing.js?v=6"></script>
+  <script src="app/app.staffing.js?v=8"></script>
   <script src="app/app.patientsAcuity.js?v=2"></script>
 
-  <script src="app/app.explanations.js?v=1"></script>
   <script src="app/app.assignmentRules.js?v=4"></script>
 
   <script src="app/app.admitQueue.js?v=2"></script>
-  <script src="app/app.liveAssignments.js?v=11.4"></script>
+  <script src="app/app.liveAssignments.js?v=11.5"></script>
   <script src="app/app.assignmentsrender.js?v=4"></script>
   <script src="app/app.assignmentsDrag.js?v=1"></script>
 
   <script src="app/app.modals.js?v=1"></script>
   <script src="app/app.patientProfileUI.js?v=909"></script>
-  <script src="app/app.staffTypeahead.js?v=1"></script>
 
   <script src="app/app.shiftChange.js?v=1"></script>
 
   <script src="app/app.unitMetrics.js?v=1"></script>
-  <script src="app/app.unitPulse.js?v=4"></script>
+  <script src="app/app.unitPulse.js?v=5"></script>
 
   <script src="app/app.printOncoming.js?v=8"></script>
   <script src="app/app.printLive.js?v=8"></script>
@@ -868,3 +832,5 @@
   <script src="app/app.importScan.js?v=100"></script>
 
   <script src="script.js?v=1"></script>
+</body>
+</html>

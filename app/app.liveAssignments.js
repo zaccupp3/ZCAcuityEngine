@@ -18,6 +18,16 @@
 //   - Patients in HOLD can be dragged to staff (since HOLD lives in arrays with id=0)
 // - Add RN / Add PCA buttons live near RN and PCA rows in LIVE
 // - Hide legacy Admit Queue section between RN and PCA (keep only inline horizontal queue)
+//
+// ✅ PATCH (Jan 2026 - Staffing sync contract):
+// - When LIVE adds/removes RN/PCA, also sync Staffing Details lists + totals
+//   so Staffing Details reflects the new staff immediately.
+//
+// ✅ PATCH (Jan 2026 - Option A UI):
+// - Move "+ Add RN" and "+ Add PCA" INTO the section header bars,
+//   directly adjacent to "Current RN Assignments" / "Current PCA Assignments".
+// - Do-no-harm: also hide any legacy/floating Add buttons inside LIVE that
+//   are not inside our header hosts.
 // ---------------------------------------------------------
 
 (function () {
@@ -246,6 +256,84 @@
   }
 
   // -----------------------------
+  // ✅ Staffing Details sync (from LIVE adds/removes)
+  // -----------------------------
+  function countNonHoldOwners(arr) {
+    return safeArray(arr).filter((o) => o && !isHoldOwner(o)).length;
+  }
+
+  function setSelectValueIfPresent(selectId, value) {
+    const sel = document.getElementById(selectId);
+    if (!sel) return false;
+    try {
+      const v = String(value);
+      sel.value = v;
+      // If option doesn't exist, do nothing (avoid throwing / changing options)
+      return sel.value === v;
+    } catch {
+      return false;
+    }
+  }
+
+  function syncStaffingDetailsFromLive(role) {
+    // role: "nurse" | "pca"
+    try {
+      // Prefer: call staffing setup functions (they own the contract)
+      if (role === "nurse") {
+        const rnCount = countNonHoldOwners(window.currentNurses);
+
+        // Update dropdown if present
+        setSelectValueIfPresent("currentNurseCount", rnCount);
+
+        // If setupCurrentNurses exists, use it (best)
+        if (typeof window.setupCurrentNurses === "function") {
+          try {
+            // many implementations read from the select, but passing is harmless if supported
+            window.setupCurrentNurses(rnCount);
+          } catch {
+            // fallback: call without args
+            try {
+              window.setupCurrentNurses();
+            } catch {}
+          }
+          return;
+        }
+
+        // Otherwise: re-render list if available
+        if (typeof window.renderCurrentNurseList === "function") {
+          window.renderCurrentNurseList();
+          return;
+        }
+      }
+
+      if (role === "pca") {
+        const pcaCount = countNonHoldOwners(window.currentPcas);
+
+        // Update dropdown if present
+        setSelectValueIfPresent("currentPcaCount", pcaCount);
+
+        if (typeof window.setupCurrentPcas === "function") {
+          try {
+            window.setupCurrentPcas(pcaCount);
+          } catch {
+            try {
+              window.setupCurrentPcas();
+            } catch {}
+          }
+          return;
+        }
+
+        if (typeof window.renderCurrentPcaList === "function") {
+          window.renderCurrentPcaList();
+          return;
+        }
+      }
+    } catch (e) {
+      console.warn("[LIVE->Staffing sync] failed", e);
+    }
+  }
+
+  // -----------------------------
   // Print button helpers
   // -----------------------------
   function openPrintLiveSafe() {
@@ -467,7 +555,10 @@
     const arr = safeArray(window[key]);
 
     const label = role === "pca" ? "PCA name (Current shift):" : "RN name (Current shift):";
-    const suggested = role === "pca" ? `Current PCA ${arr.filter((o) => !isHoldOwner(o)).length + 1}` : `Current RN ${arr.filter((o) => !isHoldOwner(o)).length + 1}`;
+    const suggested =
+      role === "pca"
+        ? `Current PCA ${arr.filter((o) => !isHoldOwner(o)).length + 1}`
+        : `Current RN ${arr.filter((o) => !isHoldOwner(o)).length + 1}`;
     const name = String(prompt(label, suggested) || "").trim();
     if (!name) return;
 
@@ -485,17 +576,50 @@
     fresh.push(newOwner);
     window[key] = fresh;
 
-    try { if (typeof window.saveState === "function") window.saveState(); } catch {}
-    try { if (typeof window.renderLiveAssignments === "function") window.renderLiveAssignments(); } catch {}
+    // ✅ Sync Staffing Details after LIVE mutation
+    try {
+      syncStaffingDetailsFromLive(role === "pca" ? "pca" : "nurse");
+    } catch {}
+
+    try {
+      if (typeof window.saveState === "function") window.saveState();
+    } catch {}
+    try {
+      if (typeof window.renderLiveAssignments === "function") window.renderLiveAssignments();
+    } catch {}
   }
 
   function handleAddOwner(role) {
     // If a canonical helper exists, use it first (do-no-harm)
     try {
-      if (role === "pca" && typeof window.promptAddPCA === "function") return window.promptAddPCA();
-      if (role === "nurse" && typeof window.promptAddRN === "function") return window.promptAddRN();
-      if (role === "nurse" && typeof window.promptAddCurrentRN === "function") return window.promptAddCurrentRN();
-      if (role === "pca" && typeof window.promptAddCurrentPCA === "function") return window.promptAddCurrentPCA();
+      if (role === "pca" && typeof window.promptAddPCA === "function") {
+        const out = window.promptAddPCA();
+        try {
+          syncStaffingDetailsFromLive("pca");
+        } catch {}
+        return out;
+      }
+      if (role === "nurse" && typeof window.promptAddRN === "function") {
+        const out = window.promptAddRN();
+        try {
+          syncStaffingDetailsFromLive("nurse");
+        } catch {}
+        return out;
+      }
+      if (role === "nurse" && typeof window.promptAddCurrentRN === "function") {
+        const out = window.promptAddCurrentRN();
+        try {
+          syncStaffingDetailsFromLive("nurse");
+        } catch {}
+        return out;
+      }
+      if (role === "pca" && typeof window.promptAddCurrentPCA === "function") {
+        const out = window.promptAddCurrentPCA();
+        try {
+          syncStaffingDetailsFromLive("pca");
+        } catch {}
+        return out;
+      }
     } catch {}
 
     // Fallback that always works
@@ -534,52 +658,145 @@
     window[key] = arr;
 
     // Re-sync HOLD to "active not assigned" in case some ids are stale
-    try { syncHoldPatients(role === "pca" ? "pca" : "nurse"); } catch {}
+    try {
+      syncHoldPatients(role === "pca" ? "pca" : "nurse");
+    } catch {}
 
-    try { if (typeof window.saveState === "function") window.saveState(); } catch {}
-    try { if (typeof window.renderLiveAssignments === "function") window.renderLiveAssignments(); } catch {}
+    // ✅ Sync Staffing Details after LIVE mutation
+    try {
+      syncStaffingDetailsFromLive(role === "pca" ? "pca" : "nurse");
+    } catch {}
+
+    try {
+      if (typeof window.saveState === "function") window.saveState();
+    } catch {}
+    try {
+      if (typeof window.renderLiveAssignments === "function") window.renderLiveAssignments();
+    } catch {}
   }
 
   window.removeLiveOwner = removeOwner;
 
   // -----------------------------
-  // Header controls hosts
+  // Option A: Header controls + hide any legacy Add buttons in LIVE
   // -----------------------------
-  function ensureRnHeaderControlsHost(nurseContainer) {
+  function findHeadingByExactText(root, textLower) {
+    const nodes = Array.from(root.querySelectorAll("h1,h2,h3,h4,div,span"));
+    return nodes.find((el) => (el.textContent || "").trim().toLowerCase() === textLower) || null;
+  }
+
+  function hideLegacyLiveAddButtons() {
+    // Only touch elements INSIDE LIVE, and never inside our header hosts.
     const liveTabEl = document.getElementById("liveAssignmentTab");
     if (!liveTabEl) return;
 
-    // Find the "Current RN Assignments" heading in LIVE
-    const heading = Array.from(liveTabEl.querySelectorAll("h1,h2,h3,h4,div"))
-      .find((el) => (el.textContent || "").trim().toLowerCase() === "current rn assignments");
+    const btns = Array.from(liveTabEl.querySelectorAll("button, a"));
+    const isAddRnText = (t) => {
+      const s = String(t || "").trim().toLowerCase();
+      return s === "+ add rn" || s === "add rn" || s === "+ add nurse" || s === "add nurse";
+    };
+    const isAddPcaText = (t) => {
+      const s = String(t || "").trim().toLowerCase();
+      return s === "+ add pca" || s === "add pca";
+    };
 
+    btns.forEach((b) => {
+      if (!b) return;
+      if (b.closest("#liveRnHeaderControlsHost") || b.closest("#livePcaHeaderControlsHost")) return;
+
+      const txt = (b.textContent || "").trim();
+      if (!isAddRnText(txt) && !isAddPcaText(txt)) return;
+
+      // Hide the button or its small wrapper so it doesn’t occupy space.
+      const wrap = b.closest(".floating-actions, .actions, .toolbar, .panel, .card, div") || b;
+      // Do-no-harm: only hide if it’s reasonably small (avoid nuking huge panels).
+      try {
+        const w = (wrap.getBoundingClientRect && wrap.getBoundingClientRect().width) || 0;
+        if (w && w > 420) {
+          // big wrapper—hide only the button
+          b.style.display = "none";
+        } else {
+          wrap.style.display = "none";
+        }
+      } catch {
+        b.style.display = "none";
+      }
+    });
+  }
+
+  // -----------------------------
+  // Header controls hosts (Option A)
+  // -----------------------------
+  function ensureRnHeaderControlsHost() {
+    const liveTabEl = document.getElementById("liveAssignmentTab");
+    if (!liveTabEl) return;
+
+    // Find heading node
+    const heading = findHeadingByExactText(liveTabEl, "current rn assignments");
     if (!heading) return;
 
-    // Wrap heading + buttons in a flex row
+    // Build header row (idempotent)
     let row = document.getElementById("liveRnHeaderRow");
     if (!row) {
       row = document.createElement("div");
       row.id = "liveRnHeaderRow";
-      row.style.cssText = "display:flex;align-items:center;justify-content:space-between;gap:12px;margin: 6px 0 10px 0;";
+      row.style.cssText =
+        "display:flex;align-items:center;justify-content:space-between;gap:12px;margin: 6px 0 10px 0;flex-wrap:wrap;";
       heading.parentNode.insertBefore(row, heading);
       row.appendChild(heading);
+    } else {
+      // Ensure the heading is inside our row (do-no-harm)
+      if (heading.parentNode !== row) {
+        try {
+          row.insertBefore(heading, row.firstChild);
+        } catch {}
+      }
+    }
+
+    // Left group = title + Add RN (adjacent)
+    let left = document.getElementById("liveRnHeaderLeft");
+    if (!left) {
+      left = document.createElement("div");
+      left.id = "liveRnHeaderLeft";
+      left.style.cssText = "display:flex;align-items:center;gap:10px;min-width:240px;flex-wrap:wrap;";
+      row.insertBefore(left, row.firstChild);
+      // move heading into left (so Add RN is adjacent)
+      left.appendChild(heading);
+    } else {
+      if (heading.parentNode !== left) {
+        try {
+          left.insertBefore(heading, left.firstChild);
+        } catch {}
+      }
     }
 
     let host = document.getElementById("liveRnHeaderControlsHost");
     if (!host) {
       host = document.createElement("div");
       host.id = "liveRnHeaderControlsHost";
-      host.style.cssText = "display:flex;gap:10px;align-items:center;";
-      row.appendChild(host);
+      host.style.cssText = "display:flex;gap:10px;align-items:center;flex-wrap:wrap;";
+      left.appendChild(host);
+    }
+
+    // Right group = Print LIVE (kept on the right so the Add RN stays next to title)
+    let right = document.getElementById("liveRnHeaderRight");
+    if (!right) {
+      right = document.createElement("div");
+      right.id = "liveRnHeaderRight";
+      right.style.cssText = "display:flex;gap:10px;align-items:center;flex-wrap:wrap;";
+      row.appendChild(right);
     }
 
     host.innerHTML = `
       <button id="liveAddRnBtn" type="button"
-        style="border:1px solid rgba(15,23,42,0.18);background:#fff;color:#111;padding:10px 12px;border-radius:12px;cursor:pointer;font-weight:900;box-shadow:0 6px 18px         rgba(0,0,0,0.08);">
+        style="border:1px solid rgba(15,23,42,0.18);background:#fff;color:#111;padding:10px 12px;border-radius:12px;cursor:pointer;font-weight:900;box-shadow:0 6px 18px rgba(0,0,0,0.08);">
         + Add RN
       </button>
+    `;
+
+    right.innerHTML = `
       <button id="livePrintBtn" type="button"
-        style="border:0;background:#111;color:#fff;padding:10px 12px;border-radius:12px;cursor:pointer;font-weight:800;letter-spacing:.01em;box-shadow:0 6px 18px                rgba(0,0,0,.14);">
+        style="border:0;background:#111;color:#fff;padding:10px 12px;border-radius:12px;cursor:pointer;font-weight:800;letter-spacing:.01em;box-shadow:0 6px 18px rgba(0,0,0,.14);">
         Print LIVE
       </button>
     `;
@@ -588,7 +805,9 @@
     if (btnPrint && !btnPrint.__wired) {
       btnPrint.__wired = true;
       btnPrint.addEventListener("click", () => {
-        try { openPrintLiveSafe(); } catch {}
+        try {
+          openPrintLiveSafe();
+        } catch {}
       });
     }
 
@@ -599,35 +818,40 @@
     }
   }
 
-  function ensurePcaHeaderControlsHost(pcaContainer) {
+  function ensurePcaHeaderControlsHost() {
     const liveTabEl = document.getElementById("liveAssignmentTab");
     if (!liveTabEl) return;
 
-    const heading = Array.from(liveTabEl.querySelectorAll("h1,h2,h3,h4,div"))
-      .find((el) => (el.textContent || "").trim().toLowerCase() === "current pca assignments");
-
+    const heading = findHeadingByExactText(liveTabEl, "current pca assignments");
     if (!heading) return;
 
     let row = document.getElementById("livePcaHeaderRow");
     if (!row) {
       row = document.createElement("div");
       row.id = "livePcaHeaderRow";
-      row.style.cssText = "display:flex;align-items:center;justify-content:space-between;gap:12px;margin: 18px 0 10px 0;";
+      row.style.cssText =
+        "display:flex;align-items:center;gap:10px;margin: 18px 0 10px 0;flex-wrap:wrap;";
       heading.parentNode.insertBefore(row, heading);
       row.appendChild(heading);
+    } else {
+      if (heading.parentNode !== row) {
+        try {
+          row.insertBefore(heading, row.firstChild);
+        } catch {}
+      }
     }
 
     let host = document.getElementById("livePcaHeaderControlsHost");
     if (!host) {
       host = document.createElement("div");
       host.id = "livePcaHeaderControlsHost";
-      host.style.cssText = "display:flex;gap:10px;align-items:center;";
+      host.style.cssText = "display:flex;gap:10px;align-items:center;flex-wrap:wrap;";
       row.appendChild(host);
     }
 
     host.innerHTML = `
       <button id="liveAddPcaBtn" type="button"
-        style="border:1px solid rgba(15,23,42,0.18);background:#fff;color:#111;padding:10px 12px;border-radius:12px;cursor:pointer;font-weight:900;box-shadow:0 6px 18px         rgba(0,0,0,0.08);">
+        style="border:1px solid rgba(15,23,42,0.18);background:#fff;color:#111;padding:10px 12px;border-radius:12px;cursor:pointer;font-weight:900;box-shadow:0 6px 18px rgba(0,0,0,0.08);">
         + Add PCA
       </button>
     `;
@@ -765,6 +989,25 @@
   // ✅ Discharge Bin (fixed + LIVE only)
   // -----------------------------
   function ensureGlobalDischargeBinHost() {
+    // ✅ Ensure the global tools wrapper behaves like an overlay
+    // so it does NOT consume vertical layout space (prevents big "bottom gap")
+    const tools = document.getElementById("globalTopRightTools");
+    if (tools) {
+      tools.style.position = "absolute";      // overlay, scrolls away naturally
+      tools.style.top = "18px";              // matches your "top spacing is perfect"
+      tools.style.right = "18px";
+      tools.style.left = "auto";
+      tools.style.bottom = "auto";
+      tools.style.width = "auto";
+      tools.style.display = "flex";
+      tools.style.justifyContent = "flex-end";
+      tools.style.padding = "0";             // important: avoid adding layout height
+      tools.style.margin = "0";
+      tools.style.boxSizing = "border-box";
+      tools.style.pointerEvents = "none";    // wrapper ignores clicks; host enables clicks
+      tools.style.zIndex = "50";
+    }
+
     let host = document.getElementById("globalDischargeBinHost");
     if (!host) {
       host = document.getElementById("globalDischargeBinHost__fallback");
@@ -775,11 +1018,14 @@
       }
     }
 
-    // Force FIXED so it never scrolls and never reserves layout space
-    host.style.position = "fixed";
-    host.style.top = "92px";      // between tabs and working area (tweak as needed)
-    host.style.right = "18px";
-    host.style.zIndex = "2000";
+    // Do NOT absolutely position inside the global tools row
+    // (host stays relative; wrapper handles positioning)
+    host.style.position = "relative";
+    host.style.top = "0px";
+    host.style.right = "0px";
+    host.style.left = "0px";
+    host.style.bottom = "0px";
+    host.style.zIndex = "10";
     host.style.pointerEvents = "auto";
     host.style.margin = "0";
     host.style.padding = "0";
@@ -800,6 +1046,19 @@
     const host = ensureGlobalDischargeBinHost();
     if (!host) return;
 
+    // ✅ Remove legacy vertical clearance that was used when the bin floated/fixed
+    const legacySpacer =
+      document.getElementById("liveDischargeSpacer") ||
+      document.getElementById("dischargeBinSpacer") ||
+      document.getElementById("globalDischargeBinSpacer");
+
+    if (legacySpacer) {
+      legacySpacer.style.height = "0px";
+      legacySpacer.style.minHeight = "0px";
+      legacySpacer.style.margin = "0";
+      legacySpacer.style.padding = "0";
+    }
+    
     if (!isLiveTabActive()) {
       hideGlobalDischargeBin();
       return;
@@ -812,7 +1071,7 @@
         class="assignment-card discharge-card"
         style="
           width: 220px;
-          height: 170px;
+          height: 0px;
           border-radius: 16px;
           box-shadow: 0 10px 24px rgba(0,0,0,0.12);
           overflow:hidden;
@@ -836,7 +1095,7 @@
           ondrop="onDischargeDrop(event)"
           style="
             margin:0 12px 12px 12px;
-            height: 70px;
+            height: 0px;
             border-radius:14px;
             display:flex;
             align-items:center;
@@ -861,7 +1120,9 @@
     window.__cuppLiveDischargeBinTabListener_v113 = true;
     document.addEventListener("click", () => setTimeout(renderGlobalDischargeBin, 0));
     window.addEventListener("resize", () => {
-      try { renderGlobalDischargeBin(); } catch {}
+      try {
+        renderGlobalDischargeBin();
+      } catch {}
     });
   }
 
@@ -926,15 +1187,27 @@
     window.currentPcas = [holdPca].concat(currentPcas);
 
     // Sync HOLD to active-but-unassigned (should be empty after populate)
-    try { syncHoldPatients("nurse"); } catch {}
-    try { syncHoldPatients("pca"); } catch {}
+    try {
+      syncHoldPatients("nurse");
+    } catch {}
+    try {
+      syncHoldPatients("pca");
+    } catch {}
 
     if (typeof window.renderLiveAssignments === "function") window.renderLiveAssignments();
 
-    try { if (typeof window.updateAcuityTiles === "function") window.updateAcuityTiles(); } catch {}
-    try { if (typeof window.renderPatientList === "function") window.renderPatientList(); } catch {}
-    try { if (typeof window.saveState === "function") window.saveState(); } catch {}
-    try { if (typeof window.updateDischargeCount === "function") window.updateDischargeCount(); } catch {}
+    try {
+      if (typeof window.updateAcuityTiles === "function") window.updateAcuityTiles();
+    } catch {}
+    try {
+      if (typeof window.renderPatientList === "function") window.renderPatientList();
+    } catch {}
+    try {
+      if (typeof window.saveState === "function") window.saveState();
+    } catch {}
+    try {
+      if (typeof window.updateDischargeCount === "function") window.updateDischargeCount();
+    } catch {}
   }
 
   // -----------------------------
@@ -946,7 +1219,9 @@
     if (!nurseContainer || !pcaContainer) return;
 
     // Fix UI clutter on LIVE
-    try { hideLegacyAdmitQueuePanel(); } catch {}
+    try {
+      hideLegacyAdmitQueuePanel();
+    } catch {}
 
     // Discharge bin fixed + LIVE only
     renderGlobalDischargeBin();
@@ -966,9 +1241,14 @@
     nurseContainer.innerHTML = "";
     pcaContainer.innerHTML = "";
 
-    // Header controls near RN and PCA sections
-    ensureRnHeaderControlsHost(nurseContainer);
-    ensurePcaHeaderControlsHost(pcaContainer);
+    // Header controls near RN and PCA sections (Option A)
+    ensureRnHeaderControlsHost();
+    ensurePcaHeaderControlsHost();
+
+    // Hide any legacy/floating Add buttons inside LIVE (do-no-harm)
+    try {
+      hideLegacyLiveAddButtons();
+    } catch {}
 
     const liveTabEl = document.getElementById("liveAssignmentTab");
     ensureAdmitQueueInlineHost(liveTabEl, nurseContainer);
@@ -1040,8 +1320,7 @@
         .filter((p) => p && !p.isEmpty)
         .sort((a, b) => getRoomNumberSafe(a) - getRoomNumberSafe(b));
 
-      const loadScore =
-        typeof window.getNurseLoadScore === "function" ? window.getNurseLoadScore(nurse) : 0;
+      const loadScore = typeof window.getNurseLoadScore === "function" ? window.getNurseLoadScore(nurse) : 0;
 
       const vis = resolveLiveVisual(loadScore, "nurse");
       const loadClass = vis.upstreamClass;
@@ -1190,8 +1469,7 @@
         .filter((p) => p && !p.isEmpty)
         .sort((a, b) => getRoomNumberSafe(a) - getRoomNumberSafe(b));
 
-      const loadScore =
-        typeof window.getPcaLoadScore === "function" ? window.getPcaLoadScore(pca) : 0;
+      const loadScore = typeof window.getPcaLoadScore === "function" ? window.getPcaLoadScore(pca) : 0;
 
       const vis = resolveLiveVisual(loadScore, "pca");
       const loadClass = vis.upstreamClass;
@@ -1303,6 +1581,5 @@
   window.autoPopulateLiveAssignments = autoPopulateLiveAssignments;
   window.renderLiveAssignments = renderLiveAssignments;
 
-  window.__liveAssignmentsBuild =
-    "v11.4-holdBucketsRealUnassigned+restoreRemoveX+addButtonsNearHeaders+hideLegacyQueue+fixedDischargeBin";
+  window.__liveAssignmentsBuild = "v11.4.2-optionA-inlineAddButtons";
 })();

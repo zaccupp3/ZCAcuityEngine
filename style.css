@@ -1975,3 +1975,26 @@ button[onclick*="populateLiveAssignment"]{
 .pp-label{
   font-weight: 800;
 }
+
+/* Force Discharge Bin to live in normal flow inside globalTopRightTools */
+#globalTopRightTools {
+  position: relative !important;
+}
+
+#globalDischargeBinHost {
+  position: relative !important;
+  top: auto !important;
+  right: auto !important;
+  left: auto !important;
+  bottom: auto !important;
+  z-index: auto !important;
+}
+
+/* If the BIN CARD is what’s fixed, this catches common cases */
+#globalDischargeBinHost .discharge-bin,
+#globalDischargeBinHost .dischargeBin,
+#globalDischargeBinHost [data-role="discharge-bin"] {
+  position: relative !important;
+  top: auto !important;
+  right: auto !important;
+}
