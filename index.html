@@ -775,62 +775,66 @@
     </div>
   </div>
 
-  <!-- =====================================================
-       ✅ SCRIPT ORDER FIX (cache-busters updated)
-  ===================================================== -->
+    <!-- =====================================================
+         ✅ SCRIPT ORDER FIX (cache-busters updated)
+    ===================================================== -->
 
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 
-  <script src="app/app.supabaseConfig.js?v=1"></script>
-  <script src="app/app.supabase.js?v=1"></script>
-  <script src="app/app.authUI.js?v=1"></script>
-  <script src="app/app.authGate.js?v=1"></script>
+    <script src="app/app.supabaseConfig.js?v=1"></script>
+    <script src="app/app.supabase.js?v=1"></script>
+    <script src="app/app.authUI.js?v=1"></script>
+    <script src="app/app.authGate.js?v=1"></script>
 
-  <script src="app/app.state.js?v=1"></script>
-  <script src="app/app.init.js?v=1"></script>
+    <script src="app/app.state.js?v=1"></script>
+    <script src="app/app.init.js?v=1"></script>
 
-  <script src="app/app.queue.js?v=1"></script>
-  <script src="app/app.staffing.js?v=8"></script>
-  <script src="app/app.patientsAcuity.js?v=2"></script>
+    <!-- ✅ Shift Log + Narrative (facts layer first, then report/UI) -->
+    <script src="app/app.shiftLog.js?v=1"></script>
+    <script src="app/app.shiftReport.js?v=1"></script>
 
-  <script src="app/app.assignmentRules.js?v=4"></script>
+    <script src="app/app.queue.js?v=1"></script>
+    <script src="app/app.staffing.js?v=8"></script>
+    <script src="app/app.patientsAcuity.js?v=2"></script>
 
-  <script src="app/app.admitQueue.js?v=2"></script>
-  <script src="app/app.liveAssignments.js?v=11.5"></script>
-  <script src="app/app.assignmentsrender.js?v=4"></script>
-  <script src="app/app.assignmentsDrag.js?v=1"></script>
+    <script src="app/app.assignmentRules.js?v=4"></script>
 
-  <script src="app/app.modals.js?v=1"></script>
-  <script src="app/app.patientProfileUI.js?v=909"></script>
+    <script src="app/app.admitQueue.js?v=2"></script>
+    <script src="app/app.liveAssignments.js?v=11.5"></script>
+    <script src="app/app.assignmentsrender.js?v=4"></script>
+    <script src="app/app.assignmentsDrag.js?v=1"></script>
 
-  <script src="app/app.shiftChange.js?v=1"></script>
+    <script src="app/app.modals.js?v=1"></script>
+    <script src="app/app.patientProfileUI.js?v=909"></script>
 
-  <script src="app/app.unitMetrics.js?v=1"></script>
-  <script src="app/app.unitPulse.js?v=5"></script>
+    <script src="app/app.shiftChange.js?v=1"></script>
 
-  <script src="app/app.printOncoming.js?v=8"></script>
-  <script src="app/app.printLive.js?v=8"></script>
+    <script src="app/app.unitMetrics.js?v=1"></script>
+    <script src="app/app.unitPulse.js?v=5"></script>
 
-  <script src="https://unpkg.com/tesseract.js@5/dist/tesseract.min.js"></script>
+    <script src="app/app.printOncoming.js?v=8"></script>
+    <script src="app/app.printLive.js?v=8"></script>
 
-  <script type="module">
-    import * as pdfjsLib from "./vendor/pdfjs/pdf.min.mjs";
-    window.pdfjsLib = pdfjsLib;
-    pdfjsLib.GlobalWorkerOptions.workerSrc =
-      "./vendor/pdfjs/pdf.worker.min.mjs";
-    console.log("[PDF] pdfjsLib loaded (local ES module)", pdfjsLib.version);
-  </script>
+    <script src="https://unpkg.com/tesseract.js@5/dist/tesseract.min.js"></script>
 
-  <script src="app/app.scanPdf.js?v=9"></script>
+    <script type="module">
+      import * as pdfjsLib from "./vendor/pdfjs/pdf.min.mjs";
+      window.pdfjsLib = pdfjsLib;
+      pdfjsLib.GlobalWorkerOptions.workerSrc =
+        "./vendor/pdfjs/pdf.worker.min.mjs";
+      console.log("[PDF] pdfjsLib loaded (local ES module)", pdfjsLib.version);
+    </script>
 
-  <script src="app/app.csvNormalizer.js?v=16"></script>
-  <script src="app/app.importCsv.js?v=2"></script>
+    <script src="app/app.scanPdf.js?v=9"></script>
 
-  <script src="app/app.scanOcr.js?v=99"></script>
-  <script src="app/app.scanParserTemplateV2.js?v=102"></script>
-  <script src="app/app.scanReviewApply.js?v=110"></script>
-  <script src="app/app.importScan.js?v=100"></script>
+    <script src="app/app.csvNormalizer.js?v=16"></script>
+    <script src="app/app.importCsv.js?v=2"></script>
 
-  <script src="script.js?v=1"></script>
-</body>
-</html>
+    <script src="app/app.scanOcr.js?v=99"></script>
+    <script src="app/app.scanParserTemplateV2.js?v=102"></script>
+    <script src="app/app.scanReviewApply.js?v=110"></script>
+    <script src="app/app.importScan.js?v=100"></script>
+
+    <script src="script.js?v=1"></script>
+  </body>
+  </html>

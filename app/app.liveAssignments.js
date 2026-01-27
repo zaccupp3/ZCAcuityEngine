@@ -1042,544 +1042,545 @@
     host.innerHTML = "";
   }
 
-  function renderGlobalDischargeBin() {
-    const host = ensureGlobalDischargeBinHost();
-    if (!host) return;
+    function renderGlobalDischargeBin() {
+      const host = ensureGlobalDischargeBinHost();
+      if (!host) return;
 
-    // ✅ Remove legacy vertical clearance that was used when the bin floated/fixed
-    const legacySpacer =
-      document.getElementById("liveDischargeSpacer") ||
-      document.getElementById("dischargeBinSpacer") ||
-      document.getElementById("globalDischargeBinSpacer");
+      // ✅ Remove legacy vertical clearance that was used when the bin floated/fixed
+      const legacySpacer =
+        document.getElementById("liveDischargeSpacer") ||
+        document.getElementById("dischargeBinSpacer") ||
+        document.getElementById("globalDischargeBinSpacer");
 
-    if (legacySpacer) {
-      legacySpacer.style.height = "0px";
-      legacySpacer.style.minHeight = "0px";
-      legacySpacer.style.margin = "0";
-      legacySpacer.style.padding = "0";
-    }
-    
-    if (!isLiveTabActive()) {
-      hideGlobalDischargeBin();
-      return;
-    }
+      if (legacySpacer) {
+        legacySpacer.style.height = "0px";
+        legacySpacer.style.minHeight = "0px";
+        legacySpacer.style.margin = "0";
+        legacySpacer.style.padding = "0";
+      }
 
-    host.style.display = "block";
-    host.innerHTML = `
-      <div
-        id="dischargeBinCard"
-        class="assignment-card discharge-card"
-        style="
-          width: 220px;
-          height: 0px;
-          border-radius: 16px;
-          box-shadow: 0 10px 24px rgba(0,0,0,0.12);
-          overflow:hidden;
-          background:#fff;
-        "
-      >
-        <div class="assignment-header discharge-card-header" style="display:flex; align-items:center; justify-content:space-between; gap:10px;">
-          <div><strong>Discharge Bin</strong></div>
-          <button onclick="clearRecentlyDischargedFlags()" style="font-size:12px;">Clear</button>
-        </div>
+      if (!isLiveTabActive()) {
+        hideGlobalDischargeBin();
+        return;
+      }
 
-        <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 12px;">
-          <div style="font-size:12px;"><strong>Recent:</strong> <span id="dischargeCount">0</span></div>
-          <button onclick="openDischargeHistoryModal()" style="font-size:12px;">History</button>
-        </div>
-
+      host.style.display = "block";
+      host.innerHTML = `
         <div
-          id="dischargeDropZone"
-          class="discharge-drop-zone"
-          ondragover="onDischargeDragOver(event)"
-          ondrop="onDischargeDrop(event)"
+          id="dischargeBinCard"
+          class="assignment-card discharge-card"
           style="
-            margin:0 12px 12px 12px;
-            height: 0px;
-            border-radius:14px;
-            display:flex;
-            align-items:center;
-            justify-content:center;
-            text-align:center;
-            font-size:12px;
+            width: 220px;
+            height: 170px; /* ✅ restored (was 0px) */
+            border-radius: 16px;
+            box-shadow: 0 10px 24px rgba(0,0,0,0.12);
+            overflow:hidden;
+            background:#fff;
           "
         >
-          Drag here to discharge patient
+          <div class="assignment-header discharge-card-header" style="display:flex; align-items:center; justify-content:space-between; gap:10px;">
+            <div><strong>Discharge Bin</strong></div>
+            <button onclick="clearRecentlyDischargedFlags()" style="font-size:12px;">Clear</button>
+          </div>
+
+          <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 12px;">
+            <div style="font-size:12px;"><strong>Recent:</strong> <span id="dischargeCount">0</span></div>
+            <button onclick="openDischargeHistoryModal()" style="font-size:12px;">History</button>
+          </div>
+
+          <div
+            id="dischargeDropZone"
+            class="discharge-drop-zone"
+            ondragover="onDischargeDragOver(event)"
+            ondrop="onDischargeDrop(event)"
+            style="
+              margin:0 12px 12px 12px;
+              height: 70px; /* ✅ restored (was 0px) */
+              border-radius:14px;
+              display:flex;
+              align-items:center;
+              justify-content:center;
+              text-align:center;
+              font-size:12px;
+            "
+          >
+            Drag here to discharge patient
+          </div>
         </div>
-      </div>
-    `;
+      `;
 
-    hardenDischargeBinDropTarget();
+      hardenDischargeBinDropTarget();
 
-    try {
-      if (typeof window.updateDischargeCount === "function") window.updateDischargeCount();
-    } catch {}
-  }
-
-  if (!window.__cuppLiveDischargeBinTabListener_v113) {
-    window.__cuppLiveDischargeBinTabListener_v113 = true;
-    document.addEventListener("click", () => setTimeout(renderGlobalDischargeBin, 0));
-    window.addEventListener("resize", () => {
       try {
-        renderGlobalDischargeBin();
+        if (typeof window.updateDischargeCount === "function") window.updateDischargeCount();
       } catch {}
-    });
-  }
-
-  // -----------------------------
-  // Populate live
-  // -----------------------------
-  function populateLiveAssignment(randomize = false) {
-    try {
-      if (typeof window.ensureDefaultPatients === "function") window.ensureDefaultPatients();
-    } catch {}
-
-    // Ensure HOLD buckets exist (but never distribute to them)
-    ensureHoldOwnerForRole("nurse");
-    ensureHoldOwnerForRole("pca");
-
-    const currentNursesAll = safeArray(window.currentNurses);
-    const currentPcasAll = safeArray(window.currentPcas);
-
-    const currentNurses = currentNursesAll.filter((n) => n && !isHoldOwner(n));
-    const currentPcas = currentPcasAll.filter((p) => p && !isHoldOwner(p));
-
-    if (!currentNurses.length || !currentPcas.length) {
-      alert("Please set up Current RNs and PCAs on the Staffing Details tab first.");
-      return;
-    }
-
-    const activePatients = getActivePatientsForLive();
-    if (!activePatients.length) {
-      alert("No active patients found.");
-      return;
-    }
-
-    let list = activePatients.slice();
-    if (randomize) list.sort(() => Math.random() - 0.5);
-    else list.sort((a, b) => getRoomNumberSafe(a) - getRoomNumberSafe(b));
-
-    // Clear patients on real owners only (HOLD will be recomputed)
-    currentNurses.forEach((n) => (n.patients = []));
-    currentPcas.forEach((p) => (p.patients = []));
-
-    if (typeof window.distributePatientsEvenly === "function") {
-      window.distributePatientsEvenly(currentNurses, list, { randomize, role: "nurse" });
-      window.distributePatientsEvenly(currentPcas, list, { randomize, role: "pca" });
-    } else {
-      list.forEach((p, i) => {
-        const rn = currentNurses[i % currentNurses.length];
-        rn.patients = safeArray(rn.patients);
-        rn.patients.push(p.id);
-      });
-      list.forEach((p, i) => {
-        const pc = currentPcas[i % currentPcas.length];
-        pc.patients = safeArray(pc.patients);
-        pc.patients.push(p.id);
-      });
-    }
-
-    // Write back arrays (preserve HOLD at front)
-    const holdRn = ensureHoldOwnerForRole("nurse");
-    const holdPca = ensureHoldOwnerForRole("pca");
-
-    window.currentNurses = [holdRn].concat(currentNurses);
-    window.currentPcas = [holdPca].concat(currentPcas);
-
-    // Sync HOLD to active-but-unassigned (should be empty after populate)
-    try {
-      syncHoldPatients("nurse");
-    } catch {}
-    try {
-      syncHoldPatients("pca");
-    } catch {}
-
-    if (typeof window.renderLiveAssignments === "function") window.renderLiveAssignments();
-
-    try {
-      if (typeof window.updateAcuityTiles === "function") window.updateAcuityTiles();
-    } catch {}
-    try {
-      if (typeof window.renderPatientList === "function") window.renderPatientList();
-    } catch {}
-    try {
-      if (typeof window.saveState === "function") window.saveState();
-    } catch {}
-    try {
-      if (typeof window.updateDischargeCount === "function") window.updateDischargeCount();
-    } catch {}
-  }
-
-  // -----------------------------
-  // Live render
-  // -----------------------------
-  function renderLiveAssignments() {
-    const nurseContainer = document.getElementById("liveNurseAssignments");
-    const pcaContainer = document.getElementById("livePcaAssignments");
-    if (!nurseContainer || !pcaContainer) return;
-
-    // Fix UI clutter on LIVE
-    try {
-      hideLegacyAdmitQueuePanel();
-    } catch {}
-
-    // Discharge bin fixed + LIVE only
-    renderGlobalDischargeBin();
-
-    // Ensure HOLD always exists and is synced to true unassigned set
-    const holdRn = syncHoldPatients("nurse");
-    const holdPca = syncHoldPatients("pca");
-
-    const currentNursesAll = safeArray(window.currentNurses);
-    const currentPcasAll = safeArray(window.currentPcas);
-
-    // Real owners (exclude HOLD for rules/scoring)
-    const realNurses = currentNursesAll.filter((n) => n && !isHoldOwner(n));
-    const realPcas = currentPcasAll.filter((p) => p && !isHoldOwner(p));
-
-    // Rebuild containers
-    nurseContainer.innerHTML = "";
-    pcaContainer.innerHTML = "";
-
-    // Header controls near RN and PCA sections (Option A)
-    ensureRnHeaderControlsHost();
-    ensurePcaHeaderControlsHost();
-
-    // Hide any legacy/floating Add buttons inside LIVE (do-no-harm)
-    try {
-      hideLegacyLiveAddButtons();
-    } catch {}
-
-    const liveTabEl = document.getElementById("liveAssignmentTab");
-    ensureAdmitQueueInlineHost(liveTabEl, nurseContainer);
-
-    const rnEvalMap = getRuleEvalMap(realNurses, "nurse");
-    const pcaEvalMap = getRuleEvalMap(realPcas, "pca");
-
-    // -----------------------------
-    // Render HOLD (RN) only if needed
-    // -----------------------------
-    const holdRnPts = safeArray(holdRn?.patients)
-      .map((id) => getPatientByIdSafe(id))
-      .filter((p) => p && !p.isEmpty)
-      .sort((a, b) => getRoomNumberSafe(a) - getRoomNumberSafe(b));
-
-    if (holdRnPts.length) {
-      let rows = "";
-      holdRnPts.forEach((p) => {
-        rows += `
-          <tr
-            draggable="true"
-            ondragstart="onRowDragStart(event, 'live', 'nurse', 0, ${p.id})"
-            ondragend="onRowDragEnd(event)"
-            ondblclick="openPatientProfileFromRoom(${p.id})"
-          >
-            <td>${p.room || ""}</td>
-            <td>${p.tele ? "Tele" : "MS"}</td>
-            <td>${typeof window.rnTagString === "function" ? window.rnTagString(p) : ""}</td>
-          </tr>
-        `;
-      });
-
-      nurseContainer.innerHTML += `
-        <div class="assignment-card" style="border-left:6px solid rgba(100,116,139,0.85); opacity:0.95;">
-          <div class="assignment-header">
-            <div>
-              <strong>${escapeHtml(holdRn.name)}</strong>
-            </div>
-            <div style="font-weight:700;">Patients: ${holdRnPts.length} | Load Score: 0</div>
-          </div>
-
-          <table class="assignment-table">
-            <thead>
-              <tr>
-                <th>Room</th>
-                <th>Level</th>
-                <th>Acuity Notes</th>
-              </tr>
-            </thead>
-            <tbody
-              ondragover="onRowDragOver(event)"
-              ondrop="onRowDrop(event, 'live', 'nurse', 0)"
-            >
-              ${rows}
-            </tbody>
-          </table>
-
-          ${buildEmptyDropZoneHtml("live", "nurse", 0, "HOLD")}
-        </div>
-      `;
     }
 
     // -----------------------------
-    // Render real RNs
+    // Populate live
     // -----------------------------
-    realNurses.forEach((nurse) => {
-      const pts = safeArray(nurse.patients)
+    function populateLiveAssignment(randomize = false) {
+      try {
+        if (typeof window.ensureDefaultPatients === "function") window.ensureDefaultPatients();
+      } catch {}
+
+      // Ensure HOLD buckets exist (but never distribute to them)
+      ensureHoldOwnerForRole("nurse");
+      ensureHoldOwnerForRole("pca");
+
+      const currentNursesAll = safeArray(window.currentNurses);
+      const currentPcasAll = safeArray(window.currentPcas);
+
+      const currentNurses = currentNursesAll.filter((n) => n && !isHoldOwner(n));
+      const currentPcas = currentPcasAll.filter((p) => p && !isHoldOwner(p));
+
+      if (!currentNurses.length || !currentPcas.length) {
+        alert("Please set up Current RNs and PCAs on the Staffing Details tab first.");
+        return;
+      }
+
+      const activePatients = getActivePatientsForLive();
+      if (!activePatients.length) {
+        alert("No active patients found.");
+        return;
+      }
+
+      let list = activePatients.slice();
+      if (randomize) list.sort(() => Math.random() - 0.5);
+      else list.sort((a, b) => getRoomNumberSafe(a) - getRoomNumberSafe(b));
+
+      // Clear patients on real owners only (HOLD will be recomputed)
+      currentNurses.forEach((n) => (n.patients = []));
+      currentPcas.forEach((p) => (p.patients = []));
+
+      if (typeof window.distributePatientsEvenly === "function") {
+        window.distributePatientsEvenly(currentNurses, list, { randomize, role: "nurse" });
+        window.distributePatientsEvenly(currentPcas, list, { randomize, role: "pca" });
+      } else {
+        list.forEach((p, i) => {
+          const rn = currentNurses[i % currentNurses.length];
+          rn.patients = safeArray(rn.patients);
+          rn.patients.push(p.id);
+        });
+        list.forEach((p, i) => {
+          const pc = currentPcas[i % currentPcas.length];
+          pc.patients = safeArray(pc.patients);
+          pc.patients.push(p.id);
+        });
+      }
+
+      // Write back arrays (preserve HOLD at front)
+      const holdRn = ensureHoldOwnerForRole("nurse");
+      const holdPca = ensureHoldOwnerForRole("pca");
+
+      window.currentNurses = [holdRn].concat(currentNurses);
+      window.currentPcas = [holdPca].concat(currentPcas);
+
+      // Sync HOLD to active-but-unassigned (should be empty after populate)
+      try {
+        syncHoldPatients("nurse");
+      } catch {}
+      try {
+        syncHoldPatients("pca");
+      } catch {}
+
+      if (typeof window.renderLiveAssignments === "function") window.renderLiveAssignments();
+
+      try {
+        if (typeof window.updateAcuityTiles === "function") window.updateAcuityTiles();
+      } catch {}
+      try {
+        if (typeof window.renderPatientList === "function") window.renderPatientList();
+      } catch {}
+      try {
+        if (typeof window.saveState === "function") window.saveState();
+      } catch {}
+      try {
+        if (typeof window.updateDischargeCount === "function") window.updateDischargeCount();
+      } catch {}
+    }
+
+    // -----------------------------
+    // Live render
+    // -----------------------------
+    function renderLiveAssignments() {
+      const nurseContainer = document.getElementById("liveNurseAssignments");
+      const pcaContainer = document.getElementById("livePcaAssignments");
+      if (!nurseContainer || !pcaContainer) return;
+
+      // Fix UI clutter on LIVE
+      try {
+        hideLegacyAdmitQueuePanel();
+      } catch {}
+
+      // Discharge bin (LIVE only)
+      renderGlobalDischargeBin();
+
+      // Ensure HOLD always exists and is synced to true unassigned set
+      const holdRn = syncHoldPatients("nurse");
+      const holdPca = syncHoldPatients("pca");
+
+      const currentNursesAll = safeArray(window.currentNurses);
+      const currentPcasAll = safeArray(window.currentPcas);
+
+      // Real owners (exclude HOLD for rules/scoring)
+      const realNurses = currentNursesAll.filter((n) => n && !isHoldOwner(n));
+      const realPcas = currentPcasAll.filter((p) => p && !isHoldOwner(p));
+
+      // Rebuild containers
+      nurseContainer.innerHTML = "";
+      pcaContainer.innerHTML = "";
+
+      // Header controls near RN and PCA sections (Option A)
+      ensureRnHeaderControlsHost();
+      ensurePcaHeaderControlsHost();
+
+      // Hide any legacy/floating Add buttons inside LIVE (do-no-harm)
+      try {
+        hideLegacyLiveAddButtons();
+      } catch {}
+
+      const liveTabEl = document.getElementById("liveAssignmentTab");
+      ensureAdmitQueueInlineHost(liveTabEl, nurseContainer);
+
+      const rnEvalMap = getRuleEvalMap(realNurses, "nurse");
+      const pcaEvalMap = getRuleEvalMap(realPcas, "pca");
+
+      // -----------------------------
+      // Render HOLD (RN) only if needed
+      // -----------------------------
+      const holdRnPts = safeArray(holdRn?.patients)
         .map((id) => getPatientByIdSafe(id))
         .filter((p) => p && !p.isEmpty)
         .sort((a, b) => getRoomNumberSafe(a) - getRoomNumberSafe(b));
 
-      const loadScore = typeof window.getNurseLoadScore === "function" ? window.getNurseLoadScore(nurse) : 0;
+      if (holdRnPts.length) {
+        let rows = "";
+        holdRnPts.forEach((p) => {
+          rows += `
+            <tr
+              draggable="true"
+              ondragstart="onRowDragStart(event, 'live', 'nurse', 0, ${p.id})"
+              ondragend="onRowDragEnd(event)"
+              ondblclick="openPatientProfileFromRoom(${p.id})"
+            >
+              <td>${p.room || ""}</td>
+              <td>${p.tele ? "Tele" : "MS"}</td>
+              <td>${typeof window.rnTagString === "function" ? window.rnTagString(p) : ""}</td>
+            </tr>
+          `;
+        });
 
-      const vis = resolveLiveVisual(loadScore, "nurse");
-      const loadClass = vis.upstreamClass;
-      const accentStyle = vis.accentStyle;
+        nurseContainer.innerHTML += `
+          <div class="assignment-card" style="border-left:6px solid rgba(100,116,139,0.85); opacity:0.95;">
+            <div class="assignment-header">
+              <div>
+                <strong>${escapeHtml(holdRn.name)}</strong>
+              </div>
+              <div style="font-weight:700;">Patients: ${holdRnPts.length} | Load Score: 0</div>
+            </div>
 
-      const ownerEval = getOwnerEval(nurse, rnEvalMap);
-      const ruleIcon = buildRuleIconHtml(ownerEval, "RN");
+            <table class="assignment-table">
+              <thead>
+                <tr>
+                  <th>Room</th>
+                  <th>Level</th>
+                  <th>Acuity Notes</th>
+                </tr>
+              </thead>
+              <tbody
+                ondragover="onRowDragOver(event)"
+                ondrop="onRowDrop(event, 'live', 'nurse', 0)"
+              >
+                ${rows}
+              </tbody>
+            </table>
 
-      let rows = "";
-      pts.forEach((p) => {
-        rows += `
-          <tr
-            draggable="true"
-            ondragstart="onRowDragStart(event, 'live', 'nurse', ${nurse.id}, ${p.id})"
-            ondragend="onRowDragEnd(event)"
-            ondblclick="openPatientProfileFromRoom(${p.id})"
-          >
-            <td>${p.room || ""}</td>
-            <td>${p.tele ? "Tele" : "MS"}</td>
-            <td>${typeof window.rnTagString === "function" ? window.rnTagString(p) : ""}</td>
-          </tr>
+            ${buildEmptyDropZoneHtml("live", "nurse", 0, "HOLD")}
+          </div>
         `;
-      });
+      }
 
-      const emptyDrop = !pts.length ? buildEmptyDropZoneHtml("live", "nurse", nurse.id, "RN") : "";
+      // -----------------------------
+      // Render real RNs
+      // -----------------------------
+      realNurses.forEach((nurse) => {
+        const pts = safeArray(nurse.patients)
+          .map((id) => getPatientByIdSafe(id))
+          .filter((p) => p && !p.isEmpty)
+          .sort((a, b) => getRoomNumberSafe(a) - getRoomNumberSafe(b));
 
-      const removeBtn = `
-        <button
-          type="button"
-          title="Remove RN"
-          onclick="removeLiveOwner('nurse', ${Number(nurse.id)})"
-          style="
-            border:0;
-            background:rgba(15,23,42,0.08);
-            color:#111;
-            width:28px;
-            height:28px;
-            border-radius:10px;
-            cursor:pointer;
-            font-weight:900;
-            line-height:28px;
-            text-align:center;
-          "
-        >×</button>
-      `;
+        const loadScore = typeof window.getNurseLoadScore === "function" ? window.getNurseLoadScore(nurse) : 0;
 
-      nurseContainer.innerHTML += `
-        <div class="assignment-card ${escapeHtml(loadClass)}" style="${accentStyle}">
-          <div class="assignment-header" style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;">
-            <div>
-              <div style="display:flex;align-items:flex-start;gap:10px;">
-                <div>
-                  <strong>${escapeHtml(nurse.name)}</strong> (${escapeHtml(String(nurse.type || "").toUpperCase())})
+        const vis = resolveLiveVisual(loadScore, "nurse");
+        const loadClass = vis.upstreamClass;
+        const accentStyle = vis.accentStyle;
+
+        const ownerEval = getOwnerEval(nurse, rnEvalMap);
+        const ruleIcon = buildRuleIconHtml(ownerEval, "RN");
+
+        let rows = "";
+        pts.forEach((p) => {
+          rows += `
+            <tr
+              draggable="true"
+              ondragstart="onRowDragStart(event, 'live', 'nurse', ${nurse.id}, ${p.id})"
+              ondragend="onRowDragEnd(event)"
+              ondblclick="openPatientProfileFromRoom(${p.id})"
+            >
+              <td>${p.room || ""}</td>
+              <td>${p.tele ? "Tele" : "MS"}</td>
+              <td>${typeof window.rnTagString === "function" ? window.rnTagString(p) : ""}</td>
+            </tr>
+          `;
+        });
+
+        const emptyDrop = !pts.length ? buildEmptyDropZoneHtml("live", "nurse", nurse.id, "RN") : "";
+
+        const removeBtn = `
+          <button
+            type="button"
+            title="Remove RN"
+            onclick="removeLiveOwner('nurse', ${Number(nurse.id)})"
+            style="
+              border:0;
+              background:rgba(15,23,42,0.08);
+              color:#111;
+              width:28px;
+              height:28px;
+              border-radius:10px;
+              cursor:pointer;
+              font-weight:900;
+              line-height:28px;
+              text-align:center;
+            "
+          >×</button>
+        `;
+
+        nurseContainer.innerHTML += `
+          <div class="assignment-card ${escapeHtml(loadClass)}" style="${accentStyle}">
+            <div class="assignment-header" style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;">
+              <div>
+                <div style="display:flex;align-items:flex-start;gap:10px;">
+                  <div>
+                    <strong>${escapeHtml(nurse.name)}</strong> (${escapeHtml(String(nurse.type || "").toUpperCase())})
+                  </div>
+                  <div class="icon-row">${ruleIcon}</div>
                 </div>
-                <div class="icon-row">${ruleIcon}</div>
+                <div>Patients: ${pts.length} | Load Score: ${loadScore}</div>
               </div>
-              <div>Patients: ${pts.length} | Load Score: ${loadScore}</div>
+              <div style="display:flex;align-items:center;gap:8px;">
+                ${removeBtn}
+              </div>
             </div>
-            <div style="display:flex;align-items:center;gap:8px;">
-              ${removeBtn}
-            </div>
+
+            <table class="assignment-table">
+              <thead>
+                <tr>
+                  <th>Room</th>
+                  <th>Level</th>
+                  <th>Acuity Notes</th>
+                </tr>
+              </thead>
+              <tbody ondragover="onRowDragOver(event)" ondrop="onRowDrop(event, 'live', 'nurse', ${nurse.id})">
+                ${rows}
+              </tbody>
+            </table>
+
+            ${emptyDrop}
           </div>
-
-          <table class="assignment-table">
-            <thead>
-              <tr>
-                <th>Room</th>
-                <th>Level</th>
-                <th>Acuity Notes</th>
-              </tr>
-            </thead>
-            <tbody ondragover="onRowDragOver(event)" ondrop="onRowDrop(event, 'live', 'nurse', ${nurse.id})">
-              ${rows}
-            </tbody>
-          </table>
-
-          ${emptyDrop}
-        </div>
-      `;
-    });
-
-    // Keep slot 9 as a layout spacer if your CSS expects it
-    nurseContainer.innerHTML += `<div id="rnGridSlot9" class="rn-grid-slot-9"></div>`;
-
-    // -----------------------------
-    // Render HOLD (PCA) only if needed
-    // -----------------------------
-    const holdPcaPts = safeArray(holdPca?.patients)
-      .map((id) => getPatientByIdSafe(id))
-      .filter((p) => p && !p.isEmpty)
-      .sort((a, b) => getRoomNumberSafe(a) - getRoomNumberSafe(b));
-
-    if (holdPcaPts.length) {
-      let rows = "";
-      holdPcaPts.forEach((p) => {
-        rows += `
-          <tr
-            draggable="true"
-            ondragstart="onRowDragStart(event, 'live', 'pca', 0, ${p.id})"
-            ondragend="onRowDragEnd(event)"
-            ondblclick="openPatientProfileFromRoom(${p.id})"
-          >
-            <td>${p.room || ""}</td>
-            <td>${p.tele ? "Tele" : "MS"}</td>
-            <td>${typeof window.pcaTagString === "function" ? window.pcaTagString(p) : ""}</td>
-          </tr>
         `;
       });
 
-      pcaContainer.innerHTML += `
-        <div class="assignment-card" style="border-left:6px solid rgba(100,116,139,0.85); opacity:0.95;">
-          <div class="assignment-header">
-            <div>
-              <strong>${escapeHtml(holdPca.name)}</strong>
-            </div>
-            <div style="font-weight:700;">Patients: ${holdPcaPts.length} | Load Score: 0</div>
-          </div>
+      // Keep slot 9 as a layout spacer if your CSS expects it
+      nurseContainer.innerHTML += `<div id="rnGridSlot9" class="rn-grid-slot-9"></div>`;
 
-          <table class="assignment-table">
-            <thead>
-              <tr>
-                <th>Room</th>
-                <th>Level</th>
-                <th>Acuity Notes</th>
-              </tr>
-            </thead>
-            <tbody
-              ondragover="onRowDragOver(event)"
-              ondrop="onRowDrop(event, 'live', 'pca', 0)"
-            >
-              ${rows}
-            </tbody>
-          </table>
-
-          ${buildEmptyDropZoneHtml("live", "pca", 0, "HOLD")}
-        </div>
-      `;
-    }
-
-    // -----------------------------
-    // Render real PCAs
-    // -----------------------------
-    realPcas.forEach((pca) => {
-      const pts = safeArray(pca.patients)
+      // -----------------------------
+      // Render HOLD (PCA) only if needed
+      // -----------------------------
+      const holdPcaPts = safeArray(holdPca?.patients)
         .map((id) => getPatientByIdSafe(id))
         .filter((p) => p && !p.isEmpty)
         .sort((a, b) => getRoomNumberSafe(a) - getRoomNumberSafe(b));
 
-      const loadScore = typeof window.getPcaLoadScore === "function" ? window.getPcaLoadScore(pca) : 0;
+      if (holdPcaPts.length) {
+        let rows = "";
+        holdPcaPts.forEach((p) => {
+          rows += `
+            <tr
+              draggable="true"
+              ondragstart="onRowDragStart(event, 'live', 'pca', 0, ${p.id})"
+              ondragend="onRowDragEnd(event)"
+              ondblclick="openPatientProfileFromRoom(${p.id})"
+            >
+              <td>${p.room || ""}</td>
+              <td>${p.tele ? "Tele" : "MS"}</td>
+              <td>${typeof window.pcaTagString === "function" ? window.pcaTagString(p) : ""}</td>
+            </tr>
+          `;
+        });
 
-      const vis = resolveLiveVisual(loadScore, "pca");
-      const loadClass = vis.upstreamClass;
-      const accentStyle = vis.accentStyle;
+        pcaContainer.innerHTML += `
+          <div class="assignment-card" style="border-left:6px solid rgba(100,116,139,0.85); opacity:0.95;">
+            <div class="assignment-header">
+              <div>
+                <strong>${escapeHtml(holdPca.name)}</strong>
+              </div>
+              <div style="font-weight:700;">Patients: ${holdPcaPts.length} | Load Score: 0</div>
+            </div>
 
-      const ownerEval = getOwnerEval(pca, pcaEvalMap);
-      const ruleIcon = buildRuleIconHtml(ownerEval, "PCA");
+            <table class="assignment-table">
+              <thead>
+                <tr>
+                  <th>Room</th>
+                  <th>Level</th>
+                  <th>Acuity Notes</th>
+                </tr>
+              </thead>
+              <tbody
+                ondragover="onRowDragOver(event)"
+                ondrop="onRowDrop(event, 'live', 'pca', 0)"
+              >
+                ${rows}
+              </tbody>
+            </table>
 
-      let rows = "";
-      pts.forEach((p) => {
-        rows += `
-          <tr
-            draggable="true"
-            ondragstart="onRowDragStart(event, 'live', 'pca', ${pca.id}, ${p.id})"
-            ondragend="onRowDragEnd(event)"
-            ondblclick="openPatientProfileFromRoom(${p.id})"
-          >
-            <td>${p.room || ""}</td>
-            <td>${p.tele ? "Tele" : "MS"}</td>
-            <td>${typeof window.pcaTagString === "function" ? window.pcaTagString(p) : ""}</td>
-          </tr>
+            ${buildEmptyDropZoneHtml("live", "pca", 0, "HOLD")}
+          </div>
+        `;
+      }
+
+      // -----------------------------
+      // Render real PCAs
+      // -----------------------------
+      realPcas.forEach((pca) => {
+        const pts = safeArray(pca.patients)
+          .map((id) => getPatientByIdSafe(id))
+          .filter((p) => p && !p.isEmpty)
+          .sort((a, b) => getRoomNumberSafe(a) - getRoomNumberSafe(b));
+
+        const loadScore = typeof window.getPcaLoadScore === "function" ? window.getPcaLoadScore(pca) : 0;
+
+        const vis = resolveLiveVisual(loadScore, "pca");
+        const loadClass = vis.upstreamClass;
+        const accentStyle = vis.accentStyle;
+
+        const ownerEval = getOwnerEval(pca, pcaEvalMap);
+        const ruleIcon = buildRuleIconHtml(ownerEval, "PCA");
+
+        let rows = "";
+        pts.forEach((p) => {
+          rows += `
+            <tr
+              draggable="true"
+              ondragstart="onRowDragStart(event, 'live', 'pca', ${pca.id}, ${p.id})"
+              ondragend="onRowDragEnd(event)"
+              ondblclick="openPatientProfileFromRoom(${p.id})"
+            >
+              <td>${p.room || ""}</td>
+              <td>${p.tele ? "Tele" : "MS"}</td>
+              <td>${typeof window.pcaTagString === "function" ? window.pcaTagString(p) : ""}</td>
+            </tr>
+          `;
+        });
+
+        const emptyDrop = !pts.length ? buildEmptyDropZoneHtml("live", "pca", pca.id, "PCA") : "";
+
+        const removeBtn = `
+          <button
+            type="button"
+            title="Remove PCA"
+            onclick="removeLiveOwner('pca', ${Number(pca.id)})"
+            style="
+              border:0;
+              background:rgba(15,23,42,0.08);
+              color:#111;
+              width:28px;
+              height:28px;
+              border-radius:10px;
+              cursor:pointer;
+              font-weight:900;
+              line-height:28px;
+              text-align:center;
+            "
+          >×</button>
+        `;
+
+        pcaContainer.innerHTML += `
+          <div class="assignment-card ${escapeHtml(loadClass)}" style="${accentStyle}">
+            <div class="assignment-header" style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;">
+              <div>
+                <div style="display:flex;align-items:flex-start;gap:10px;">
+                  <div><strong>${escapeHtml(pca.name)}</strong> (PCA)</div>
+                  <div class="icon-row">${ruleIcon}</div>
+                </div>
+                <div>Patients: ${pts.length} | Load Score: ${loadScore}</div>
+              </div>
+              <div style="display:flex;align-items:center;gap:8px;">
+                ${removeBtn}
+              </div>
+            </div>
+
+            <table class="assignment-table">
+              <thead>
+                <tr>
+                  <th>Room</th>
+                  <th>Level</th>
+                  <th>Acuity Notes</th>
+                </tr>
+              </thead>
+              <tbody ondragover="onRowDragOver(event)" ondrop="onRowDrop(event, 'live', 'pca', ${pca.id})">
+                ${rows}
+              </tbody>
+            </table>
+
+            ${emptyDrop}
+          </div>
         `;
       });
 
-      const emptyDrop = !pts.length ? buildEmptyDropZoneHtml("live", "pca", pca.id, "PCA") : "";
+      try {
+        if (typeof window.updateDischargeCount === "function") window.updateDischargeCount();
+      } catch {}
 
-      const removeBtn = `
-        <button
-          type="button"
-          title="Remove PCA"
-          onclick="removeLiveOwner('pca', ${Number(pca.id)})"
-          style="
-            border:0;
-            background:rgba(15,23,42,0.08);
-            color:#111;
-            width:28px;
-            height:28px;
-            border-radius:10px;
-            cursor:pointer;
-            font-weight:900;
-            line-height:28px;
-            text-align:center;
-          "
-        >×</button>
-      `;
+      // ✅ Mount Shift Narrative button next to Import Assignment button (LIVE header)
+      // Must happen after the LIVE DOM/header is rendered.
+      try {
+        window.shiftReport?.mountButtonNextToImport?.();
+        setTimeout(() => {
+          try {
+            window.shiftReport?.mountButtonNextToImport?.();
+          } catch {}
+        }, 0);
+      } catch {}
+    } // ✅ IMPORTANT: renderLiveAssignments() closes here
 
-      pcaContainer.innerHTML += `
-        <div class="assignment-card ${escapeHtml(loadClass)}" style="${accentStyle}">
-          <div class="assignment-header" style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;">
-            <div>
-              <div style="display:flex;align-items:flex-start;gap:10px;">
-                <div><strong>${escapeHtml(pca.name)}</strong> (PCA)</div>
-                <div class="icon-row">${ruleIcon}</div>
-              </div>
-              <div>Patients: ${pts.length} | Load Score: ${loadScore}</div>
-            </div>
-            <div style="display:flex;align-items:center;gap:8px;">
-              ${removeBtn}
-            </div>
-          </div>
+    function autoPopulateLiveAssignments() {
+      try {
+        if (typeof window.ensureDefaultPatients === "function") window.ensureDefaultPatients();
+      } catch {}
 
-          <table class="assignment-table">
-            <thead>
-              <tr>
-                <th>Room</th>
-                <th>Level</th>
-                <th>Acuity Notes</th>
-              </tr>
-            </thead>
-            <tbody ondragover="onRowDragOver(event)" ondrop="onRowDrop(event, 'live', 'pca', ${pca.id})">
-              ${rows}
-            </tbody>
-          </table>
+      ensureHoldOwnerForRole("nurse");
+      ensureHoldOwnerForRole("pca");
 
-          ${emptyDrop}
-        </div>
-      `;
-    });
+      const currentNursesAll = safeArray(window.currentNurses);
+      const currentPcasAll = safeArray(window.currentPcas);
 
-    try {
-      if (typeof window.updateDischargeCount === "function") window.updateDischargeCount();
-    } catch {}
-  }
+      const anyAssigned =
+        currentNursesAll.some((n) => n && !isHoldOwner(n) && safeArray(n.patients).length > 0) ||
+        currentPcasAll.some((p) => p && !isHoldOwner(p) && safeArray(p.patients).length > 0);
 
-  function autoPopulateLiveAssignments() {
-    try {
-      if (typeof window.ensureDefaultPatients === "function") window.ensureDefaultPatients();
-    } catch {}
+      if (anyAssigned) return;
 
-    ensureHoldOwnerForRole("nurse");
-    ensureHoldOwnerForRole("pca");
+      const activePatients = safeArray(window.patients).filter((p) => p && !p.isEmpty);
+      if (!activePatients.length) return;
 
-    const currentNursesAll = safeArray(window.currentNurses);
-    const currentPcasAll = safeArray(window.currentPcas);
+      populateLiveAssignment(false);
+    }
 
-    const anyAssigned =
-      currentNursesAll.some((n) => n && !isHoldOwner(n) && safeArray(n.patients).length > 0) ||
-      currentPcasAll.some((p) => p && !isHoldOwner(p) && safeArray(p.patients).length > 0);
+    window.populateLiveAssignment = populateLiveAssignment;
+    window.autoPopulateLiveAssignments = autoPopulateLiveAssignments;
+    window.renderLiveAssignments = renderLiveAssignments;
 
-    if (anyAssigned) return;
-
-    const activePatients = safeArray(window.patients).filter((p) => p && !p.isEmpty);
-    if (!activePatients.length) return;
-
-    populateLiveAssignment(false);
-  }
-
-  window.populateLiveAssignment = populateLiveAssignment;
-  window.autoPopulateLiveAssignments = autoPopulateLiveAssignments;
-  window.renderLiveAssignments = renderLiveAssignments;
-
-  window.__liveAssignmentsBuild = "v11.4.2-optionA-inlineAddButtons";
-})();
+    window.__liveAssignmentsBuild = "v11.4.2-optionA-inlineAddButtons";
+  })();
