@@ -219,6 +219,51 @@
   }
 
   // -----------------------------
+  // Username-only support (maps username -> hidden email)
+  // -----------------------------
+  const USERNAME_EMAIL_DOMAIN = "cupp.invalid";
+
+  function normalizeIdentifier(raw) {
+    return String(raw || "").trim();
+  }
+
+  function looksLikeEmail(id) {
+    // basic, forgiving: if it contains @ and at least one dot after it, treat as email
+    const s = String(id || "").trim();
+    if (!s.includes("@")) return false;
+    const parts = s.split("@");
+    if (parts.length !== 2) return false;
+    if (!parts[0]) return false;
+    if (!parts[1] || !parts[1].includes(".")) return false;
+    return true;
+  }
+
+  function toUsernameEmail(identifier) {
+    // Supervisor types: 2SouthSupervisor
+    // => 2southsupervisor@cupp.invalid
+    // Keep it simple: lowercase, strip spaces, allow letters/numbers/._-
+    const base = String(identifier || "")
+      .trim()
+      .toLowerCase()
+      .replace(/\s+/g, "")
+      .replace(/[^a-z0-9._-]/g, "");
+
+    if (!base) return "";
+
+    // Prevent accidental double-domain input
+    if (base.includes("@")) return base;
+
+    return `${base}@${USERNAME_EMAIL_DOMAIN}`;
+  }
+
+  function identifierToEmail(identifierRaw) {
+    const id = normalizeIdentifier(identifierRaw);
+    if (!id) return "";
+    if (looksLikeEmail(id)) return id;
+    return toUsernameEmail(id);
+  }
+
+  // -----------------------------
   // Auth UI refresh (dropdown only)
   // -----------------------------
   async function refreshAuthUI() {
@@ -295,8 +340,11 @@
   async function sendMagicLink() {
     if (!sbReady()) return setMsg("Supabase not ready yet. Refresh and try again.");
 
-    const email = (el.emailInput?.value || "").trim();
-    if (!email) return setMsg("Enter an email first.");
+    const identifier = (el.emailInput?.value || "").trim();
+    if (!identifier) return setMsg("Enter a username or email first.");
+
+    const email = identifierToEmail(identifier);
+    if (!email) return setMsg("Enter a valid username or email.");
 
     if (typeof window.sb?.signInWithEmail !== "function") {
       return setMsg("Auth helper missing (sb.signInWithEmail). Update app.supabase.js export.");
@@ -312,10 +360,13 @@
   async function signInWithPassword() {
     if (!sbReady()) return setMsg("Supabase not ready yet. Refresh and try again.");
 
-    const email = (el.emailInput?.value || "").trim();
+    const identifier = (el.emailInput?.value || "").trim();
     const password = (el.passwordInput?.value || "").trim();
-    if (!email) return setMsg("Enter an email first.");
+    if (!identifier) return setMsg("Enter a username or email first.");
     if (!password) return setMsg("Enter a password.");
+
+    const email = identifierToEmail(identifier);
+    if (!email) return setMsg("Enter a valid username or email.");
 
     if (typeof window.sb?.signInWithPassword !== "function") {
       return setMsg("Auth helper missing (sb.signInWithPassword). Update app.supabase.js export.");
@@ -332,10 +383,13 @@
   async function signUpWithPassword() {
     if (!sbReady()) return setMsg("Supabase not ready yet. Refresh and try again.");
 
-    const email = (el.emailInput?.value || "").trim();
+    const identifier = (el.emailInput?.value || "").trim();
     const password = (el.passwordInput?.value || "").trim();
-    if (!email) return setMsg("Enter an email first.");
+    if (!identifier) return setMsg("Enter a username or email first.");
     if (!password) return setMsg("Enter a password.");
+
+    const email = identifierToEmail(identifier);
+    if (!email) return setMsg("Enter a valid username or email.");
 
     if (typeof window.sb?.signUpWithPassword !== "function") {
       return setMsg("Auth helper missing (sb.signUpWithPassword). Update app.supabase.js export.");
@@ -352,8 +406,11 @@
   async function sendPasswordReset() {
     if (!sbReady()) return setMsg("Supabase not ready yet. Refresh and try again.");
 
-    const email = (el.emailInput?.value || "").trim();
-    if (!email) return setMsg("Enter your email first.");
+    const identifier = (el.emailInput?.value || "").trim();
+    if (!identifier) return setMsg("Enter your username or email first.");
+
+    const email = identifierToEmail(identifier);
+    if (!email) return setMsg("Enter a valid username or email.");
 
     setMsg("Sending password reset email...");
     const c = getClient();
@@ -386,7 +443,7 @@
     if (el.newPw1) el.newPw1.value = "";
     if (el.newPw2) el.newPw2.value = "";
 
-    setMsg("Password set. You can now sign in with email + password.");
+    setMsg("Password set. You can now sign in with username/email + password.");
     await refreshAuthUI();
   }
 

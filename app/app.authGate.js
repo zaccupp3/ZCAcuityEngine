@@ -4,6 +4,10 @@
 // The ONLY gate. Controls visibility until authed.
 // Uses window.sb (Supabase wrapper) as canonical,
 // but also tolerates window.supabaseClient alias.
+//
+// Username-only support:
+// - If user types something WITHOUT "@", treat it as a username and map to
+//   "<username>@cupp.invalid" before calling Supabase Auth.
 // ---------------------------------------------------------
 
 (function () {
@@ -68,12 +72,56 @@
     }
   }
 
+  // -----------------------------
+  // Username -> hidden email mapping
+  // -----------------------------
+  const USERNAME_EMAIL_DOMAIN = "cupp.invalid";
+
+  function normalizeIdentifier(raw) {
+    return String(raw || "").trim();
+  }
+
+  function looksLikeEmail(id) {
+    const s = String(id || "").trim();
+    if (!s.includes("@")) return false;
+    const parts = s.split("@");
+    if (parts.length !== 2) return false;
+    if (!parts[0]) return false;
+    if (!parts[1] || !parts[1].includes(".")) return false;
+    return true;
+  }
+
+  function toUsernameEmail(identifier) {
+    const base = String(identifier || "")
+      .trim()
+      .toLowerCase()
+      .replace(/\s+/g, "")
+      .replace(/[^a-z0-9._-]/g, "");
+
+    if (!base) return "";
+    if (base.includes("@")) return base;
+    return `${base}@${USERNAME_EMAIL_DOMAIN}`;
+  }
+
+  function identifierToEmail(identifierRaw) {
+    const id = normalizeIdentifier(identifierRaw);
+    if (!id) return "";
+    if (looksLikeEmail(id)) return id;
+    return toUsernameEmail(id);
+  }
+
   async function onLogin() {
-    const email = (emailEl?.value || "").trim();
+    const identifier = (emailEl?.value || "").trim();
     const password = pwEl?.value || "";
 
-    if (!email || !password) {
-      setMsg("Enter email + password.", "error");
+    if (!identifier || !password) {
+      setMsg("Enter username/email + password.", "error");
+      return;
+    }
+
+    const email = identifierToEmail(identifier);
+    if (!email) {
+      setMsg("Enter a valid username/email.", "error");
       return;
     }
 
@@ -123,9 +171,15 @@
   }
 
   async function onForgot() {
-    const email = (emailEl?.value || "").trim();
+    const identifier = (emailEl?.value || "").trim();
+    if (!identifier) {
+      setMsg("Enter your username/email first.", "error");
+      return;
+    }
+
+    const email = identifierToEmail(identifier);
     if (!email) {
-      setMsg("Enter your email first.", "error");
+      setMsg("Enter a valid username/email.", "error");
       return;
     }
 
