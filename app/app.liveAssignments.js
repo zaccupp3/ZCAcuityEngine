@@ -28,6 +28,11 @@
 //   directly adjacent to "Current RN Assignments" / "Current PCA Assignments".
 // - Do-no-harm: also hide any legacy/floating Add buttons inside LIVE that
 //   are not inside our header hosts.
+//
+// ✅ PATCH (Feb 2026 - performance hardening):
+// - Remove repeated Discharge Bin re-render loops (RAF/timeout duplication)
+// - Single-flight mount loop only (ensureDischargeBinMountedSoon)
+// - Never call updateDischargeCount from render paths
 // ---------------------------------------------------------
 
 (function () {
@@ -61,19 +66,6 @@
     return "";
   }
 
-  function isElementVisible(el) {
-    if (!el) return false;
-    try {
-      const rects = el.getClientRects ? el.getClientRects() : null;
-      if (rects && rects.length) return true;
-      const w = el.offsetWidth || 0;
-      const h = el.offsetHeight || 0;
-      return w > 0 && h > 0;
-    } catch {
-      return false;
-    }
-  }
-
   function isLiveTabActive() {
     // If the LIVE containers exist and are not display:none, treat as active.
     const tab = document.getElementById("liveAssignmentTab");
@@ -96,7 +88,6 @@
     return visible(nurse) || visible(pca);
   }
 
-  
   function getThresholdsForLive(role) {
     const live =
       window.liveThresholds && typeof window.liveThresholds === "object"
@@ -536,7 +527,7 @@
   }
 
   // -----------------------------
-  // ✅ Add / Remove RN/PCA in LIVE (works even without staffing helpers)
+  // ✅ Add / Remove RN/PCA in LIVE
   // -----------------------------
   function nextOwnerId(arr) {
     const maxId = safeArray(arr).reduce((m, x) => Math.max(m, Number(x?.id) || 0), 0);
@@ -1055,11 +1046,8 @@
     const host = ensureGlobalDischargeBinHost();
     if (!host) return;
 
-    setTimeout(() => { try { renderGlobalDischargeBin(); } catch {} }, 150);
-    setTimeout(() => { try { renderGlobalDischargeBin(); } catch {} }, 400);
-    
     // ----------------------------------------
-    // 1️⃣ Re-home into real tools wrapper if needed
+    // 1️⃣ Re-home into real tools wrapper if needed (bounded retries)
     // ----------------------------------------
     const tools = document.getElementById("globalTopRightTools");
     if (!tools) {
@@ -1076,11 +1064,8 @@
         }, 0);
       }
     } else {
-      // Once tools exists, ensure wrapper placement is correct
       try {
-        if (typeof positionGlobalTopRightToolsNaturally === "function") {
-          positionGlobalTopRightToolsNaturally();
-        }
+        positionGlobalTopRightToolsNaturally();
       } catch {}
     }
 
@@ -1100,7 +1085,7 @@
     }
 
     // ----------------------------------------
-    // 3️⃣ Handle first-paint visibility race
+    // 3️⃣ Handle first-paint visibility race (bounded retries)
     // ----------------------------------------
     if (!isLiveTabActive()) {
       const vTries = Number(host.__visibleTries || 0);
@@ -1129,7 +1114,7 @@
     host.style.display = "block";
 
     // ----------------------------------------
-    // 4️⃣ Render card
+    // 4️⃣ Render card (pure render; no count update)
     // ----------------------------------------
     host.innerHTML = `
       <div
@@ -1181,12 +1166,8 @@
     // ----------------------------------------
     // 5️⃣ Harden drop target
     // ----------------------------------------
-    hardenDischargeBinDropTarget();
-
     try {
-      if (typeof window.updateDischargeCount === "function") {
-        window.updateDischargeCount();
-      }
+      hardenDischargeBinDropTarget();
     } catch {}
   }
 
@@ -1194,10 +1175,6 @@
   // Populate live
   // -----------------------------
   function populateLiveAssignment(randomize = false) {
-    try {
-      if (typeof window.ensureDefaultPatients === "function") window.ensureDefaultPatients();
-    } catch {}
-
     ensureHoldOwnerForRole("nurse");
     ensureHoldOwnerForRole("pca");
 
@@ -1265,9 +1242,9 @@
     try {
       if (typeof window.saveState === "function") window.saveState();
     } catch {}
-    try {
-      if (typeof window.updateDischargeCount === "function") window.updateDischargeCount();
-    } catch {}
+
+    // NOTE: discharge count updates are intentionally NOT render-driven here.
+    // They should be handled by commit points / central refresh pipeline.
   }
 
   function ensureDischargeBinMountedSoon() {
@@ -1276,16 +1253,14 @@
     window.__dcBinMountLoopActive = true;
 
     let tries = 0;
-    const maxTries = 20;        // ~20 frames/ticks is plenty
-    const tickDelay = 50;       // ms, lets layout settle (Replit first-paint issue)
+    const maxTries = 20; // bounded
+    const tickDelay = 50;
 
     const loop = () => {
       tries++;
 
       try {
-        // Only attempt if LIVE is actually active (your gate)
         if (typeof isLiveTabActive === "function" && isLiveTabActive()) {
-          // If card missing, mount it
           const card = document.getElementById("dischargeBinCard");
           if (!card) {
             try {
@@ -1309,7 +1284,7 @@
 
     setTimeout(loop, 0);
   }
- 
+
   // -----------------------------
   // Live render
   // -----------------------------
@@ -1322,7 +1297,6 @@
       hideLegacyAdmitQueuePanel();
     } catch {}
 
-    // NOTE: build LIVE DOM (including queue) first, then position bin relative to queue.
     const liveTabEl = document.getElementById("liveAssignmentTab");
 
     // Header controls near RN and PCA sections (Option A)
@@ -1333,25 +1307,12 @@
       hideLegacyLiveAddButtons();
     } catch {}
 
+    // Build queue first so bin positioning can reference it
     ensureAdmitQueueInlineHost(liveTabEl, nurseContainer);
+
+    // Single-flight: schedule bin mount (do NOT spam renderGlobalDischargeBin directly)
     ensureDischargeBinMountedSoon();
 
-    // Discharge bin (LIVE only) — after queue exists so positioning is accurate
-    renderGlobalDischargeBin();
-
-    ensureDischargeBinMountedSoon();
-    
-    // First-paint retry: LIVE can measure "not visible" during initial load in Replit
-    setTimeout(() => {
-      try {
-        renderGlobalDischargeBin();
-      } catch (e) {
-        window.__lastDischargeBinError = e;
-        console.warn("[DischargeBin] renderGlobalDischargeBin failed:", e);
-      }
-    }, 0);
-
-    
     const holdRn = syncHoldPatients("nurse");
     const holdPca = syncHoldPatients("pca");
 
@@ -1647,10 +1608,6 @@
       `;
     });
 
-    try {
-      if (typeof window.updateDischargeCount === "function") window.updateDischargeCount();
-    } catch {}
-
     // ✅ Mount Shift Narrative button next to Import Assignment button (LIVE header)
     try {
       window.shiftReport?.mountButtonNextToImport?.();
@@ -1662,33 +1619,6 @@
     } catch {}
   }
 
-  // ✅ Ensure Discharge Bin mounts AFTER RN/PCA cards exist (layout/paint safe)
-  // Replit can measure LIVE as "not visible" until the grid has height.
-  try {
-    renderGlobalDischargeBin();
-  } catch (e) {
-    window.__lastDischargeBinError = e;
-    console.warn("[DischargeBin] renderGlobalDischargeBin failed:", e);
-  }
-  try {
-    requestAnimationFrame(() => {
-      try {
-        renderGlobalDischargeBin();
-      } catch (e) {
-        window.__lastDischargeBinError = e;
-        console.warn("[DischargeBin] renderGlobalDischargeBin failed:", e);
-      }
-      requestAnimationFrame(() => {
-        try {
-          renderGlobalDischargeBin();
-        } catch (e) {
-          window.__lastDischargeBinError = e;
-          console.warn("[DischargeBin] renderGlobalDischargeBin failed:", e);
-        }
-      });
-    });
-  } catch {}
-  
   function autoPopulateLiveAssignments() {
     try {
       if (typeof window.ensureDefaultPatients === "function") window.ensureDefaultPatients();
@@ -1720,6 +1650,6 @@
   window.renderGlobalDischargeBin = renderGlobalDischargeBin;
   window.ensureGlobalDischargeBinHost = ensureGlobalDischargeBinHost;
   window.hideGlobalDischargeBin = hideGlobalDischargeBin;
-  
-  window.__liveAssignmentsBuild = "v11.4.4-binVisibleRetry";
+
+  window.__liveAssignmentsBuild = "v11.4.5-perfDischargeBinSingleFlight";
 })();
