@@ -228,7 +228,6 @@
   }
 
   function looksLikeEmail(id) {
-    // basic, forgiving: if it contains @ and at least one dot after it, treat as email
     const s = String(id || "").trim();
     if (!s.includes("@")) return false;
     const parts = s.split("@");
@@ -239,9 +238,6 @@
   }
 
   function toUsernameEmail(identifier) {
-    // Supervisor types: 2SouthSupervisor
-    // => 2southsupervisor@cupp.invalid
-    // Keep it simple: lowercase, strip spaces, allow letters/numbers/._-
     const base = String(identifier || "")
       .trim()
       .toLowerCase()
@@ -249,10 +245,7 @@
       .replace(/[^a-z0-9._-]/g, "");
 
     if (!base) return "";
-
-    // Prevent accidental double-domain input
     if (base.includes("@")) return base;
-
     return `${base}@${USERNAME_EMAIL_DOMAIN}`;
   }
 
@@ -261,6 +254,24 @@
     if (!id) return "";
     if (looksLikeEmail(id)) return id;
     return toUsernameEmail(id);
+  }
+
+  // Friendly label for shared/demo accounts
+  function displayNameForUser(sessionUser) {
+    const email = String(sessionUser?.email || "").trim().toLowerCase();
+    if (!email) return "";
+
+    // Your specific supervisor shared account
+    if (email === "2southsupervisor@cupp.invalid") return "2 South Supervisor";
+
+    // Generic shared accounts in .invalid domain (fallback)
+    if (email.endsWith(`@${USERNAME_EMAIL_DOMAIN}`)) {
+      const u = email.split("@")[0] || "Shared User";
+      // light prettify: 2southsupervisor -> 2southsupervisor (keep safe)
+      return u;
+    }
+
+    return sessionUser?.email || "";
   }
 
   // -----------------------------
@@ -318,8 +329,8 @@
     setStatus("Signed in");
     showLoggedIn(true);
 
-    const email = session.user?.email || "(no email)";
-    if (el.userEmail) el.userEmail.textContent = email;
+    const label = displayNameForUser(session.user) || "(user)";
+    if (el.userEmail) el.userEmail.textContent = label;
 
     try {
       const r = await refreshMembershipsAndUnit();
