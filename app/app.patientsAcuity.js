@@ -519,6 +519,38 @@
     } catch (_) {}
   }
 
+  function rewireAssignmentPatientId(list, fromId, toId) {
+    const arr = safeArray(list);
+    const fromNum = Number(fromId);
+    const toNum = Number(toId);
+    if (!Number.isFinite(fromNum) || !Number.isFinite(toNum) || fromNum === toNum) return arr;
+
+    arr.forEach(owner => {
+      if (!owner) return;
+      const pts = safeArray(owner.patients);
+      if (!pts.length) return;
+
+      const next = [];
+      let changed = false;
+
+      pts.forEach(x => {
+        const idNum = Number(x);
+        if (idNum === fromNum) {
+          if (!next.some(existing => Number(existing) === toNum)) {
+            next.push(toNum);
+          }
+          changed = true;
+        } else {
+          next.push(x);
+        }
+      });
+
+      if (changed) owner.patients = next;
+    });
+
+    return arr;
+  }
+
   // =========================
   // Bed state setter (single + bulk-safe)
   // =========================
@@ -553,6 +585,124 @@
 
   function setBedEmptyState(patientId, makeEmpty) {
     setBedEmptyStateInternal(patientId, makeEmpty, { suppressRefresh: false, source: "patient_details" });
+  }
+
+  function movePatientToBed(fromPatientId, toPatientId) {
+    ensurePatientsReady();
+
+    const fromId = Number(fromPatientId);
+    const toId = Number(toPatientId);
+
+    if (!Number.isFinite(fromId) || !Number.isFinite(toId) || fromId <= 0 || toId <= 0) {
+      alert("Invalid bed selection for room change.");
+      return false;
+    }
+    if (fromId === toId) {
+      alert("Source and destination beds are the same.");
+      return false;
+    }
+
+    const from = getPatientById(fromId);
+    const to = getPatientById(toId);
+
+    if (!from || from.isEmpty) {
+      alert("Cannot move an empty bed. Uncheck Empty Bed first to admit/edit.");
+      return false;
+    }
+    if (!to) {
+      alert("Target bed not found.");
+      return false;
+    }
+    if (!to.isEmpty) {
+      alert("Target bed is not empty. Use Empty Bed or discharge first.");
+      return false;
+    }
+
+    const movingGender = (from.gender || "").trim();
+    if (movingGender) {
+      if (!canSetGenderFallback(to, movingGender)) {
+        alert("Roommate has a different gender. Mixed-gender room not allowed for this bed.");
+        return false;
+      }
+    }
+
+    const fromLabel = getRoomLabelForPatient(from);
+    const toLabel = getRoomLabelForPatient(to);
+
+    const canonicalKeys = [
+      "name",
+      "gender",
+      "tele",
+      "drip",
+      "nih",
+      "bg",
+      "ciwa",
+      "restraint",
+      "sitter",
+      "vpo",
+      "isolation",
+      "admit",
+      "lateDc",
+      "chg",
+      "foley",
+      "q2turns",
+      "heavy",
+      "feeder",
+      "reviewed"
+    ];
+
+    const aliasKeys = [
+      "bgChecks",
+      "cows",
+      "ciwaCows",
+      "iso",
+      "q2Turns",
+      "lateDC",
+      "latedc",
+      "restraints",
+      "feeders"
+    ];
+
+    canonicalKeys.forEach(k => {
+      to[k] = from[k];
+    });
+    aliasKeys.forEach(k => {
+      to[k] = from[k];
+    });
+
+    to.isEmpty = false;
+    to.recentlyDischarged = false;
+
+    clearAllAcuityFieldsAndAliases(from);
+    from.name = "";
+    from.isEmpty = true;
+    from.recentlyDischarged = false;
+
+    window.currentNurses = rewireAssignmentPatientId(window.currentNurses, fromId, toId);
+    window.currentPcas = rewireAssignmentPatientId(window.currentPcas, fromId, toId);
+    window.incomingNurses = rewireAssignmentPatientId(window.incomingNurses, fromId, toId);
+    window.incomingPcas = rewireAssignmentPatientId(window.incomingPcas, fromId, toId);
+
+    try {
+      if (typeof currentNurses !== "undefined") currentNurses = window.currentNurses;
+      if (typeof currentPcas !== "undefined") currentPcas = window.currentPcas;
+      if (typeof incomingNurses !== "undefined") incomingNurses = window.incomingNurses;
+      if (typeof incomingPcas !== "undefined") incomingPcas = window.incomingPcas;
+    } catch (_) {}
+
+    try {
+      appendWithAttribution("ASSIGNMENT_MOVED", {
+        patientId: Number(to.id),
+        bed: String(to.room || to.id || ""),
+        changes: [{ key: "room", before: fromLabel, after: toLabel }],
+        source: "room_change"
+      }, { v: 2, source: "app.patientsAcuity.js" });
+    } catch (e) {
+      console.warn("[events] ASSIGNMENT_MOVED append failed", e);
+    }
+
+    refreshAllTabs({ reason: "room_change" });
+    return true;
   }
 
   // =========================
@@ -1438,4 +1588,5 @@
 
   window.activateAllRooms = activateAllRooms;
   window.emptyAllRooms = emptyAllRooms;
+  window.movePatientToBed = movePatientToBed;
 })();

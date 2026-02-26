@@ -86,6 +86,74 @@
       opacity: 0.85;
       white-space: nowrap;
     }
+
+    .totals-three-sections {
+      display: grid;
+      grid-template-columns: 1fr 1fr auto;
+      gap: 12px;
+      align-items: center;
+      margin: 8px 0;
+    }
+
+    .totals-three-sections .totals-section {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .totals-three-sections .totals-section .totals-label {
+      font-weight: 800;
+      font-size: 18px;
+      opacity: 0.9;
+      white-space: nowrap;
+    }
+
+    .totals-three-sections .totals-section select {
+      box-sizing: border-box;
+    }
+
+    .totals-three-sections .totals-status {
+      display: flex;
+      justify-content: flex-end;
+      align-items: center;
+    }
+
+    .staffing-status-pill {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 12px;
+      border-radius: 999px;
+      border: 1px solid rgba(15, 23, 42, 0.15);
+      background: rgba(255, 255, 255, 0.85);
+      backdrop-filter: blur(8px);
+      box-shadow: 0 4px 14px rgba(16, 24, 40, 0.1);
+      font-size: 12px;
+      color: #0f172a;
+      user-select: none;
+    }
+
+    .staffing-status-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 999px;
+      background: #22c55e;
+      flex-shrink: 0;
+    }
+
+    .staffing-status-text {
+      font-weight: 700;
+    }
+
+    .staffing-status-meta {
+      opacity: 0.75;
+    }
+
+    @media (max-width: 980px) {
+      .totals-three-sections { grid-template-columns: 1fr; }
+      .totals-three-sections .totals-status { justify-content: flex-start; }
+    }
   </style>
 </head>
 <body>
@@ -176,7 +244,7 @@
       <div class="brand">
         <span class="brand-dot" aria-hidden="true"></span>
         <span class="brand-text">
-          <span class="brand-title">Acuity Engine & Workforce Optimizer</span>
+          <span id="brandTitle" class="brand-title">Acuity Engine & Workforce Optimizer</span>
           <span class="brand-subtitle">Created by Zachary Cupp, BSN, RN</span>
         </span>
       </div>
@@ -318,23 +386,29 @@
           <div class="totals-block">
             <div class="totals-title">Staffing Totals</div>
 
-            <div class="totals-row">
-              <div class="totals-label">Total RNs</div>
-              <select id="currentNurseCount">
-                <option>1</option><option>2</option><option>3</option><option>4</option>
-                <option>5</option><option>6</option><option>7</option><option>8</option>
-                <option>9</option><option>10</option>
-              </select>
-              <button type="button" onclick="setupCurrentNurses()">Update Current RNs</button>
-            </div>
-
-            <div class="totals-row">
-              <div class="totals-label">Total PCAs</div>
-              <select id="currentPcaCount">
-                <option>1</option><option>2</option><option>3</option>
-                <option>4</option><option>5</option><option>6</option><option>7</option>
-              </select>
-              <button type="button" onclick="setupCurrentPcas()">Update Current PCAs</button>
+            <div class="totals-three-sections">
+              <div class="totals-section">
+                <span class="totals-label">Total RNs:</span>
+                <select id="currentNurseCount">
+                  <option>1</option><option>2</option><option>3</option><option>4</option>
+                  <option>5</option><option>6</option><option>7</option><option>8</option>
+                  <option>9</option><option>10</option>
+                </select>
+              </div>
+              <div class="totals-section">
+                <span class="totals-label">Total PCAs:</span>
+                <select id="currentPcaCount">
+                  <option>1</option><option>2</option><option>3</option>
+                  <option>4</option><option>5</option><option>6</option><option>7</option>
+                </select>
+              </div>
+              <div class="totals-section totals-status">
+                <div id="currentStaffingTotalsStatus" class="staffing-status-pill" role="status">
+                  <span class="staffing-status-dot"></span>
+                  <span class="staffing-status-text">Updated</span>
+                  <span class="staffing-status-meta"></span>
+                </div>
+              </div>
             </div>
           </div>
 
@@ -376,23 +450,29 @@
           <div class="totals-block">
             <div class="totals-title">Staffing Totals</div>
 
-            <div class="totals-row">
-              <div class="totals-label">Total RNs</div>
-              <select id="incomingNurseCount">
-                <option>1</option><option>2</option><option>3</option><option>4</option>
-                <option>5</option><option>6</option><option>7</option><option>8</option>
-                <option>9</option><option>10</option>
-              </select>
-              <button type="button" onclick="setupIncomingNurses()">Update Oncoming RNs</button>
-            </div>
-
-            <div class="totals-row">
-              <div class="totals-label">Total PCAs</div>
-              <select id="incomingPcaCount">
-                <option>1</option><option>2</option><option>3</option>
-                <option>4</option><option>5</option><option>6</option><option>7</option>
-              </select>
-              <button type="button" onclick="setupIncomingPcas()">Update Oncoming PCAs</button>
+            <div class="totals-three-sections">
+              <div class="totals-section">
+                <span class="totals-label">Total RNs:</span>
+                <select id="incomingNurseCount">
+                  <option>1</option><option>2</option><option>3</option><option>4</option>
+                  <option>5</option><option>6</option><option>7</option><option>8</option>
+                  <option>9</option><option>10</option>
+                </select>
+              </div>
+              <div class="totals-section">
+                <span class="totals-label">Total PCAs:</span>
+                <select id="incomingPcaCount">
+                  <option>1</option><option>2</option><option>3</option>
+                  <option>4</option><option>5</option><option>6</option><option>7</option>
+                </select>
+              </div>
+              <div class="totals-section totals-status">
+                <div id="incomingStaffingTotalsStatus" class="staffing-status-pill" role="status">
+                  <span class="staffing-status-dot"></span>
+                  <span class="staffing-status-text">Updated</span>
+                  <span class="staffing-status-meta"></span>
+                </div>
+              </div>
             </div>
           </div>
 
@@ -416,7 +496,7 @@
     <section id="patientDetailsTab" class="tab-section" style="display: none;">
       <h1>Patient Details</h1>
       <p>
-        This grid shows all 32 rooms. Use the controls to set acuity tags and gender
+        This grid shows all 32 rooms. Use the controls to set acuity tags
         for each patient. These tags feed both the LIVE and Oncoming Assignment engines.
       </p>
 
@@ -439,6 +519,9 @@
       <div class="actions-row">
         <button onclick="updateAcuityTiles()">Refresh High Risk Report</button>
         <button onclick="openAcuityModal()">Open Full Acuity Modal</button>
+        <button type="button" onclick="window.printOncoming && window.printOncoming.openHighRiskOnly && window.printOncoming.openHighRiskOnly()">
+          Preview High-Risk Hand-Off
+        </button>
       </div>
 
       <div id="acuityTiles" class="acuity-tiles-container"></div>
@@ -453,6 +536,10 @@
 
         <button type="button" onclick="window.openImportAssignmentScan && window.openImportAssignmentScan()">
           Import Assignment to LIVE (Photo)
+        </button>
+
+        <button type="button" onclick="window.printLive && window.printLive.open && window.printLive.open()">
+          Print Live Assignment
         </button>
       </div>
 
@@ -477,22 +564,32 @@
     <section id="oncomingAssignmentTab" class="tab-section" style="display: none;">
       <h1>Oncoming Assignment (Incoming Staff)</h1>
 
-      <div class="actions-row" style="flex-wrap:wrap;">
-        <button onclick="window.populateOncomingAssignment && window.populateOncomingAssignment(false)">Populate Oncoming Assignment</button>
+      <div class="actions-row" style="display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap;">
+        <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+          <div id="oncomingPopulateStatus" class="staffing-status-pill" role="status">
+            <span class="staffing-status-dot" style="background:#fbbf24;"></span>
+            <span class="staffing-status-text">Populating</span>
+            <span class="staffing-status-meta"></span>
+          </div>
 
-        <button id="btnPrintOncoming" type="button"
-                onclick="window.printOncoming && window.printOncoming.open()">
-          Print Oncoming (1-page)
-        </button>
+          <button onclick="window.populateOncomingAssignment && window.populateOncomingAssignment(false)">Populate</button>
+          <button onclick="window.rebalanceOncomingAssignment && window.rebalanceOncomingAssignment()">Rebalance (Both)</button>
 
-        <button type="button" onclick="window.rebalanceOncomingRnOnly && window.rebalanceOncomingRnOnly()">Rebalance RN (Only)</button>
-        <button type="button" onclick="window.rebalanceOncomingPcaOnly && window.rebalanceOncomingPcaOnly()">Rebalance PCA (Only)</button>
+          <button id="btnFinalizeShift" type="button" title="Publishes Oncoming snapshot + analytics, then swaps Live ← Oncoming">
+            Finalize / Submit Shift Change
+          </button>
+        </div>
 
-        <button onclick="window.rebalanceOncomingAssignment && window.rebalanceOncomingAssignment()">Rebalance (Both)</button>
-
-        <button id="btnFinalizeShift" type="button" title="Publishes Oncoming snapshot + analytics, then swaps Live ← Oncoming">
-          Finalize / Submit Shift Change
-        </button>
+        <div style="margin-left:auto;">
+          <button id="btnPrintHandoffPacket" type="button"
+                  onclick="window.printOncoming && window.printOncoming.openPacket && window.printOncoming.openPacket()">
+            Print Hand-Off Packet
+          </button>
+          <button id="btnPrintOncoming" type="button"
+                  onclick="window.printOncoming && window.printOncoming.open()">
+            Print Oncoming (1-page)
+          </button>
+        </div>
       </div>
 
       <div class="staff-card" style="margin-top: 12px;">
@@ -517,17 +614,11 @@
 
       <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; margin-top: 12px;">
         <h2 style="margin:0;">Incoming RN Assignments</h2>
-        <button type="button" onclick="window.rebalanceOncomingRnOnly && window.rebalanceOncomingRnOnly()">
-          Rebalance RN
-        </button>
       </div>
       <div id="assignmentOutput" class="assignment-grid two-column-grid"></div>
 
       <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; margin-top: 24px;">
         <h2 style="margin:0;">Incoming PCA Assignments</h2>
-        <button type="button" onclick="window.rebalanceOncomingPcaOnly && window.rebalanceOncomingPcaOnly()">
-          Rebalance PCA
-        </button>
       </div>
       <div id="pcaAssignmentOutput" class="assignment-grid two-column-grid"></div>
     </section>
@@ -587,6 +678,10 @@
 
   </main>
 
+  <footer class="app-footer">
+    Charge Nurse Acuity and Workload Tracking Platform: Created by Zachary Cupp, BSN, RN
+  </footer>
+
   <!-- MODALS (unchanged) -->
   <div id="patientProfileModal" class="modal">
     <div class="modal-content">
@@ -595,16 +690,6 @@
         <button class="close-btn" onclick="closePatientProfileModal()">&times;</button>
       </div>
       <div class="modal-body">
-        <div class="modal-row">
-          <label for="profGender"><strong>Gender:</strong></label>
-          <select id="profGender">
-            <option value="">-</option>
-            <option value="F">F</option>
-            <option value="M">M</option>
-            <option value="X">X</option>
-          </select>
-        </div>
-
         <div class="modal-grid">
           <div class="modal-column">
             <h3>RN Acuity Tags</h3>
@@ -713,16 +798,6 @@
           Set optional pre-admit tags. These will copy into the patient record when you assign this admit into a bed.
         </p>
 
-        <div class="modal-row">
-          <label for="admitDraftGender"><strong>Gender (optional):</strong></label>
-          <select id="admitDraftGender">
-            <option value="">-</option>
-            <option value="F">F</option>
-            <option value="M">M</option>
-            <option value="X">X</option>
-          </select>
-        </div>
-
         <div class="modal-grid" style="margin-top: 12px;">
           <div class="modal-column">
             <h3>RN Pre-Admit Tags</h3>
@@ -801,7 +876,7 @@
     <script src="app/app.assignmentRules.js?v=4"></script>
 
     <script src="app/app.admitQueue.js?v=2"></script>
-    <script src="app/app.liveAssignments.js?v=96"></script>
+    <script src="app/app.liveAssignments.js?v=97"></script>
     <script src="app/app.assignmentsrender.js?v=4"></script>
     <script src="app/app.assignmentsDrag.js?v=1"></script>
 
@@ -813,8 +888,8 @@
     <script src="app/app.unitMetrics.js?v=1"></script>
     <script src="app/app.unitPulse.js?v=5"></script>
 
-    <script src="app/app.printOncoming.js?v=8"></script>
-    <script src="app/app.printLive.js?v=8"></script>
+    <script src="app/app.printOncoming.js?v=11"></script>
+    <script src="app/app.printLive.js?v=9"></script>
 
     <script src="https://unpkg.com/tesseract.js@5/dist/tesseract.min.js"></script>
 

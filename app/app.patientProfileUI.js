@@ -156,6 +156,21 @@
   // ----------------------------
   let currentProfilePatientId = null;
 
+  function listAvailableBedsForProfile(currentPatientId) {
+    const curId = Number(currentPatientId);
+    const rows = safeArray(window.patients)
+      .filter(p => p && Number(p.id) !== curId && p.isEmpty)
+      .sort((a, b) => {
+        try {
+          if (typeof window.getRoomNumber === "function") {
+            return window.getRoomNumber(a) - window.getRoomNumber(b);
+          }
+        } catch (_) {}
+        return Number(a.id) - Number(b.id);
+      });
+    return rows;
+  }
+
   function makeDraggable(cardEl, handleEl) {
     if (!cardEl || !handleEl || handleEl.__dragWired) return;
     handleEl.__dragWired = true;
@@ -340,15 +355,38 @@
     ];
 
     if (bodyEl) {
+      const bedLabel = getBedLabel(p) || "?";
       bodyEl.innerHTML = `
-        <div class="pp-row" style="display:flex;align-items:center;gap:10px;margin-bottom:10px;">
-          <div class="pp-label" style="font-weight:800;">Gender:</div>
-          <select id="profGender">
-            <option value="" ${!p.gender ? "selected" : ""}>-</option>
-            <option value="M" ${p.gender === "M" ? "selected" : ""}>M</option>
-            <option value="F" ${p.gender === "F" ? "selected" : ""}>F</option>
-            <option value="X" ${p.gender === "X" ? "selected" : ""}>X</option>
-          </select>
+        <div class="pp-row" style="display:flex;align-items:center;justify-content:flex-end;gap:10px;margin-bottom:10px;">
+          <div style="display:flex;align-items:center;gap:8px;">
+            <button class="btn" type="button" id="ppRoomChangeBtn">Room Change</button>
+          </div>
+        </div>
+
+        <div id="ppRoomChangePanel" style="
+          display:none;
+          align-items:center;
+          gap:10px;
+          margin-bottom:12px;
+          padding:10px 12px;
+          border-radius:12px;
+          border:1px solid rgba(15,23,42,0.12);
+          background:rgba(248,250,252,0.9);
+          flex-wrap:wrap;
+        ">
+          <div style="font-weight:900;font-size:14px;">Move to:</div>
+          <select
+            id="ppRoomChangeTarget"
+            style="
+              min-width:150px;
+              padding:8px 10px;
+              font-size:14px;
+              border-radius:10px;
+              border:1px solid rgba(15,23,42,0.18);
+            "
+          ></select>
+          <button class="btn btn-primary" type="button" id="ppRoomChangeConfirm">Confirm</button>
+          <button class="btn" type="button" id="ppRoomChangeCancel">Cancel</button>
         </div>
 
         <div class="pp-grid" style="
@@ -385,6 +423,78 @@
     const saveBtn = modal.querySelector("#ppSaveBtn");
     if (saveBtn) saveBtn.onclick = savePatientProfile;
 
+    const roomChangeBtn = modal.querySelector("#ppRoomChangeBtn");
+    const roomChangePanel = modal.querySelector("#ppRoomChangePanel");
+    const roomChangeSelect = modal.querySelector("#ppRoomChangeTarget");
+    const roomChangeConfirm = modal.querySelector("#ppRoomChangeConfirm");
+    const roomChangeCancel = modal.querySelector("#ppRoomChangeCancel");
+
+    if (roomChangeBtn && roomChangePanel && roomChangeSelect && roomChangeConfirm && roomChangeCancel) {
+      const fromLabel = getBedLabel(p) || "";
+
+      const populateTargets = () => {
+        const empties = listAvailableBedsForProfile(p.id);
+        if (!empties.length) {
+          alert("No empty beds are available for room change.");
+          roomChangePanel.style.display = "none";
+          return;
+        }
+        roomChangeSelect.innerHTML = empties
+          .map(b => `<option value="${b.id}">${getBedLabel(b) || b.id}</option>`)
+          .join("");
+        if (!roomChangeSelect.value && empties[0]) {
+          roomChangeSelect.value = String(empties[0].id);
+        }
+      };
+
+      const updateConfirmLabel = () => {
+        const targetId = Number(roomChangeSelect.value || 0);
+        if (!targetId) return;
+        const target = safeArray(window.patients).find(x => x && Number(x.id) === targetId);
+        const toLabel = target ? (getBedLabel(target) || target.id) : targetId;
+        roomChangeConfirm.textContent = `Move ${fromLabel} to ${toLabel}`;
+      };
+
+      roomChangeBtn.onclick = () => {
+        populateTargets();
+        if (!roomChangeSelect.value) return;
+        updateConfirmLabel();
+        roomChangePanel.style.display = "flex";
+      };
+
+      roomChangeSelect.onchange = () => {
+        updateConfirmLabel();
+      };
+
+      roomChangeCancel.onclick = () => {
+        roomChangePanel.style.display = "none";
+      };
+
+      roomChangeConfirm.onclick = () => {
+        const targetId = Number(roomChangeSelect.value || 0);
+        if (!targetId) return;
+        const target = safeArray(window.patients).find(x => x && Number(x.id) === targetId);
+        const toLabel = target ? (getBedLabel(target) || target.id) : targetId;
+        const msg = `Move ${fromLabel} to ${toLabel}?`;
+        if (!window.confirm(msg)) return;
+
+        if (typeof window.movePatientToBed !== "function") {
+          alert("Room Change is not available. Please refresh the page and try again.");
+          return;
+        }
+
+        try {
+          const ok = window.movePatientToBed(p.id, targetId);
+          if (ok) {
+            closePatientProfileModal();
+          }
+        } catch (e) {
+          console.warn("[patientProfileUI] movePatientToBed failed", e);
+          alert("Unable to move patient to new bed. See console for details.");
+        }
+      };
+    }
+
     modal.style.display = "flex";
   }
 
@@ -407,15 +517,6 @@
       (window.__profileBeforeSnapshot && Number(window.__profileBeforePatientId) === Number(p.id))
         ? window.__profileBeforeSnapshot
         : takeAcuitySnapshot(p);
-
-    const gSel = document.getElementById("profGender");
-    const newGender = gSel ? gSel.value : "";
-
-    if (newGender && !canSetGenderSafe(p, newGender)) {
-      alert("Roommate has a different gender. Mixed-gender room not allowed for this bed.");
-      return;
-    }
-    p.gender = newGender || "";
 
     const getCheck = (id) => !!document.getElementById(id)?.checked;
 

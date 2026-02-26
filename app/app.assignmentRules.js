@@ -22,6 +22,15 @@
 //
 // ✅ PERF (Jan 2026):
 // - Build prev-owner maps once per evaluation pass (no repeated .find scans)
+//
+// ✅ Rebalance (Jan 2026):
+// - Early exit in repairAssignmentsInPlace when avoidable <= 0 and reportOverflow <= 0
+//   (no swap search when assignment is already safe and report-optimized).
+//
+// ✅ Rule-aware distribution (Jan 2026):
+// - distributePatientsEvenly: constraint-first sort, rule-aware owner choice (avoid
+//   creating avoidable tag violations), report-source penalty, walk tie-breaker.
+// - Repair: wider offender set (5), more iterations when called from Populate (35).
 // ---------------------------------------------------------
 
 (function () {
@@ -241,6 +250,52 @@
 
   function reportOverflowTotal(owners2, prevMap) {
     return safeArray(owners2).reduce((s, o) => s + reportOverflowForOwner(o, prevMap), 0);
+  }
+
+  // Rule-aware distribution: tag counts for a single patient (same keys as countTagsForOwner)
+  function countTagsForPatient(patient, role) {
+    const pid = getId(patient);
+    if (pid == null) return {};
+    const tempOwner = { patients: [pid] };
+    return countTagsForOwner(tempOwner, role);
+  }
+
+  // Would adding this patient to this owner create an avoidable violation?
+  function wouldAddingPatientCauseAvoidableViolation(owner, patient, ownersAll, role, limitsOverride) {
+    const limits = limitsOverride || (role === "pca" ? PCA_LIMITS : RN_LIMITS);
+    const ownerCount = Math.max(1, safeArray(ownersAll).length);
+    const ownerCounts = countTagsForOwner(owner, role);
+    const patientCounts = countTagsForPatient(patient, role);
+    const unitCounts = countTagsForUnit(ownersAll, role);
+
+    for (const tag in limits) {
+      const limit = limits[tag];
+      const combined = (ownerCounts[tag] || 0) + (patientCounts[tag] || 0);
+      if (combined <= limit) continue;
+
+      const unitTotalWithNew = (unitCounts[tag] || 0) + (patientCounts[tag] || 0);
+      const unavoidable = unavoidableThreshold(unitTotalWithNew, ownerCount, limit);
+      if (!unavoidable) return true;
+    }
+    return false;
+  }
+
+  // Report-source count if we added this patient to this owner (for cap check)
+  function reportSourcesAfterAdd(owner, patientId, prevMap) {
+    if (!prevMap) return 0;
+    const tempOwner = { patients: safeArray(owner?.patients).concat(Number(patientId)) };
+    return reportSourcesForOwner(tempOwner, prevMap);
+  }
+
+  // Count of tags that have limit 1 (hardest to place); used for constraint-first sort
+  function countLimitOneTags(patient, role, limits) {
+    const lims = limits || (role === "pca" ? PCA_LIMITS : RN_LIMITS);
+    const patientCounts = countTagsForPatient(patient, role);
+    let n = 0;
+    for (const tag in lims) {
+      if (lims[tag] === 1 && (patientCounts[tag] || 0) > 0) n++;
+    }
+    return n;
   }
 
   function roomNumberForPatientId(pid) {
@@ -547,6 +602,7 @@
 
       const already = preserveExisting ? assignedSet() : new Set();
 
+      // Fallback only: all patients empty (no acuity data). Normal Populate never hits this.
       listRaw.forEach((p, index) => {
         const patientId = Number(getId(p));
         if (preserveExisting && already.has(patientId)) return;
@@ -575,6 +631,7 @@
     else ensurePatientsArrays();
 
     if (!useLoadBalancing) {
+      // Fallback only: caller explicitly disabled load balancing. Oncoming Populate always uses load balancing.
       const already = preserveExisting ? assignedSet() : new Set();
       list.forEach((p, index) => {
         const pid = Number(p.id);
@@ -586,7 +643,14 @@
       return;
     }
 
+    const limitsOverride = options.limitsOverride || null;
+    const limits = limitsOverride || (role === "pca" ? PCA_LIMITS : RN_LIMITS);
+
+    // Constraint-first: place high-constraint patients first (limit-1 tags), then by acuity
     list.sort((a, b) => {
+      const constraintA = countLimitOneTags(a, role, limits);
+      const constraintB = countLimitOneTags(b, role, limits);
+      if (constraintB !== constraintA) return constraintB - constraintA;
       const sa = (role === "pca") ? pcaPatientScore(a) : rnPatientScore(a);
       const sb = (role === "pca") ? pcaPatientScore(b) : rnPatientScore(b);
       return sb - sa;
@@ -603,18 +667,36 @@
     const desiredCaps = owners.map((_, i) => base + (i < remainder ? 1 : 0));
     const capByIndex = desiredCaps.map((cap, i) => Math.max(cap, baseCounts[i]));
 
+    const r2 = (role === "pca") ? "pca" : "nurse";
+    const prevMap = buildPrevOwnerMap(r2);
+    const LOAD_EPSILON = 2;
+    const REPORT_SOURCE_PENALTY = 100;
+
     list.forEach(p => {
       let bestIdx = -1;
       let bestScore = Infinity;
+      let bestWalk = Infinity;
 
       for (let i = 0; i < owners.length; i++) {
         const o = owners[i];
         const curCount = safeArray(o.patients).length;
         if (curCount >= capByIndex[i]) continue;
 
-        const projected = ownerProjectedLoad(o, role === "pca" ? "pca" : "nurse", p);
-        if (projected < bestScore) {
-          bestScore = projected;
+        const causesViolation = wouldAddingPatientCauseAvoidableViolation(o, p, owners, role, limitsOverride);
+        let score = ownerProjectedLoad(o, r2, p);
+        if (causesViolation) score += REPORT_SOURCE_PENALTY * 2;
+
+        const sourcesAfter = reportSourcesAfterAdd(o, p.id, prevMap);
+        const allowedSources = allowedReportSourcesForCount(curCount + 1);
+        if (sourcesAfter > allowedSources) score += REPORT_SOURCE_PENALTY;
+
+        const tempOwner = { patients: safeArray(o.patients).concat(Number(p.id)) };
+        const walkAfter = walkingSpreadForOwner(tempOwner);
+
+        const scoreTie = (bestIdx >= 0 && Math.abs(score - bestScore) <= LOAD_EPSILON);
+        if (bestIdx === -1 || score < bestScore || (scoreTie && walkAfter < bestWalk)) {
+          bestScore = score;
+          bestWalk = walkAfter;
           bestIdx = i;
         }
       }
@@ -702,6 +784,20 @@
     const r2 = (role2 === "pca") ? "pca" : "nurse";
     const maxIters = typeof opts.maxIters === "number" ? opts.maxIters : 20;
 
+    // Early exit when clean: no avoidable violations and no report-source overflow.
+    // Avoids running the swap search when assignment is already safe and report-optimized.
+    const initialTuple = qualityTuple(list2, r2, limitsOverride);
+    if (initialTuple.avoidable <= 0 && initialTuple.reportOverflow <= 0) {
+      return {
+        ok: true,
+        done: true,
+        iter: 0,
+        avoidableViolations: initialTuple.avoidable,
+        reportOverflow: initialTuple.reportOverflow,
+        warnings: countWarningsAll(list2, r2, limitsOverride)
+      };
+    }
+
     let iter = 0;
 
     while (iter < maxIters) {
@@ -722,7 +818,7 @@
 
       const offenders = getWorstOffenders(list2, r2, limitsOverride);
       const candidateAIdxs = offenders.length
-        ? offenders.slice(0, 3).map(x => x.idx)
+        ? offenders.slice(0, 5).map(x => x.idx)
         : list2.slice(0, 3).map((_, idx) => idx);
 
       let best = null;

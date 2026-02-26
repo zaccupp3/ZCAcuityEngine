@@ -52,6 +52,15 @@
     if (sectionId === "unitPulseTab") {
       if (typeof window.renderUnitPulseTab === "function") window.renderUnitPulseTab();
     }
+
+    // Keep global discharge bin scoped to tab visibility rules.
+    if (typeof window.syncDischargeBinVisibility === "function") {
+      window.syncDischargeBinVisibility();
+    } else if (typeof window.hideGlobalDischargeBin === "function") {
+      const keep =
+        sectionId === "liveAssignmentTab" || sectionId === "oncomingAssignmentTab";
+      if (!keep) window.hideGlobalDischargeBin();
+    }
   }
 
   // Expose for any legacy inline calls that still exist
@@ -138,6 +147,29 @@
     return name || code || (m?.unit_id || "");
   }
 
+  function getUnitNameFromMembership(m) {
+    const name = (m?.unit?.name || m?.units?.name || "").trim();
+    const code = (m?.unit?.code || m?.units?.code || "").trim();
+    return name || code || "";
+  }
+
+  function refreshHeaderBrandTitle() {
+    const el = document.getElementById("brandTitle");
+    if (!el) return;
+
+    const activeId = String(window.activeUnitId || "");
+    const rows = Array.isArray(window.availableUnits) ? window.availableUnits : [];
+    const match = rows.find((r) => String(r?.unit_id || "") === activeId);
+    const unitName = getUnitNameFromMembership(match);
+
+    if (unitName) {
+      el.textContent = `${unitName}: Charge Nurse Platform`;
+      return;
+    }
+
+    el.textContent = "Charge Nurse Platform";
+  }
+
   function populateUnitSelect(selectEl) {
     if (!selectEl) return;
 
@@ -175,12 +207,15 @@
       try { window.refreshAuthPill(); } catch (_) {}
     }
 
+    refreshHeaderBrandTitle();
+
     // If other modules want to react to unit changes, they already do via setActiveUnit / init hooks.
   }
 
   function wireUnitSwitcherHeaderOnly() {
     const headerSel = document.getElementById("unitSwitcher");
     populateUnitSelect(headerSel);
+    refreshHeaderBrandTitle();
 
     if (headerSel && !headerSel.__cuppBound) {
       headerSel.__cuppBound = true;
@@ -552,6 +587,7 @@
   window.onMembershipsUpdated = function onMembershipsUpdated() {
     // called by auth UI or init after refreshMyUnits
     wireUnitSwitcherHeaderOnly();
+    refreshHeaderBrandTitle();
   };
 
   // -----------------------------

@@ -63,6 +63,35 @@
     } catch (_) {}
   };
 
+  function fmtStaffingTime(d) {
+    try {
+      const dt = (d instanceof Date) ? d : new Date(d);
+      return dt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+    } catch (_) {
+      return "";
+    }
+  }
+
+  function setStaffingTotalsStatus(pillId, state, metaText) {
+    try {
+      const pill = document.getElementById(pillId);
+      if (!pill) return;
+      const dot = pill.querySelector && pill.querySelector(".staffing-status-dot");
+      const textEl = pill.querySelector && pill.querySelector(".staffing-status-text");
+      const metaEl = pill.querySelector && pill.querySelector(".staffing-status-meta");
+
+      let dotColor = "#22c55e";
+      let label = "Updated";
+      if (state === "updating") { dotColor = "#fbbf24"; label = "Updating"; }
+      else if (state === "error") { dotColor = "#ef4444"; label = "Error"; }
+
+      if (dot) dot.style.background = dotColor;
+      if (textEl) textEl.textContent = label;
+      if (metaEl) metaEl.textContent = metaText || "";
+      if (!textEl && pill) pill.textContent = label;
+    } catch (_) {}
+  }
+
   // Use the canonical restriction helper from app.state.js if present
   const getDefaultRestrictions =
     (typeof window.defaultRestrictions === "function")
@@ -175,85 +204,99 @@
   // -------------------------
 
   window.setupCurrentNurses = function (countOverride) {
-    const sel = document.getElementById("currentNurseCount");
-    let count =
-      (typeof countOverride === "number" && Number.isFinite(countOverride))
-        ? countOverride
-        : safeInt(sel && sel.value, 1);
+    setStaffingTotalsStatus("currentStaffingTotalsStatus", "updating");
+    try {
+      const sel = document.getElementById("currentNurseCount");
+      let count =
+        (typeof countOverride === "number" && Number.isFinite(countOverride))
+          ? countOverride
+          : safeInt(sel && sel.value, 1);
 
-    count = clamp(count, 1, MAX_RN);
-    if (sel) sel.value = count;
+      count = clamp(count, 1, MAX_RN);
+      if (sel) sel.value = count;
 
-    const oldRaw = safeArray(currentNurses);
-    const old = filterOutHoldBuckets(oldRaw);
-    const hold = getHoldBucket(oldRaw);
+      const oldRaw = safeArray(currentNurses);
+      const old = filterOutHoldBuckets(oldRaw);
+      const hold = getHoldBucket(oldRaw);
 
-    const next = [];
-    for (let i = 0; i < count; i++) {
-      const prev = old[i];
-      const prevRestrictions = prev?.restrictions || getDefaultRestrictions(prev?.restriction);
-      const type = prev?.type || "tele";
-      next.push({
-        id: i + 1,
-        staff_id: prev?.staff_id || null,
-        name: prev?.name || `Current RN ${i + 1}`,
-        type,
-        restrictions: {
-          noNih: !!prevRestrictions.noNih,
-          noIso: !!prevRestrictions.noIso
-        },
-        maxPatients: type === "tele" ? 4 : 5,
-        patients: Array.isArray(prev?.patients) ? prev.patients.slice() : []
-      });
+      const next = [];
+      for (let i = 0; i < count; i++) {
+        const prev = old[i];
+        const prevRestrictions = prev?.restrictions || getDefaultRestrictions(prev?.restriction);
+        const type = prev?.type || "tele";
+        next.push({
+          id: i + 1,
+          staff_id: prev?.staff_id || null,
+          name: prev?.name || `Current RN ${i + 1}`,
+          type,
+          restrictions: {
+            noNih: !!prevRestrictions.noNih,
+            noIso: !!prevRestrictions.noIso
+          },
+          maxPatients: type === "tele" ? 4 : 5,
+          patients: Array.isArray(prev?.patients) ? prev.patients.slice() : []
+        });
+      }
+
+      currentNurses = hold ? [hold, ...next] : next;
+      syncWindowRefs();
+      reflectLegacySelects();
+
+      window.renderCurrentNurseList();
+      refreshAllViews();
+      if (typeof window.saveState === "function") window.saveState();
+      const meta = fmtStaffingTime(new Date()) ? " @ " + fmtStaffingTime(new Date()) : "";
+      setStaffingTotalsStatus("currentStaffingTotalsStatus", "updated", meta);
+    } catch (err) {
+      setStaffingTotalsStatus("currentStaffingTotalsStatus", "error", (err && err.message) || "Error");
     }
-
-    currentNurses = hold ? [hold, ...next] : next;
-    syncWindowRefs();
-    reflectLegacySelects();
-
-    window.renderCurrentNurseList();
-    refreshAllViews();
-    if (typeof window.saveState === "function") window.saveState();
   };
 
   window.setupIncomingNurses = function (countOverride) {
-    const sel = document.getElementById("incomingNurseCount");
-    let count =
-      (typeof countOverride === "number" && Number.isFinite(countOverride))
-        ? countOverride
-        : safeInt(sel && sel.value, 1);
+    setStaffingTotalsStatus("incomingStaffingTotalsStatus", "updating");
+    try {
+      const sel = document.getElementById("incomingNurseCount");
+      let count =
+        (typeof countOverride === "number" && Number.isFinite(countOverride))
+          ? countOverride
+          : safeInt(sel && sel.value, 1);
 
-    count = clamp(count, 1, MAX_RN);
-    if (sel) sel.value = count;
+      count = clamp(count, 1, MAX_RN);
+      if (sel) sel.value = count;
 
-    const old = filterOutHoldBuckets(incomingNurses);
-    const next = [];
+      const old = filterOutHoldBuckets(incomingNurses);
+      const next = [];
 
-    for (let i = 0; i < count; i++) {
-      const prev = old[i];
-      const prevRestrictions = prev?.restrictions || getDefaultRestrictions(prev?.restriction);
-      const type = prev?.type || "tele";
-      next.push({
-        id: i + 1,
-        staff_id: prev?.staff_id || null,
-        name: prev?.name || `Incoming RN ${i + 1}`,
-        type,
-        restrictions: {
-          noNih: !!prevRestrictions.noNih,
-          noIso: !!prevRestrictions.noIso
-        },
-        maxPatients: type === "tele" ? 4 : 5,
-        patients: Array.isArray(prev?.patients) ? prev.patients.slice() : []
-      });
+      for (let i = 0; i < count; i++) {
+        const prev = old[i];
+        const prevRestrictions = prev?.restrictions || getDefaultRestrictions(prev?.restriction);
+        const type = prev?.type || "tele";
+        next.push({
+          id: i + 1,
+          staff_id: prev?.staff_id || null,
+          name: prev?.name || `Incoming RN ${i + 1}`,
+          type,
+          restrictions: {
+            noNih: !!prevRestrictions.noNih,
+            noIso: !!prevRestrictions.noIso
+          },
+          maxPatients: type === "tele" ? 4 : 5,
+          patients: Array.isArray(prev?.patients) ? prev.patients.slice() : []
+        });
+      }
+
+      incomingNurses = next;
+      syncWindowRefs();
+      reflectLegacySelects();
+
+      window.renderIncomingNurseList();
+      refreshAllViews();
+      if (typeof window.saveState === "function") window.saveState();
+      const meta = fmtStaffingTime(new Date()) ? " @ " + fmtStaffingTime(new Date()) : "";
+      setStaffingTotalsStatus("incomingStaffingTotalsStatus", "updated", meta);
+    } catch (err) {
+      setStaffingTotalsStatus("incomingStaffingTotalsStatus", "error", (err && err.message) || "Error");
     }
-
-    incomingNurses = next;
-    syncWindowRefs();
-    reflectLegacySelects();
-
-    window.renderIncomingNurseList();
-    refreshAllViews();
-    if (typeof window.saveState === "function") window.saveState();
   };
 
   window.renderCurrentNurseList = function () {
@@ -443,79 +486,93 @@
   };
 
   window.setupCurrentPcas = function (countOverride) {
-    const sel = document.getElementById("currentPcaCount");
-    let count =
-      (typeof countOverride === "number" && Number.isFinite(countOverride))
-        ? countOverride
-        : safeInt(sel && sel.value, 1);
+    setStaffingTotalsStatus("currentStaffingTotalsStatus", "updating");
+    try {
+      const sel = document.getElementById("currentPcaCount");
+      let count =
+        (typeof countOverride === "number" && Number.isFinite(countOverride))
+          ? countOverride
+          : safeInt(sel && sel.value, 1);
 
-    count = clamp(count, 1, MAX_PCA);
-    if (sel) sel.value = count;
+      count = clamp(count, 1, MAX_PCA);
+      if (sel) sel.value = count;
 
-    const oldRaw = safeArray(currentPcas);
-    const old = filterOutHoldBuckets(oldRaw);
-    const hold = getHoldBucket(oldRaw);
+      const oldRaw = safeArray(currentPcas);
+      const old = filterOutHoldBuckets(oldRaw);
+      const hold = getHoldBucket(oldRaw);
 
-    const next = [];
-    for (let i = 0; i < count; i++) {
-      const prev = old[i];
-      const prevMax = Number(prev?.maxPatients);
-      const maxPatients = Number.isFinite(prevMax) ? prevMax : PCA_MAX_PATIENTS_DEFAULT;
+      const next = [];
+      for (let i = 0; i < count; i++) {
+        const prev = old[i];
+        const prevMax = Number(prev?.maxPatients);
+        const maxPatients = Number.isFinite(prevMax) ? prevMax : PCA_MAX_PATIENTS_DEFAULT;
 
-      next.push({
-        id: i + 1,
-        staff_id: prev?.staff_id || null,
-        name: prev?.name || `Current PCA ${i + 1}`,
-        restrictions: { noIso: !!(prev && prev.restrictions && prev.restrictions.noIso) },
-        maxPatients,
-        patients: Array.isArray(prev?.patients) ? prev.patients.slice() : []
-      });
+        next.push({
+          id: i + 1,
+          staff_id: prev?.staff_id || null,
+          name: prev?.name || `Current PCA ${i + 1}`,
+          restrictions: { noIso: !!(prev && prev.restrictions && prev.restrictions.noIso) },
+          maxPatients,
+          patients: Array.isArray(prev?.patients) ? prev.patients.slice() : []
+        });
+      }
+
+      currentPcas = hold ? [hold, ...next] : next;
+      syncWindowRefs();
+      reflectLegacySelects();
+
+      window.renderCurrentPcaList();
+      refreshAllViews();
+      if (typeof window.saveState === "function") window.saveState();
+      const meta = fmtStaffingTime(new Date()) ? " @ " + fmtStaffingTime(new Date()) : "";
+      setStaffingTotalsStatus("currentStaffingTotalsStatus", "updated", meta);
+    } catch (err) {
+      setStaffingTotalsStatus("currentStaffingTotalsStatus", "error", (err && err.message) || "Error");
     }
-
-    currentPcas = hold ? [hold, ...next] : next;
-    syncWindowRefs();
-    reflectLegacySelects();
-
-    window.renderCurrentPcaList();
-    refreshAllViews();
-    if (typeof window.saveState === "function") window.saveState();
   };
 
   window.setupIncomingPcas = function (countOverride) {
-    const sel = document.getElementById("incomingPcaCount");
-    let count =
-      (typeof countOverride === "number" && Number.isFinite(countOverride))
-        ? countOverride
-        : safeInt(sel && sel.value, 1);
+    setStaffingTotalsStatus("incomingStaffingTotalsStatus", "updating");
+    try {
+      const sel = document.getElementById("incomingPcaCount");
+      let count =
+        (typeof countOverride === "number" && Number.isFinite(countOverride))
+          ? countOverride
+          : safeInt(sel && sel.value, 1);
 
-    count = clamp(count, 1, MAX_PCA);
-    if (sel) sel.value = count;
+      count = clamp(count, 1, MAX_PCA);
+      if (sel) sel.value = count;
 
-    const old = filterOutHoldBuckets(incomingPcas);
-    const next = [];
+      const old = filterOutHoldBuckets(incomingPcas);
+      const next = [];
 
-    for (let i = 0; i < count; i++) {
-      const prev = old[i];
-      const prevMax = Number(prev?.maxPatients);
-      const maxPatients = Number.isFinite(prevMax) ? prevMax : PCA_MAX_PATIENTS_DEFAULT;
+      for (let i = 0; i < count; i++) {
+        const prev = old[i];
+        const prevMax = Number(prev?.maxPatients);
+        const maxPatients = Number.isFinite(prevMax) ? prevMax : PCA_MAX_PATIENTS_DEFAULT;
 
-      next.push({
-        id: i + 1,
-        staff_id: prev?.staff_id || null,
-        name: prev?.name || `Incoming PCA ${i + 1}`,
-        restrictions: { noIso: !!(prev && prev.restrictions && prev.restrictions.noIso) },
-        maxPatients,
-        patients: Array.isArray(prev?.patients) ? prev.patients.slice() : []
-      });
+        next.push({
+          id: i + 1,
+          staff_id: prev?.staff_id || null,
+          name: prev?.name || `Incoming PCA ${i + 1}`,
+          restrictions: { noIso: !!(prev && prev.restrictions && prev.restrictions.noIso) },
+          maxPatients,
+          patients: Array.isArray(prev?.patients) ? prev.patients.slice() : []
+        });
+      }
+
+      incomingPcas = next;
+      syncWindowRefs();
+      reflectLegacySelects();
+
+      window.renderIncomingPcaList();
+      refreshAllViews();
+      if (typeof window.saveState === "function") window.saveState();
+      const meta = fmtStaffingTime(new Date()) ? " @ " + fmtStaffingTime(new Date()) : "";
+      setStaffingTotalsStatus("incomingStaffingTotalsStatus", "updated", meta);
+    } catch (err) {
+      setStaffingTotalsStatus("incomingStaffingTotalsStatus", "error", (err && err.message) || "Error");
     }
-
-    incomingPcas = next;
-    syncWindowRefs();
-    reflectLegacySelects();
-
-    window.renderIncomingPcaList();
-    refreshAllViews();
-    if (typeof window.saveState === "function") window.saveState();
   };
 
   window.renderCurrentPcaList = function () {
@@ -966,10 +1023,24 @@
     }
   }
 
+  function attachStaffingTotalsChangeListeners() {
+    if (window.__staffingTotalsListenersAttached) return;
+    const curRn = document.getElementById("currentNurseCount");
+    const curPca = document.getElementById("currentPcaCount");
+    const incRn = document.getElementById("incomingNurseCount");
+    const incPca = document.getElementById("incomingPcaCount");
+    if (curRn) curRn.addEventListener("change", () => { if (typeof window.setupCurrentNurses === "function") window.setupCurrentNurses(); });
+    if (curPca) curPca.addEventListener("change", () => { if (typeof window.setupCurrentPcas === "function") window.setupCurrentPcas(); });
+    if (incRn) incRn.addEventListener("change", () => { if (typeof window.setupIncomingNurses === "function") window.setupIncomingNurses(); });
+    if (incPca) incPca.addEventListener("change", () => { if (typeof window.setupIncomingPcas === "function") window.setupIncomingPcas(); });
+    window.__staffingTotalsListenersAttached = true;
+  }
+
   // Keep these light touches:
   window.addEventListener("DOMContentLoaded", () => {
     setTimeout(rescan, 400);
     setTimeout(reflectLegacySelects, 520);
+    attachStaffingTotalsChangeListeners();
 
     // If legacy builds try to inject panels, we simply do nothing by not installing them.
     if (!isStaffingLayoutV2()) {

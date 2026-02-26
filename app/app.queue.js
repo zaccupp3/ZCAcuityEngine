@@ -196,7 +196,6 @@
   function buildPreAdmitTagsText(draft) {
     if (!draft) return "";
     const out = [];
-    if (draft.gender) out.push(`Gender ${draft.gender}`);
     const map = [
       ["tele","Tele"],["drip","Drip"],["nih","NIH"],["bg","BG"],["ciwa","CIWA/COWS"],
       ["restraint","Restraint"],["sitter","Sitter"],["vpo","VPO"],["isolation","ISO"],["admit","Admit"],["lateDc","Late DC"],
@@ -654,16 +653,6 @@
     const bodyEl = card.querySelector("#__padBody");
     if (bodyEl) {
       bodyEl.innerHTML = `
-        <div class="pp-row">
-          <div class="pp-label">Gender:</div>
-          <select id="__padGender">
-            <option value="" ${!d.gender ? "selected" : ""}>-</option>
-            <option value="M" ${d.gender === "M" ? "selected" : ""}>M</option>
-            <option value="F" ${d.gender === "F" ? "selected" : ""}>F</option>
-            <option value="X" ${d.gender === "X" ? "selected" : ""}>X</option>
-          </select>
-        </div>
-
         <div class="pp-grid">
           <div class="pp-col">
             <h4>RN Pre-Admit Tags</h4>
@@ -756,9 +745,6 @@
     const d = item.preAdmit;
 
     const card = __preAdmitModal?.card || document;
-
-    const gSel = card.querySelector("#__padGender");
-    d.gender = gSel ? (gSel.value || "") : "";
 
     const getCheck = (sel) => !!card.querySelector(sel)?.checked;
 

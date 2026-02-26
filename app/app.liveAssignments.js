@@ -64,30 +64,23 @@
     if (c.includes("medium") || c.includes("yellow")) return "yellow";
     if (c.includes("good") || c.includes("green") || c.includes("low")) return "green";
     return "";
-  }
-
-  function isLiveTabActive() {
-    // If the LIVE containers exist and are not display:none, treat as active.
-    const tab = document.getElementById("liveAssignmentTab");
-    if (tab) {
-      const cs = window.getComputedStyle(tab);
-      if (cs && cs.display !== "none" && cs.visibility !== "hidden") return true;
+  }
+  function isDischargeBinTabActive() {
+    const activeTarget = document.querySelector(".tabButton.active[data-target]")?.getAttribute("data-target");
+    if (activeTarget) {
+      return activeTarget === "liveAssignmentTab" || activeTarget === "oncomingAssignmentTab";
     }
 
-    // Fallback to containers (some layouts don’t toggle the wrapper)
-    const nurse = document.getElementById("liveNurseAssignments");
-    const pca = document.getElementById("livePcaAssignments");
-
-    const visible = (el) => {
+    const isVisible = (id) => {
+      const el = document.getElementById(id);
       if (!el) return false;
       const cs = window.getComputedStyle(el);
-      if (!cs || cs.display === "none" || cs.visibility === "hidden" || cs.opacity === "0") return false;
-      return true; // don’t require rect height on first paint
+      if (!cs) return false;
+      return cs.display !== "none" && cs.visibility !== "hidden" && cs.opacity !== "0";
     };
 
-    return visible(nurse) || visible(pca);
+    return isVisible("liveAssignmentTab") || isVisible("oncomingAssignmentTab");
   }
-
   function getThresholdsForLive(role) {
     const live =
       window.liveThresholds && typeof window.liveThresholds === "object"
@@ -759,7 +752,7 @@
     right.innerHTML = `
       <button id="livePrintBtn" type="button"
         style="border:0;background:#111;color:#fff;padding:10px 12px;border-radius:12px;cursor:pointer;font-weight:800;letter-spacing:.01em;box-shadow:0 6px 18px rgba(0,0,0,.14);">
-        Print LIVE
+        Print Live Assignment
       </button>
     `;
 
@@ -1087,7 +1080,7 @@
     // ----------------------------------------
     // 3️⃣ Handle first-paint visibility race (bounded retries)
     // ----------------------------------------
-    if (!isLiveTabActive()) {
+    if (!isDischargeBinTabActive()) {
       const vTries = Number(host.__visibleTries || 0);
 
       if (vTries < 4) {
@@ -1102,8 +1095,7 @@
         }, 0);
       }
 
-      // Do NOT permanently hide during startup race
-      host.style.display = "block";
+      hideGlobalDischargeBin();
       return;
     }
 
@@ -1206,6 +1198,7 @@
       window.distributePatientsEvenly(currentNurses, list, { randomize, role: "nurse" });
       window.distributePatientsEvenly(currentPcas, list, { randomize, role: "pca" });
     } else {
+      // Fallback only: assignmentRules not loaded. Prefer loading app.assignmentRules.js so load-balanced distribution runs.
       list.forEach((p, i) => {
         const rn = currentNurses[i % currentNurses.length];
         rn.patients = safeArray(rn.patients);
@@ -1260,7 +1253,7 @@
       tries++;
 
       try {
-        if (typeof isLiveTabActive === "function" && isLiveTabActive()) {
+        if (typeof isDischargeBinTabActive === "function" && isDischargeBinTabActive()) {
           const card = document.getElementById("dischargeBinCard");
           if (!card) {
             try {
@@ -1650,6 +1643,14 @@
   window.renderGlobalDischargeBin = renderGlobalDischargeBin;
   window.ensureGlobalDischargeBinHost = ensureGlobalDischargeBinHost;
   window.hideGlobalDischargeBin = hideGlobalDischargeBin;
+  window.syncDischargeBinVisibility = function syncDischargeBinVisibility() {
+    try {
+      if (isDischargeBinTabActive()) renderGlobalDischargeBin();
+      else hideGlobalDischargeBin();
+    } catch {}
+  };
 
   window.__liveAssignmentsBuild = "v11.4.5-perfDischargeBinSingleFlight";
 })();
+
+
