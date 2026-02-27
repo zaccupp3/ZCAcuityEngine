@@ -39,14 +39,18 @@
     .leadership-field label {
       display: block;
       font-weight: 800;
-      font-size: 12px;
-      opacity: 0.85;
+      font-size: 14px;
+      opacity: 0.95;
       margin-bottom: 6px;
     }
 
     .leadership-field input {
       width: 100%;
       box-sizing: border-box;
+      min-height: 42px;
+      padding: 10px 12px;
+      font-size: 17px;
+      font-weight: 700;
     }
 
     .totals-block {
@@ -89,28 +93,34 @@
 
     .totals-three-sections {
       display: grid;
-      grid-template-columns: 1fr 1fr auto;
+      grid-template-columns: 1fr 1fr 1fr auto;
       gap: 12px;
       align-items: center;
       margin: 8px 0;
     }
 
     .totals-three-sections .totals-section {
-      display: flex;
-      flex-wrap: wrap;
+      display: grid;
+      grid-template-columns: minmax(120px, 1fr) 90px;
       align-items: center;
-      gap: 6px;
+      gap: 10px;
     }
 
     .totals-three-sections .totals-section .totals-label {
       font-weight: 800;
-      font-size: 18px;
+      font-size: 19px;
       opacity: 0.9;
       white-space: nowrap;
     }
 
     .totals-three-sections .totals-section select {
       box-sizing: border-box;
+      min-height: 40px;
+      font-size: 20px;
+      font-weight: 800;
+      text-align: center;
+      text-align-last: center;
+      padding: 4px 8px;
     }
 
     .totals-three-sections .totals-status {
@@ -402,6 +412,13 @@
                   <option>4</option><option>5</option><option>6</option><option>7</option>
                 </select>
               </div>
+              <div class="totals-section">
+                <span class="totals-label">Total Sitters:</span>
+                <select id="currentSitterCount">
+                  <option>1</option><option>2</option><option>3</option>
+                  <option>4</option><option>5</option><option>6</option><option>7</option>
+                </select>
+              </div>
               <div class="totals-section totals-status">
                 <div id="currentStaffingTotalsStatus" class="staffing-status-pill" role="status">
                   <span class="staffing-status-dot"></span>
@@ -414,14 +431,17 @@
 
           <div class="staff-card">
             <div class="staff-card-header">Current RNs</div>
-            <div class="staff-subtitle">Current RN List</div>
             <div id="currentNurseList" class="staffList"></div>
           </div>
 
           <div class="staff-card">
             <div class="staff-card-header">Current PCAs</div>
-            <div class="staff-subtitle">Current PCA List</div>
             <div id="currentPcaList" class="staffList"></div>
+          </div>
+
+          <div class="staff-card">
+            <div class="staff-card-header">Current Sitters</div>
+            <div id="currentSitterList" class="staffList"></div>
           </div>
         </div>
 
@@ -466,6 +486,13 @@
                   <option>4</option><option>5</option><option>6</option><option>7</option>
                 </select>
               </div>
+              <div class="totals-section">
+                <span class="totals-label">Total Sitters:</span>
+                <select id="incomingSitterCount">
+                  <option>1</option><option>2</option><option>3</option>
+                  <option>4</option><option>5</option><option>6</option><option>7</option>
+                </select>
+              </div>
               <div class="totals-section totals-status">
                 <div id="incomingStaffingTotalsStatus" class="staffing-status-pill" role="status">
                   <span class="staffing-status-dot"></span>
@@ -478,14 +505,17 @@
 
           <div class="staff-card">
             <div class="staff-card-header">Oncoming RNs</div>
-            <div class="staff-subtitle">Oncoming RN List</div>
             <div id="incomingNurseList" class="staffList"></div>
           </div>
 
           <div class="staff-card">
             <div class="staff-card-header">Oncoming PCAs</div>
-            <div class="staff-subtitle">Oncoming PCA List</div>
             <div id="incomingPcaList" class="staffList"></div>
+          </div>
+
+          <div class="staff-card">
+            <div class="staff-card-header">Oncoming Sitters</div>
+            <div id="incomingSitterList" class="staffList"></div>
           </div>
         </div>
 
@@ -537,10 +567,6 @@
         <button type="button" onclick="window.openImportAssignmentScan && window.openImportAssignmentScan()">
           Import Assignment to LIVE (Photo)
         </button>
-
-        <button type="button" onclick="window.printLive && window.printLive.open && window.printLive.open()">
-          Print Live Assignment
-        </button>
       </div>
 
       <!-- ✅ Option A: remove the legacy Admit Queue column.
@@ -556,6 +582,13 @@
         <div class="live-column">
           <h2>Current PCA Assignments</h2>
           <div id="livePcaAssignments" class="assignment-grid live-grid live-grid-pca"></div>
+        </div>
+      </div>
+
+      <div class="live-layout live-layout--pca-only" style="margin-top: 16px;">
+        <div class="live-column">
+          <h2>Current Sitter Assignments</h2>
+          <div id="liveSitterAssignments" class="assignment-grid live-grid live-grid-pca"></div>
         </div>
       </div>
     </section>
@@ -621,6 +654,11 @@
         <h2 style="margin:0;">Incoming PCA Assignments</h2>
       </div>
       <div id="pcaAssignmentOutput" class="assignment-grid two-column-grid"></div>
+
+      <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; margin-top: 24px;">
+        <h2 style="margin:0;">Incoming Sitter Assignments</h2>
+      </div>
+      <div id="sitterAssignmentOutput" class="assignment-grid two-column-grid"></div>
     </section>
 
     <!-- ✅ UNIT PULSE TAB -->
@@ -875,7 +913,6 @@
 
     <script src="app/app.assignmentRules.js?v=4"></script>
 
-    <script src="app/app.admitQueue.js?v=2"></script>
     <script src="app/app.liveAssignments.js?v=97"></script>
     <script src="app/app.assignmentsrender.js?v=4"></script>
     <script src="app/app.assignmentsDrag.js?v=1"></script>

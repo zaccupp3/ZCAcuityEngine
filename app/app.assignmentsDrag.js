@@ -14,7 +14,7 @@
 // - Discharge/Reinstate events include staff id fields for RN/PCA when available
 // ---------------------------------------------------------
 
-let dragCtx = null; // { context: 'live'|'incoming', role: 'nurse'|'pca', ownerId, patientId }
+let dragCtx = null; // { context: 'live'|'incoming', role: 'nurse'|'pca'|'sitter', ownerId, patientId }
 
 // -----------------------------
 // Canonical globals
@@ -30,14 +30,23 @@ function syncWindowRefs() {
   // Ensure window.* and legacy bare globals stay aligned
   // so app.state.js saveState() persists the correct arrays.
   try {
+    if (Array.isArray(window.currentNurses)) currentNurses = window.currentNurses;
+    if (Array.isArray(window.currentPcas)) currentPcas = window.currentPcas;
+    if (Array.isArray(window.incomingNurses)) incomingNurses = window.incomingNurses;
+    if (Array.isArray(window.incomingPcas)) incomingPcas = window.incomingPcas;
+    if (Array.isArray(window.currentSitters)) currentSitters = window.currentSitters;
+    if (Array.isArray(window.incomingSitters)) incomingSitters = window.incomingSitters;
+    if (Array.isArray(window.patients)) patients = window.patients;
+
     window.currentNurses = currentNurses;
     window.currentPcas = currentPcas;
     window.incomingNurses = incomingNurses;
     window.incomingPcas = incomingPcas;
-
+    window.currentSitters = Array.isArray(currentSitters) ? currentSitters : (window.currentSitters || []);
+    window.incomingSitters = Array.isArray(incomingSitters) ? incomingSitters : (window.incomingSitters || []);
     window.patients = patients;
 
-    window.admitQueue = admitQueue;
+    window.admitQueue = Array.isArray(window.admitQueue) ? window.admitQueue : admitQueue;
     window.dischargeHistory = window.dischargeHistory || dischargeHistory;
     window.nextQueueId = typeof nextQueueId === "number" ? nextQueueId : window.nextQueueId;
     window.nextDischargeId =
@@ -48,18 +57,30 @@ function syncWindowRefs() {
 }
 
 function getStaffArray(context, role) {
-  if (context === "live") return role === "nurse" ? currentNurses : currentPcas;
-  return role === "nurse" ? incomingNurses : incomingPcas;
+  if (context === "live") {
+    if (role === "nurse") return Array.isArray(window.currentNurses) ? window.currentNurses : currentNurses;
+    if (role === "sitter") return Array.isArray(window.currentSitters) ? window.currentSitters : (typeof currentSitters !== "undefined" ? currentSitters : []);
+    return Array.isArray(window.currentPcas) ? window.currentPcas : currentPcas;
+  }
+  if (role === "nurse") return Array.isArray(window.incomingNurses) ? window.incomingNurses : incomingNurses;
+  if (role === "sitter") return Array.isArray(window.incomingSitters) ? window.incomingSitters : (typeof incomingSitters !== "undefined" ? incomingSitters : []);
+  return Array.isArray(window.incomingPcas) ? window.incomingPcas : incomingPcas;
 }
 
 function findOwner(context, role, ownerId) {
   const arr = getStaffArray(context, role);
-  return (arr || []).find((o) => o.id === ownerId) || null;
+  return (arr || []).find((o) => Number(o?.id) === Number(ownerId)) || null;
 }
 
 function ensureArray(obj, key) {
   if (!obj) return;
   if (!Array.isArray(obj[key])) obj[key] = [];
+}
+
+function roomPairKeyFromPatient(p) {
+  const room = String(p?.room || "").trim();
+  const m = room.match(/^(\d+)/);
+  return m ? m[1] : room;
 }
 
 // Prefer stable staff_id if present; fall back to local numeric id.
@@ -72,6 +93,7 @@ function stableStaffId(owner) {
 function eventRoleLabel(role) {
   if (role === "nurse") return "RN";
   if (role === "pca") return "PCA";
+  if (role === "sitter") return "SITTER";
   return String(role || "");
 }
 
@@ -86,6 +108,7 @@ function rerenderAllBoards() {
   if (typeof window.renderLiveAssignments === "function") window.renderLiveAssignments();
   if (typeof window.renderAssignmentOutput === "function") window.renderAssignmentOutput();
   if (typeof window.renderPcaAssignmentOutput === "function") window.renderPcaAssignmentOutput();
+  if (typeof window.renderSitterAssignmentOutput === "function") window.renderSitterAssignmentOutput();
   if (typeof window.renderPatientList === "function") window.renderPatientList();
   if (typeof window.updateAcuityTiles === "function") window.updateAcuityTiles();
   if (typeof window.updateDischargeCount === "function") window.updateDischargeCount();
@@ -195,22 +218,77 @@ function onRowDrop(event, context, role, newOwnerId) {
   event.preventDefault();
   if (!dragCtx) return;
 
-  if (dragCtx.context !== context || dragCtx.role !== role) {
+  if (dragCtx.context !== context) {
     dragCtx = null;
     return;
   }
 
-  const fromOwner = findOwner(dragCtx.context, dragCtx.role, dragCtx.ownerId);
+  // Allow only PCA<->Sitter cross-role drops in the same context.
+  // RN cross-role drops are blocked to keep RN assignment independent.
+  // Cross-role drop adds assignment in the target role without removing source-role ownership.
+  const isCrossRole = dragCtx.role !== role;
+  if (isCrossRole) {
+    const fromRole = String(dragCtx.role || "");
+    const toRole = String(role || "");
+    const allowed =
+      (fromRole === "pca" && toRole === "sitter") ||
+      (fromRole === "sitter" && toRole === "pca");
+    if (!allowed) {
+      dragCtx = null;
+      return;
+    }
+  }
+
+  const fromOwner = isCrossRole ? null : findOwner(dragCtx.context, dragCtx.role, dragCtx.ownerId);
   const toOwner = findOwner(context, role, newOwnerId);
-  if (!fromOwner || !toOwner) {
+  if ((!isCrossRole && !fromOwner) || !toOwner) {
     dragCtx = null;
     return;
   }
 
-  ensureArray(fromOwner, "patients");
+  if (fromOwner) ensureArray(fromOwner, "patients");
   ensureArray(toOwner, "patients");
 
-  const pid = dragCtx.patientId;
+  const pid = Number(dragCtx.patientId);
+  const fromIdNum = isCrossRole ? NaN : Number(dragCtx.ownerId);
+  const toIdNum = Number(newOwnerId);
+  if (!Number.isFinite(pid) || (!isCrossRole && !Number.isFinite(fromIdNum)) || !Number.isFinite(toIdNum)) {
+    dragCtx = null;
+    return;
+  }
+
+  if (!isCrossRole && fromIdNum === toIdNum) {
+    dragCtx = null;
+    return;
+  }
+
+  // Sitter manual moves must obey sitter constraints.
+  if (role === "sitter") {
+    const p = (typeof window.getPatientById === "function") ? window.getPatientById(pid) : null;
+    if (!p || !p.sitter) {
+      alert("Only patients with the Sitter acuity tag can be assigned to a Sitter.");
+      dragCtx = null;
+      return;
+    }
+
+    const roomPairKey = roomPairKeyFromPatient(p);
+    const toPids = (toOwner.patients || []).map((x) => Number(x)).filter(Number.isFinite);
+    if (toPids.length >= 2) {
+      alert("Sitter assignment is capped at 2 patients.");
+      dragCtx = null;
+      return;
+    }
+
+    if (toPids.length > 0) {
+      const first = (typeof window.getPatientById === "function") ? window.getPatientById(toPids[0]) : null;
+      const firstKey = roomPairKeyFromPatient(first);
+      if (firstKey && roomPairKey && firstKey !== roomPairKey) {
+        alert("Sitters must stay within the same room pair (e.g., 213A/213B).");
+        dragCtx = null;
+        return;
+      }
+    }
+  }
 
   // ✅ RN lock enforcement ONLY for ONCOMING RN board
   if (context === "incoming" && role === "nurse") {
@@ -235,9 +313,24 @@ function onRowDrop(event, context, role, newOwnerId) {
     }
   }
 
-  const idx = fromOwner.patients.indexOf(pid);
-  if (idx !== -1) fromOwner.patients.splice(idx, 1);
-  if (!toOwner.patients.includes(pid)) toOwner.patients.push(pid);
+  // Remove patient from every owner in this board/role first to avoid duplicate-state bounce-backs.
+  const roleOwners = getStaffArray(context, role) || [];
+  roleOwners.forEach((owner) => {
+    ensureArray(owner, "patients");
+    owner.patients = owner.patients.filter((x) => Number(x) !== pid);
+  });
+
+  if (fromOwner) {
+    const idx = fromOwner.patients.findIndex((x) => Number(x) === pid);
+    if (idx !== -1) fromOwner.patients.splice(idx, 1);
+  }
+  if (!toOwner.patients.some((x) => Number(x) === pid)) toOwner.patients.push(pid);
+
+  // Normalize id types + dedupe to prevent silent reversion on rerender.
+  if (fromOwner) {
+    fromOwner.patients = Array.from(new Set((fromOwner.patients || []).map((x) => Number(x)).filter(Number.isFinite)));
+  }
+  toOwner.patients = Array.from(new Set((toOwner.patients || []).map((x) => Number(x)).filter(Number.isFinite)));
 
   // ✅ LIVE-only event log (oncoming intentionally excluded for Phase 1 scope)
   if (context === "live" && canLogEvents()) {
@@ -257,7 +350,7 @@ function onRowDrop(event, context, role, newOwnerId) {
         patient: safePatientSummary(pid),
 
         // Owner summaries (keep backwards compatible)
-        fromOwner: { id: fromOwner.id, name: fromOwner.name || "" },
+        fromOwner: fromOwner ? { id: fromOwner.id, name: fromOwner.name || "" } : null,
         toOwner: { id: toOwner.id, name: toOwner.name || "" },
 
         // ✅ Staff attribution (camelCase + snake_case for schema tolerance)
@@ -312,22 +405,23 @@ function onDischargeDrop(event) {
   }
 
   const { patientId } = dragCtx;
+  const patientIdNum = Number(patientId);
 
   // Capture BOTH RN and PCA assignments at discharge time
   const rnOwner =
-    currentNurses.find((n) => Array.isArray(n.patients) && n.patients.includes(patientId)) || null;
+    currentNurses.find((n) => Array.isArray(n.patients) && n.patients.some((id) => Number(id) === patientIdNum)) || null;
   const pcOwner =
-    currentPcas.find((p) => Array.isArray(p.patients) && p.patients.includes(patientId)) || null;
+    currentPcas.find((p) => Array.isArray(p.patients) && p.patients.some((id) => Number(id) === patientIdNum)) || null;
 
   // Remove from BOTH lists
   if (rnOwner) {
     ensureArray(rnOwner, "patients");
-    const idx = rnOwner.patients.indexOf(patientId);
+    const idx = rnOwner.patients.findIndex((id) => Number(id) === patientIdNum);
     if (idx !== -1) rnOwner.patients.splice(idx, 1);
   }
   if (pcOwner) {
     ensureArray(pcOwner, "patients");
-    const idx = pcOwner.patients.indexOf(patientId);
+    const idx = pcOwner.patients.findIndex((id) => Number(id) === patientIdNum);
     if (idx !== -1) pcOwner.patients.splice(idx, 1);
   }
 
@@ -354,7 +448,9 @@ function onDischargeDrop(event) {
     id: dischargeId,
     patientId,
     nurseId: rnOwner ? rnOwner.id : null,
+    nurseName: rnOwner ? String(rnOwner.name || "") : "",
     pcaId: pcOwner ? pcOwner.id : null,
+    pcaName: pcOwner ? String(pcOwner.name || "") : "",
     timestamp: Date.now(),
   });
 
@@ -407,17 +503,25 @@ function openDischargeHistoryModal() {
   if (!history.length) {
     body.innerHTML = `<div style="padding:10px;opacity:0.7;">No discharges yet.</div>`;
   } else {
+    const rnById = new Map((Array.isArray(window.currentNurses) ? window.currentNurses : []).map((n) => [Number(n?.id), n]));
+    const pcaById = new Map((Array.isArray(window.currentPcas) ? window.currentPcas : []).map((p) => [Number(p?.id), p]));
     let html = "";
     history.forEach((entry, i) => {
       const p = getPatientById(entry.patientId);
       if (!p) return;
       const t = entry.timestamp ? new Date(entry.timestamp).toLocaleString() : "";
+      const rnNow = rnById.get(Number(entry.nurseId));
+      const pcaNow = pcaById.get(Number(entry.pcaId));
+      const rnName = String(rnNow?.name || entry.nurseName || "").trim();
+      const pcaName = String(pcaNow?.name || entry.pcaName || "").trim();
+      const staffLine = [rnName ? `RN: ${rnName}` : "", pcaName ? `PCA: ${pcaName}` : ""].filter(Boolean).join(" | ");
 
       html += `
         <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;padding:8px 0;border-bottom:1px solid #eee;">
           <div>
             <div><strong>${p.room || ""}</strong> ${p.name ? ` - ${p.name}` : ""}</div>
             <div style="font-size:12px;opacity:0.75;">${t}</div>
+            ${staffLine ? `<div style="font-size:12px;opacity:0.85;">${staffLine}</div>` : ""}
           </div>
           <button onclick="window.reinstateDischargedPatient(${i})">Reinstate</button>
         </div>
@@ -458,18 +562,18 @@ function reinstateDischargedPatient(index) {
   patient.recentlyDischarged = false;
 
   if (entry.nurseId != null) {
-    const n = currentNurses.find((v) => v.id === entry.nurseId);
+    const n = currentNurses.find((v) => Number(v?.id) === Number(entry.nurseId));
     if (n) {
       ensureArray(n, "patients");
-      if (!n.patients.includes(patient.id)) n.patients.push(patient.id);
+      if (!n.patients.some((id) => Number(id) === Number(patient.id))) n.patients.push(Number(patient.id));
     }
   }
 
   if (entry.pcaId != null) {
-    const pc = currentPcas.find((v) => v.id === entry.pcaId);
+    const pc = currentPcas.find((v) => Number(v?.id) === Number(entry.pcaId));
     if (pc) {
       ensureArray(pc, "patients");
-      if (!pc.patients.includes(patient.id)) pc.patients.push(patient.id);
+      if (!pc.patients.some((id) => Number(id) === Number(patient.id))) pc.patients.push(Number(patient.id));
     }
   }
 

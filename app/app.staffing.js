@@ -35,8 +35,10 @@
   // Keep in sync with your setup functions:
   // - RNs max 10
   // - PCAs max 7
+  // - Sitters max 7
   const MAX_RN = 10;
   const MAX_PCA = 7;
+  const MAX_SITTER = 7;
 
   // ✅ PCA max-patient cap (shift dropdown removed; keep stable default)
   // If you later want this dynamic again, do it via state/config, not a Staffing UI select.
@@ -106,6 +108,8 @@
     window.incomingNurses = incomingNurses;
     window.currentPcas = currentPcas;
     window.incomingPcas = incomingPcas;
+    window.currentSitters = currentSitters;
+    window.incomingSitters = incomingSitters;
 
     // Back-compat: some legacy code may read window.pcaShift.
     // The Staffing UI no longer owns/changes it, but we keep whatever exists.
@@ -159,6 +163,9 @@
     try {
       if (typeof window.renderPcaAssignmentOutput === "function") window.renderPcaAssignmentOutput();
     } catch {}
+    try {
+      if (typeof window.renderSitterAssignmentOutput === "function") window.renderSitterAssignmentOutput();
+    } catch {}
     // Unit Pulse hooks vary by build; call best-effort if present
     try {
       if (typeof window.renderUnitPulse === "function") window.renderUnitPulse();
@@ -172,6 +179,8 @@
     const inN = filterOutHoldBuckets(incomingNurses).length;
     const cp = filterOutHoldBuckets(currentPcas).length;
     const ip = filterOutHoldBuckets(incomingPcas).length;
+    const cs = filterOutHoldBuckets(currentSitters).length;
+    const is = filterOutHoldBuckets(incomingSitters).length;
 
     const set = (id, val) => {
       const el = document.getElementById(id);
@@ -185,6 +194,8 @@
     if (inN) set("incomingNurseCount", inN);
     if (cp) set("currentPcaCount", cp);
     if (ip) set("incomingPcaCount", ip);
+    if (cs) set("currentSitterCount", cs);
+    if (is) set("incomingSitterCount", is);
   }
 
   function canDecrementByLastHasNoPatients(listRaw) {
@@ -692,6 +703,166 @@
     if (typeof window.saveState === "function") window.saveState();
   };
 
+  // -------------------------
+  // SITTER SETUP - CURRENT / INCOMING
+  // -------------------------
+  window.setupCurrentSitters = function (countOverride) {
+    setStaffingTotalsStatus("currentStaffingTotalsStatus", "updating");
+    try {
+      const sel = document.getElementById("currentSitterCount");
+      let count =
+        (typeof countOverride === "number" && Number.isFinite(countOverride))
+          ? countOverride
+          : safeInt(sel && sel.value, 1);
+
+      count = clamp(count, 1, MAX_SITTER);
+      if (sel) sel.value = count;
+
+      const old = filterOutHoldBuckets(currentSitters);
+      const next = [];
+      for (let i = 0; i < count; i++) {
+        const prev = old[i];
+        next.push({
+          id: i + 1,
+          staff_id: prev?.staff_id || null,
+          name: prev?.name || `Current Sitter ${i + 1}`,
+          maxPatients: 2,
+          patients: Array.isArray(prev?.patients) ? prev.patients.slice() : []
+        });
+      }
+
+      currentSitters = next;
+      syncWindowRefs();
+      reflectLegacySelects();
+
+      window.renderCurrentSitterList();
+      refreshAllViews();
+      if (typeof window.saveState === "function") window.saveState();
+      const meta = fmtStaffingTime(new Date()) ? " @ " + fmtStaffingTime(new Date()) : "";
+      setStaffingTotalsStatus("currentStaffingTotalsStatus", "updated", meta);
+    } catch (err) {
+      setStaffingTotalsStatus("currentStaffingTotalsStatus", "error", (err && err.message) || "Error");
+    }
+  };
+
+  window.setupIncomingSitters = function (countOverride) {
+    setStaffingTotalsStatus("incomingStaffingTotalsStatus", "updating");
+    try {
+      const sel = document.getElementById("incomingSitterCount");
+      let count =
+        (typeof countOverride === "number" && Number.isFinite(countOverride))
+          ? countOverride
+          : safeInt(sel && sel.value, 1);
+
+      count = clamp(count, 1, MAX_SITTER);
+      if (sel) sel.value = count;
+
+      const old = filterOutHoldBuckets(incomingSitters);
+      const next = [];
+      for (let i = 0; i < count; i++) {
+        const prev = old[i];
+        next.push({
+          id: i + 1,
+          staff_id: prev?.staff_id || null,
+          name: prev?.name || `Incoming Sitter ${i + 1}`,
+          maxPatients: 2,
+          patients: Array.isArray(prev?.patients) ? prev.patients.slice() : []
+        });
+      }
+
+      incomingSitters = next;
+      syncWindowRefs();
+      reflectLegacySelects();
+
+      window.renderIncomingSitterList();
+      refreshAllViews();
+      if (typeof window.saveState === "function") window.saveState();
+      const meta = fmtStaffingTime(new Date()) ? " @ " + fmtStaffingTime(new Date()) : "";
+      setStaffingTotalsStatus("incomingStaffingTotalsStatus", "updated", meta);
+    } catch (err) {
+      setStaffingTotalsStatus("incomingStaffingTotalsStatus", "error", (err && err.message) || "Error");
+    }
+  };
+
+  window.renderCurrentSitterList = function () {
+    const container = document.getElementById("currentSitterList");
+    if (!container) return;
+    container.innerHTML = "";
+
+    filterOutHoldBuckets(currentSitters).forEach((s, index) => {
+      container.innerHTML += `
+        <div class="pcaRow">
+          <label>
+            Name:
+            <input type="text"
+                   data-staff-role="SITTER"
+                   value="${(s.name || "").replace(/"/g, "&quot;")}"
+                   onchange="updateCurrentSitterName(${index}, this)">
+          </label>
+        </div>
+      `;
+    });
+  };
+
+  window.renderIncomingSitterList = function () {
+    const container = document.getElementById("incomingSitterList");
+    if (!container) return;
+    container.innerHTML = "";
+
+    filterOutHoldBuckets(incomingSitters).forEach((s, index) => {
+      container.innerHTML += `
+        <div class="pcaRow">
+          <label>
+            Name:
+            <input type="text"
+                   data-staff-role="SITTER"
+                   value="${(s.name || "").replace(/"/g, "&quot;")}"
+                   onchange="updateIncomingSitterName(${index}, this)">
+          </label>
+        </div>
+      `;
+    });
+  };
+
+  function getCurrentSitterByFilteredIndex(index) {
+    const list = filterOutHoldBuckets(currentSitters);
+    return list[index] || null;
+  }
+  function getIncomingSitterByFilteredIndex(index) {
+    const list = filterOutHoldBuckets(incomingSitters);
+    return list[index] || null;
+  }
+
+  window.updateCurrentSitterName = function (index, elOrValue) {
+    const s = getCurrentSitterByFilteredIndex(index);
+    if (!s) return;
+    const el = (elOrValue && typeof elOrValue === "object") ? elOrValue : null;
+    const value = el ? el.value : elOrValue;
+
+    s.name = String(value || "").trim() || `Current Sitter ${index + 1}`;
+    s.staff_id = el ? (String(el.dataset.staffId || "").trim() || null) : (s.staff_id || null);
+    s.maxPatients = 2;
+
+    syncWindowRefs();
+    refreshAllViews();
+    if (typeof window.saveState === "function") window.saveState();
+  };
+
+  window.updateIncomingSitterName = function (index, elOrValue) {
+    const s = getIncomingSitterByFilteredIndex(index);
+    if (!s) return;
+    const el = (elOrValue && typeof elOrValue === "object") ? elOrValue : null;
+    const value = el ? el.value : elOrValue;
+
+    s.name = String(value || "").trim() || `Incoming Sitter ${index + 1}`;
+    s.staff_id = el ? (String(el.dataset.staffId || "").trim() || null) : (s.staff_id || null);
+    s.maxPatients = 2;
+
+    syncWindowRefs();
+    refreshAllViews();
+    if (typeof window.saveState === "function") window.saveState();
+  };
+
   // =========================================================
   // ✅ Staffing Controls API (used by +/- UI)
   // =========================================================
@@ -703,13 +874,14 @@
 
     const isRn = r === "RN";
     const isPca = r === "PCA";
-    if (!isRn && !isPca) return { ok: false, reason: "Invalid role." };
+    const isSitter = r === "SITTER";
+    if (!isRn && !isPca && !isSitter) return { ok: false, reason: "Invalid role." };
 
     const isIncoming = (s === "incoming" || s === "oncoming");
-    const max = isRn ? MAX_RN : MAX_PCA;
+    const max = isRn ? MAX_RN : (isPca ? MAX_PCA : MAX_SITTER);
 
     if (isIncoming) {
-      const list = isRn ? incomingNurses : incomingPcas;
+      const list = isRn ? incomingNurses : (isPca ? incomingPcas : incomingSitters);
       const count = filterOutHoldBuckets(list).length || 0;
 
       if (d < 0) {
@@ -720,13 +892,14 @@
       if (nextCount === count) return { ok: false, reason: "Limit reached." };
 
       if (isRn) window.setupIncomingNurses(nextCount);
-      else window.setupIncomingPcas(nextCount);
+      else if (isPca) window.setupIncomingPcas(nextCount);
+      else window.setupIncomingSitters(nextCount);
 
       return { ok: true, count: nextCount };
     }
 
     // CURRENT
-    const list = isRn ? currentNurses : currentPcas;
+    const list = isRn ? currentNurses : (isPca ? currentPcas : currentSitters);
     const count = filterOutHoldBuckets(list).length || 0;
 
     if (d < 0) {
@@ -737,7 +910,8 @@
     if (nextCount === count) return { ok: false, reason: "Limit reached." };
 
     if (isRn) window.setupCurrentNurses(nextCount);
-    else window.setupCurrentPcas(nextCount);
+    else if (isPca) window.setupCurrentPcas(nextCount);
+    else window.setupCurrentSitters(nextCount);
 
     return { ok: true, count: nextCount };
   }
@@ -747,11 +921,13 @@
     getCounts: () => ({
       current: {
         rn: filterOutHoldBuckets(currentNurses).length,
-        pca: filterOutHoldBuckets(currentPcas).length
+        pca: filterOutHoldBuckets(currentPcas).length,
+        sitter: filterOutHoldBuckets(currentSitters).length
       },
       incoming: {
         rn: filterOutHoldBuckets(incomingNurses).length,
-        pca: filterOutHoldBuckets(incomingPcas).length
+        pca: filterOutHoldBuckets(incomingPcas).length,
+        sitter: filterOutHoldBuckets(incomingSitters).length
       }
     })
   };
@@ -773,10 +949,11 @@
     const n = cleanName(name);
     if (!n) return true;
     return (
-      /^current\s+(rn|pca)\s+\d+$/i.test(n) ||
-      /^incoming\s+(rn|pca)\s+\d+$/i.test(n) ||
+      /^current\s+(rn|pca|sitter)\s+\d+$/i.test(n) ||
+      /^incoming\s+(rn|pca|sitter)\s+\d+$/i.test(n) ||
       /^rn\s*\d+$/i.test(n) ||
-      /^pca\s*\d+$/i.test(n)
+      /^pca\s*\d+$/i.test(n) ||
+      /^sitter\s*\d+$/i.test(n)
     );
   }
 
@@ -825,7 +1002,8 @@
   function wireInput(el) {
     if (!el || el.__staffWired) return;
 
-    const role = (el.getAttribute("data-staff-role") === "PCA") ? "PCA" : "RN";
+    const attrRole = String(el.getAttribute("data-staff-role") || "").toUpperCase();
+    const role = (attrRole === "PCA" || attrRole === "SITTER") ? "PCA" : "RN";
     el.setAttribute("list", ensureDatalist(role));
     el.autocomplete = "off";
 
@@ -849,7 +1027,7 @@
   }
 
   function rescan() {
-    ["currentNurseList", "incomingNurseList", "currentPcaList", "incomingPcaList"].forEach(id => {
+    ["currentNurseList", "incomingNurseList", "currentPcaList", "incomingPcaList", "currentSitterList", "incomingSitterList"].forEach(id => {
       const root = document.getElementById(id);
       if (!root) return;
       root.querySelectorAll('input[type="text"][data-staff-role]').forEach(wireInput);
@@ -874,10 +1052,14 @@
     "setupIncomingNurses",
     "setupCurrentPcas",
     "setupIncomingPcas",
+    "setupCurrentSitters",
+    "setupIncomingSitters",
     "renderCurrentNurseList",
     "renderIncomingNurseList",
     "renderCurrentPcaList",
-    "renderIncomingPcaList"
+    "renderIncomingPcaList",
+    "renderCurrentSitterList",
+    "renderIncomingSitterList"
   ].forEach(wrap);
 
   window.staffTypeahead = { rescan, ensureStaff };
@@ -889,7 +1071,7 @@
   // =========================================================
 
   if (!window.oncomingUnassigned) {
-    window.oncomingUnassigned = { rn: [], pca: [] }; // patient ids
+    window.oncomingUnassigned = { rn: [], pca: [], sitter: [] }; // patient ids
   }
 
   function uniq(arr) {
@@ -909,8 +1091,14 @@
       try { if (typeof window.renderLiveAssignments === "function") window.renderLiveAssignments(); } catch (_) {}
       try { if (typeof window.renderUnitPulseTab === "function") window.renderUnitPulseTab(); } catch (_) {}
     } else {
-      try { if (typeof window.renderAssignmentOutput === "function") window.renderAssignmentOutput(); } catch (_) {}
-      try { if (typeof window.renderPcaAssignmentOutput === "function") window.renderPcaAssignmentOutput(); } catch (_) {}
+      try {
+        if (typeof window.renderOncomingAll === "function") window.renderOncomingAll();
+        else {
+          if (typeof window.renderAssignmentOutput === "function") window.renderAssignmentOutput();
+          if (typeof window.renderPcaAssignmentOutput === "function") window.renderPcaAssignmentOutput();
+          if (typeof window.renderSitterAssignmentOutput === "function") window.renderSitterAssignmentOutput();
+        }
+      } catch (_) {}
     }
   }
 
@@ -1027,12 +1215,16 @@
     if (window.__staffingTotalsListenersAttached) return;
     const curRn = document.getElementById("currentNurseCount");
     const curPca = document.getElementById("currentPcaCount");
+    const curSitter = document.getElementById("currentSitterCount");
     const incRn = document.getElementById("incomingNurseCount");
     const incPca = document.getElementById("incomingPcaCount");
+    const incSitter = document.getElementById("incomingSitterCount");
     if (curRn) curRn.addEventListener("change", () => { if (typeof window.setupCurrentNurses === "function") window.setupCurrentNurses(); });
     if (curPca) curPca.addEventListener("change", () => { if (typeof window.setupCurrentPcas === "function") window.setupCurrentPcas(); });
+    if (curSitter) curSitter.addEventListener("change", () => { if (typeof window.setupCurrentSitters === "function") window.setupCurrentSitters(); });
     if (incRn) incRn.addEventListener("change", () => { if (typeof window.setupIncomingNurses === "function") window.setupIncomingNurses(); });
     if (incPca) incPca.addEventListener("change", () => { if (typeof window.setupIncomingPcas === "function") window.setupIncomingPcas(); });
+    if (incSitter) incSitter.addEventListener("change", () => { if (typeof window.setupIncomingSitters === "function") window.setupIncomingSitters(); });
     window.__staffingTotalsListenersAttached = true;
   }
 

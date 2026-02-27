@@ -175,6 +175,55 @@
     return safeArray(window.patients).filter((p) => p && !p.isEmpty);
   }
 
+  function getRoomPairKeyForSitter(p) {
+    const room = String(p?.room || p?.id || "").trim();
+    const m = room.match(/^(\d+)/);
+    return m ? m[1] : room;
+  }
+
+  function assignSitterPatientsByRoomPair(sitters, activePatients) {
+    const owners = safeArray(sitters);
+    owners.forEach((s) => {
+      s.patients = [];
+      s.maxPatients = 2;
+    });
+    if (!owners.length) return;
+
+    const sitterPts = safeArray(activePatients)
+      .filter((p) => p && !p.isEmpty && !!p.sitter)
+      .sort((a, b) => getRoomNumberSafe(a) - getRoomNumberSafe(b));
+
+    const groups = new Map();
+    sitterPts.forEach((p) => {
+      const key = getRoomPairKeyForSitter(p);
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push(p);
+    });
+
+    const orderedGroups = Array.from(groups.values())
+      .map((arr) => arr.slice().sort((a, b) => getRoomNumberSafe(a) - getRoomNumberSafe(b)).slice(0, 2))
+      .sort((a, b) => getRoomNumberSafe(a[0]) - getRoomNumberSafe(b[0]));
+
+    const loads = new Map();
+    owners.forEach((s) => loads.set(Number(s.id), 0));
+
+    orderedGroups.forEach((group) => {
+      const target = owners
+        .slice()
+        .sort((a, b) => {
+          const la = loads.get(Number(a.id)) || 0;
+          const lb = loads.get(Number(b.id)) || 0;
+          if (la !== lb) return la - lb;
+          return Number(a.id) - Number(b.id);
+        })
+        .find((s) => (loads.get(Number(s.id)) || 0) + group.length <= 2);
+
+      if (!target) return;
+      group.forEach((p) => target.patients.push(p.id));
+      loads.set(Number(target.id), (loads.get(Number(target.id)) || 0) + group.length);
+    });
+  }
+
   // -----------------------------
   // HOLD bucket helpers (id=0)
   // -----------------------------
@@ -749,22 +798,7 @@
       </button>
     `;
 
-    right.innerHTML = `
-      <button id="livePrintBtn" type="button"
-        style="border:0;background:#111;color:#fff;padding:10px 12px;border-radius:12px;cursor:pointer;font-weight:800;letter-spacing:.01em;box-shadow:0 6px 18px rgba(0,0,0,.14);">
-        Print Live Assignment
-      </button>
-    `;
-
-    const btnPrint = document.getElementById("livePrintBtn");
-    if (btnPrint && !btnPrint.__wired) {
-      btnPrint.__wired = true;
-      btnPrint.addEventListener("click", () => {
-        try {
-          openPrintLiveSafe();
-        } catch {}
-      });
-    }
+    right.innerHTML = ``;
 
     const btnAdd = document.getElementById("liveAddRnBtn");
     if (btnAdd && !btnAdd.__wired) {
@@ -947,8 +981,8 @@
     const tools = document.getElementById("globalTopRightTools");
     if (!tools) return;
 
-    // Overlay: does NOT consume layout space
-    tools.style.position = "absolute";
+    // Stable fixed position prevents drift while toggling tabs.
+    tools.style.position = "fixed";
     tools.style.right = "18px";
     tools.style.left = "auto";
     tools.style.bottom = "auto";
@@ -961,22 +995,7 @@
     tools.style.pointerEvents = "none";
     tools.style.zIndex = "50";
 
-    // More natural default
-    let topPx = 10;
-
-    // If admit queue exists, sit just above it (prevents exaggerated gap)
-    const q = document.getElementById("admitQueueInlineHost");
-    if (q && q.getBoundingClientRect) {
-      try {
-        const qr = q.getBoundingClientRect();
-        const absQueueTop = qr.top + window.scrollY;
-        const binH = 170;
-        const gap = 12;
-        topPx = Math.max(10, Math.round(absQueueTop - (binH + gap)));
-      } catch {}
-    }
-
-    tools.style.top = `${topPx}px`;
+    tools.style.top = "84px";
   }
 
   function ensureGlobalDischargeBinHost() {
@@ -1172,9 +1191,11 @@
 
     const currentNursesAll = safeArray(window.currentNurses);
     const currentPcasAll = safeArray(window.currentPcas);
+    const currentSittersAll = safeArray(window.currentSitters);
 
     const currentNurses = currentNursesAll.filter((n) => n && !isHoldOwner(n));
     const currentPcas = currentPcasAll.filter((p) => p && !isHoldOwner(p));
+    const currentSitters = currentSittersAll.filter((s) => s);
 
     if (!currentNurses.length || !currentPcas.length) {
       alert("Please set up Current RNs and PCAs on the Staffing Details tab first.");
@@ -1193,10 +1214,12 @@
 
     currentNurses.forEach((n) => (n.patients = []));
     currentPcas.forEach((p) => (p.patients = []));
+    currentSitters.forEach((s) => { s.patients = []; s.maxPatients = 2; });
 
     if (typeof window.distributePatientsEvenly === "function") {
       window.distributePatientsEvenly(currentNurses, list, { randomize, role: "nurse" });
       window.distributePatientsEvenly(currentPcas, list, { randomize, role: "pca" });
+      assignSitterPatientsByRoomPair(currentSitters, list);
     } else {
       // Fallback only: assignmentRules not loaded. Prefer loading app.assignmentRules.js so load-balanced distribution runs.
       list.forEach((p, i) => {
@@ -1209,6 +1232,7 @@
         pc.patients = safeArray(pc.patients);
         pc.patients.push(p.id);
       });
+      assignSitterPatientsByRoomPair(currentSitters, list);
     }
 
     const holdRn = ensureHoldOwnerForRole("nurse");
@@ -1216,6 +1240,7 @@
 
     window.currentNurses = [holdRn].concat(currentNurses);
     window.currentPcas = [holdPca].concat(currentPcas);
+    window.currentSitters = currentSitters;
 
     try {
       syncHoldPatients("nurse");
@@ -1284,7 +1309,8 @@
   function renderLiveAssignments() {
     const nurseContainer = document.getElementById("liveNurseAssignments");
     const pcaContainer = document.getElementById("livePcaAssignments");
-    if (!nurseContainer || !pcaContainer) return;
+    const sitterContainer = document.getElementById("liveSitterAssignments");
+    if (!nurseContainer || !pcaContainer || !sitterContainer) return;
 
     try {
       hideLegacyAdmitQueuePanel();
@@ -1311,12 +1337,15 @@
 
     const currentNursesAll = safeArray(window.currentNurses);
     const currentPcasAll = safeArray(window.currentPcas);
+    const currentSittersAll = safeArray(window.currentSitters);
 
     const realNurses = currentNursesAll.filter((n) => n && !isHoldOwner(n));
     const realPcas = currentPcasAll.filter((p) => p && !isHoldOwner(p));
+    const realSitters = currentSittersAll.filter((s) => s);
 
     nurseContainer.innerHTML = "";
     pcaContainer.innerHTML = "";
+    sitterContainer.innerHTML = "";
 
     const rnEvalMap = getRuleEvalMap(realNurses, "nurse");
     const pcaEvalMap = getRuleEvalMap(realPcas, "pca");
@@ -1601,6 +1630,56 @@
       `;
     });
 
+    realSitters.forEach((sitter) => {
+      const pts = safeArray(sitter.patients)
+        .map((id) => getPatientByIdSafe(id))
+        .filter((p) => p && !p.isEmpty)
+        .sort((a, b) => getRoomNumberSafe(a) - getRoomNumberSafe(b));
+
+      let rows = "";
+      pts.forEach((p) => {
+        rows += `
+          <tr
+            draggable="true"
+            ondragstart="onRowDragStart(event, 'live', 'sitter', ${sitter.id}, ${p.id})"
+            ondragend="onRowDragEnd(event)"
+            ondblclick="openPatientProfileFromRoom(${p.id})"
+          >
+            <td>${p.room || ""}</td>
+            <td>${p.tele ? "Tele" : "MS"}</td>
+            <td>${typeof window.pcaTagString === "function" ? window.pcaTagString(p) : ""}</td>
+          </tr>
+        `;
+      });
+
+      const emptyDrop = !pts.length ? buildEmptyDropZoneHtml("live", "sitter", sitter.id, "Sitter") : "";
+
+      sitterContainer.innerHTML += `
+        <div class="assignment-card">
+          <div class="assignment-header" style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;">
+            <div>
+              <div><strong>${escapeHtml(sitter.name)}</strong> (Sitter)</div>
+              <div>Patients: ${pts.length}</div>
+            </div>
+          </div>
+
+          <table class="assignment-table">
+            <thead>
+              <tr>
+                <th>Room</th>
+                <th>Level</th>
+                <th>Acuity Notes</th>
+              </tr>
+            </thead>
+            <tbody ondragover="onRowDragOver(event)" ondrop="onRowDrop(event, 'live', 'sitter', ${sitter.id})">
+              ${rows || `<tr><td colspan="3" style="opacity:0.75;">Drop a sitter patient here</td></tr>`}
+            </tbody>
+          </table>
+          ${emptyDrop}
+        </div>
+      `;
+    });
+
     // ✅ Mount Shift Narrative button next to Import Assignment button (LIVE header)
     try {
       window.shiftReport?.mountButtonNextToImport?.();
@@ -1625,7 +1704,8 @@
 
     const anyAssigned =
       currentNursesAll.some((n) => n && !isHoldOwner(n) && safeArray(n.patients).length > 0) ||
-      currentPcasAll.some((p) => p && !isHoldOwner(p) && safeArray(p.patients).length > 0);
+      currentPcasAll.some((p) => p && !isHoldOwner(p) && safeArray(p.patients).length > 0) ||
+      safeArray(window.currentSitters).some((s) => s && safeArray(s.patients).length > 0);
 
     if (anyAssigned) return;
 

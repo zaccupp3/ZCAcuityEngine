@@ -61,6 +61,13 @@ if (window.__assignmentsRenderLoaded) {
     return [];
   }
 
+  function __getIncomingSitters() {
+    const w = window.incomingSitters;
+    if (Array.isArray(w)) return w;
+    if (Array.isArray(typeof incomingSitters !== "undefined" ? incomingSitters : null)) return incomingSitters;
+    return [];
+  }
+
   function __getPatients() {
     const w = window.patients;
     if (Array.isArray(w)) return w;
@@ -71,10 +78,12 @@ if (window.__assignmentsRenderLoaded) {
   function __syncIncomingGlobals() {
     const nurses = __getIncomingNurses();
     const pcas = __getIncomingPcas();
+    const sitters = __getIncomingSitters();
     const pts = __getPatients();
 
     if (!Array.isArray(window.incomingNurses)) window.incomingNurses = nurses;
     if (!Array.isArray(window.incomingPcas)) window.incomingPcas = pcas;
+    if (!Array.isArray(window.incomingSitters)) window.incomingSitters = sitters;
     if (!Array.isArray(window.patients)) window.patients = pts;
 
     try {
@@ -86,6 +95,12 @@ if (window.__assignmentsRenderLoaded) {
     try {
       if (typeof incomingPcas !== "undefined" && incomingPcas !== window.incomingPcas) {
         incomingPcas = window.incomingPcas;
+      }
+    } catch (_) {}
+
+    try {
+      if (typeof incomingSitters !== "undefined" && incomingSitters !== window.incomingSitters) {
+        incomingSitters = window.incomingSitters;
       }
     } catch (_) {}
 
@@ -215,6 +230,57 @@ if (window.__assignmentsRenderLoaded) {
     const gb = (typeof window.getRoomNumber === "function") ? window.getRoomNumber(b) : 9999;
     if (ga !== gb) return ga - gb;
     return (Number(a?.id) || 0) - (Number(b?.id) || 0);
+  }
+
+  function __sitterRoomGroupKey(p) {
+    const bed = getBedLabel(p);
+    const m = String(bed || "").trim().match(/^(\d+)/);
+    return m ? m[1] : String(bed || "");
+  }
+
+  function __assignSitterPatientsByRoomPair(sitters, activePatients) {
+    const owners = Array.isArray(sitters) ? sitters : [];
+    owners.forEach((s) => {
+      s.patients = [];
+      s.maxPatients = 2;
+    });
+    if (!owners.length) return;
+
+    const sitterPts = (Array.isArray(activePatients) ? activePatients : [])
+      .filter((p) => p && !p.isEmpty && !!p.sitter)
+      .sort(safeSortPatientsForDisplay);
+
+    const groups = new Map();
+    sitterPts.forEach((p) => {
+      const key = __sitterRoomGroupKey(p);
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push(p);
+    });
+
+    const orderedGroups = Array.from(groups.values())
+      .map((arr) => arr.sort(safeSortPatientsForDisplay).slice(0, 2))
+      .sort((a, b) => safeSortPatientsForDisplay(a[0], b[0]));
+
+    const load = new Map();
+    owners.forEach((s) => load.set(Number(s.id), 0));
+
+    orderedGroups.forEach((grp) => {
+      const target = owners
+        .slice()
+        .sort((a, b) => {
+          const la = load.get(Number(a.id)) || 0;
+          const lb = load.get(Number(b.id)) || 0;
+          if (la !== lb) return la - lb;
+          return Number(a.id) - Number(b.id);
+        })
+        .find((s) => (load.get(Number(s.id)) || 0) + grp.length <= 2);
+
+      if (!target) return;
+      grp.forEach((p) => {
+        target.patients.push(Number(p.id));
+      });
+      load.set(Number(target.id), (load.get(Number(target.id)) || 0) + grp.length);
+    });
   }
 
   // -----------------------------
@@ -644,6 +710,7 @@ if (window.__assignmentsRenderLoaded) {
 
     const rnSet = new Set();
     const pcaSet = new Set();
+    const sitterSet = new Set();
 
     __getIncomingNurses().forEach(rn => {
       (rn?.patients || []).forEach(pid => rnSet.add(Number(pid)));
@@ -653,10 +720,17 @@ if (window.__assignmentsRenderLoaded) {
       (pca?.patients || []).forEach(pid => pcaSet.add(Number(pid)));
     });
 
+    __getIncomingSitters().forEach(s => {
+      (s?.patients || []).forEach(pid => sitterSet.add(Number(pid)));
+    });
+
     const populatedCount = active.reduce((sum, p) => {
       const pid = Number(p?.id);
       if (!Number.isFinite(pid)) return sum;
-      return sum + (rnSet.has(pid) && pcaSet.has(pid) ? 1 : 0);
+      const hasCore = rnSet.has(pid) && pcaSet.has(pid);
+      if (!hasCore) return sum;
+      if (p?.sitter) return sum + (sitterSet.has(pid) ? 1 : 0);
+      return sum + 1;
     }, 0);
 
     const allPopulated = total === 0 ? true : populatedCount === total;
@@ -1008,12 +1082,80 @@ if (window.__assignmentsRenderLoaded) {
     container.innerHTML = html;
   }
 
+  function __renderSitterAssignmentOutputWithCache() {
+    __syncIncomingGlobals();
+
+    const container = document.getElementById("sitterAssignmentOutput");
+    if (!container) return;
+
+    if (typeof ensureDefaultPatients === "function") ensureDefaultPatients();
+
+    let html = "";
+    const allOwners = __getIncomingSitters();
+
+    allOwners.forEach((sitter) => {
+      const pts = (sitter.patients || [])
+        .map((pid) => getPatientById(pid))
+        .filter((p) => p && !p.isEmpty)
+        .sort(safeSortPatientsForDisplay);
+
+      html += `
+        <div class="assignment-card">
+          <div class="assignment-header">
+            <div><strong>${escapeHtml(sitter.name || `Incoming Sitter ${Number(sitter.id) || ""}`)}</strong> (Sitter)</div>
+            <div>Patients: ${pts.length}</div>
+          </div>
+
+          <table class="assignment-table">
+            <thead>
+              <tr>
+                <th>Bed</th>
+                <th>Level</th>
+                <th>Acuity Notes</th>
+              </tr>
+            </thead>
+            <tbody
+              ondragover="onRowDragOver(event)"
+              ondrop="onRowDrop(event, 'incoming', 'sitter', ${sitter.id})"
+            >
+      `;
+
+      if (!pts.length) {
+        html += `<tr><td colspan="3" style="opacity:0.75;">Drop a sitter patient here</td></tr>`;
+      }
+
+      pts.forEach((p) => {
+        html += `
+          <tr
+            draggable="true"
+            ondragstart="onRowDragStart(event, 'incoming', 'sitter', ${sitter.id}, ${p.id})"
+            ondragend="onRowDragEnd(event)"
+            ondblclick="openPatientProfileFromRoom(${p.id})"
+          >
+            <td>${escapeHtml(getBedLabel(p))}</td>
+            <td>${p.tele ? "Tele" : "MS"}</td>
+            <td>${typeof pcaTagString === "function" ? pcaTagString(p) : ""}</td>
+          </tr>
+        `;
+      });
+
+      html += `
+            </tbody>
+          </table>
+        </div>
+      `;
+    });
+
+    container.innerHTML = html;
+  }
+
   // Batch render (RN + PCA share the same prev maps)
   function renderOncomingAll() {
     __beginRenderCycle();
     const prevMaps = __getPrevMapsForCycle();
     __renderAssignmentOutputWithCache(prevMaps);
     __renderPcaAssignmentOutputWithCache(prevMaps);
+    __renderSitterAssignmentOutputWithCache(prevMaps);
     __refreshOncomingPopulateStatus();
   }
 
@@ -1029,6 +1171,13 @@ if (window.__assignmentsRenderLoaded) {
     __beginRenderCycle();
     const prevMaps = __getPrevMapsForCycle();
     __renderPcaAssignmentOutputWithCache(prevMaps);
+    __refreshOncomingPopulateStatus();
+  }
+
+  function renderSitterAssignmentOutput() {
+    __beginRenderCycle();
+    const prevMaps = __getPrevMapsForCycle();
+    __renderSitterAssignmentOutputWithCache(prevMaps);
     __refreshOncomingPopulateStatus();
   }
 
@@ -1048,6 +1197,7 @@ if (window.__assignmentsRenderLoaded) {
 
       const nurses = __getIncomingNurses();
       const pcas = __getIncomingPcas();
+      const sitters = __getIncomingSitters();
       const ptsAll = __getPatients();
 
       if (!nurses.length || !pcas.length) {
@@ -1063,6 +1213,7 @@ if (window.__assignmentsRenderLoaded) {
 
       nurses.forEach(n => { n.patients = []; });
       pcas.forEach(p => { p.patients = []; });
+      sitters.forEach(s => { s.patients = []; s.maxPatients = 2; });
 
       cleanupRnPinsAgainstRoster();
 
@@ -1075,6 +1226,7 @@ if (window.__assignmentsRenderLoaded) {
       if (typeof window.distributePatientsEvenly === "function") {
         window.distributePatientsEvenly(nurses, unlockedPool, { randomize, role: "nurse", preserveExisting: true });
         window.distributePatientsEvenly(pcas, list, { randomize, role: "pca", preserveExisting: true });
+        __assignSitterPatientsByRoomPair(sitters, list);
       } else {
         alert("ERROR: distributePatientsEvenly is not loaded. Check script order + app.assignmentRules.js loading.");
         console.error("distributePatientsEvenly missing — check index.html script order and app.assignmentRules.js.");
@@ -1199,6 +1351,7 @@ if (window.__assignmentsRenderLoaded) {
   // Expose globally (CRITICAL for index.html onclick)
   window.renderAssignmentOutput = renderAssignmentOutput;
   window.renderPcaAssignmentOutput = renderPcaAssignmentOutput;
+  window.renderSitterAssignmentOutput = renderSitterAssignmentOutput;
   window.renderOncomingAll = renderOncomingAll;
 
   window.populateOncomingAssignment = populateOncomingAssignment;

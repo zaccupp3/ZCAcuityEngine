@@ -22,6 +22,8 @@
   window.incomingNurses = Array.isArray(window.incomingNurses) ? window.incomingNurses : [];
   window.currentPcas    = Array.isArray(window.currentPcas)    ? window.currentPcas    : [];
   window.incomingPcas   = Array.isArray(window.incomingPcas)   ? window.incomingPcas   : [];
+  window.currentSitters = Array.isArray(window.currentSitters) ? window.currentSitters : [];
+  window.incomingSitters = Array.isArray(window.incomingSitters) ? window.incomingSitters : [];
   window.patients       = Array.isArray(window.patients)       ? window.patients       : [];
 
   window.admitQueue       = Array.isArray(window.admitQueue)       ? window.admitQueue       : [];
@@ -41,7 +43,7 @@
   // LEGACY BARE GLOBALS (kept synced)
   // ---------------------------------------------------------
   // eslint-disable-next-line no-var
-  var currentNurses, incomingNurses, currentPcas, incomingPcas, patients;
+  var currentNurses, incomingNurses, currentPcas, incomingPcas, currentSitters, incomingSitters, patients;
   // eslint-disable-next-line no-var
   var admitQueue, dischargeHistory, pcaShift, nextQueueId, nextDischargeId;
   // eslint-disable-next-line no-var
@@ -52,6 +54,8 @@
     incomingNurses    = window.incomingNurses;
     currentPcas       = window.currentPcas;
     incomingPcas      = window.incomingPcas;
+    currentSitters    = window.currentSitters;
+    incomingSitters   = window.incomingSitters;
     patients          = window.patients;
 
     admitQueue        = window.admitQueue;
@@ -72,6 +76,8 @@
     window.incomingNurses    = Array.isArray(incomingNurses) ? incomingNurses : [];
     window.currentPcas       = Array.isArray(currentPcas) ? currentPcas : [];
     window.incomingPcas      = Array.isArray(incomingPcas) ? incomingPcas : [];
+    window.currentSitters    = Array.isArray(currentSitters) ? currentSitters : [];
+    window.incomingSitters   = Array.isArray(incomingSitters) ? incomingSitters : [];
     window.patients          = Array.isArray(patients) ? patients : [];
 
     window.admitQueue        = Array.isArray(admitQueue) ? admitQueue : [];
@@ -180,6 +186,7 @@
     if (typeof window.renderLiveAssignments === "function") window.renderLiveAssignments();
     if (typeof window.renderAssignmentOutput === "function") window.renderAssignmentOutput();
     if (typeof window.renderPcaAssignmentOutput === "function") window.renderPcaAssignmentOutput();
+    if (typeof window.renderSitterAssignmentOutput === "function") window.renderSitterAssignmentOutput();
 
     saveState();
   }
@@ -201,6 +208,7 @@
     if (typeof window.renderLiveAssignments === "function") window.renderLiveAssignments();
     if (typeof window.renderAssignmentOutput === "function") window.renderAssignmentOutput();
     if (typeof window.renderPcaAssignmentOutput === "function") window.renderPcaAssignmentOutput();
+    if (typeof window.renderSitterAssignmentOutput === "function") window.renderSitterAssignmentOutput();
     if (typeof window.renderQueueList === "function") window.renderQueueList();
 
     saveState();
@@ -268,6 +276,20 @@
           patients: Array.isArray(p.patients) ? p.patients.slice() : []
         })),
 
+        currentSitters: (window.currentSitters || []).map((s, i) => ({
+          id: s.id ?? i + 1,
+          staff_id: s.staff_id || null,
+          name: s.name,
+          patients: Array.isArray(s.patients) ? s.patients.slice() : []
+        })),
+
+        incomingSitters: (window.incomingSitters || []).map((s, i) => ({
+          id: s.id ?? i + 1,
+          staff_id: s.staff_id || null,
+          name: s.name,
+          patients: Array.isArray(s.patients) ? s.patients.slice() : []
+        })),
+
         patients: (window.patients || []).map(p => ({ ...p })),
 
         dischargeHistory: Array.isArray(window.dischargeHistory) ? window.dischargeHistory : [],
@@ -316,6 +338,8 @@
       window.incomingNurses = Array.isArray(data.incomingNurses) ? data.incomingNurses : [];
       window.currentPcas    = Array.isArray(data.currentPcas) ? data.currentPcas : [];
       window.incomingPcas   = Array.isArray(data.incomingPcas) ? data.incomingPcas : [];
+      window.currentSitters = Array.isArray(data.currentSitters) ? data.currentSitters : [];
+      window.incomingSitters = Array.isArray(data.incomingSitters) ? data.incomingSitters : [];
 
       window.patients         = Array.isArray(data.patients) ? data.patients : [];
       window.dischargeHistory = Array.isArray(data.dischargeHistory) ? data.dischargeHistory : [];
@@ -353,6 +377,7 @@
     if (typeof window.renderLiveAssignments === "function") window.renderLiveAssignments();
     if (typeof window.renderAssignmentOutput === "function") window.renderAssignmentOutput();
     if (typeof window.renderPcaAssignmentOutput === "function") window.renderPcaAssignmentOutput();
+    if (typeof window.renderSitterAssignmentOutput === "function") window.renderSitterAssignmentOutput();
     if (typeof window.renderQueueList === "function") window.renderQueueList();
     if (typeof window.updateDischargeCount === "function") window.updateDischargeCount();
 
@@ -385,6 +410,8 @@
       window.incomingNurses = [];
       window.currentPcas = [];
       window.incomingPcas = [];
+      window.currentSitters = [];
+      window.incomingSitters = [];
       window.admitQueue = [];
       window.dischargeHistory = [];
       window.nextQueueId = 1;
@@ -460,6 +487,7 @@
     if (typeof window.renderLiveAssignments === "function") window.renderLiveAssignments();
     if (typeof window.renderAssignmentOutput === "function") window.renderAssignmentOutput();
     if (typeof window.renderPcaAssignmentOutput === "function") window.renderPcaAssignmentOutput();
+    if (typeof window.renderSitterAssignmentOutput === "function") window.renderSitterAssignmentOutput();
 
     saveState();
   }

@@ -79,8 +79,11 @@
     if (/\bBG\b/.test(joined)) tags.add("BG");
     if (/\bNIH\b/.test(joined)) tags.add("NIH");
     if (/\bADMIT\b/.test(joined) || /\bADM\b/.test(joined)) tags.add("ADMIT");
+    if (/\bLATE\s*D\/?C\b/.test(joined) || /\bLATE\s*DC\b/.test(joined)) tags.add("LATE_DC");
     if (/\bCIWA\b/.test(joined)) tags.add("CIWA");
-    if (/\bGTT\b/.test(joined)) tags.add("GTT");
+    if (/\bVPO\b/.test(joined)) tags.add("VPO");
+    if (/\bRESTRAINTS?\b/.test(joined)) tags.add("RESTRAINT");
+    if (/\bGTT\b/.test(joined) || /\bDRIP\b/.test(joined)) tags.add("GTT");
     if (/\bEMPTY\b/.test(joined) || /\bOPEN\b/.test(joined) || /\bVACANT\b/.test(joined)) tags.add("EMPTY");
 
     return Array.from(tags);
@@ -718,17 +721,29 @@
   }
 
   function clearSupportedFlags(p) {
-    if (typeof p.tele === "boolean") p.tele = false;
-
-    if (typeof p.isolation === "boolean") p.isolation = false;
-    if (typeof p.sitter === "boolean") p.sitter = false;
-    if (typeof p.bg === "boolean") p.bg = false;
-    if (typeof p.nih === "boolean") p.nih = false;
-    if (typeof p.admit === "boolean") p.admit = false;
-    if (typeof p.ciwa === "boolean") p.ciwa = false;
-
-    if (typeof p.drip === "boolean") p.drip = false;
-
+    const boolKeys = [
+      "tele",
+      "drip",
+      "nih",
+      "bg",
+      "bgChecks",
+      "ciwa",
+      "cows",
+      "ciwaCows",
+      "restraint",
+      "restraints",
+      "sitter",
+      "vpo",
+      "isolation",
+      "iso",
+      "admit",
+      "lateDc",
+      "lateDC",
+      "latedc",
+    ];
+    for (const key of boolKeys) {
+      if (typeof p[key] === "boolean") p[key] = false;
+    }
     if (typeof p.reviewed === "boolean") p.reviewed = false;
   }
 
@@ -779,8 +794,19 @@
     setFlagViaUiHandler(p, "bg", tagSet.has("BG"));
     setFlagViaUiHandler(p, "nih", tagSet.has("NIH"));
     setFlagViaUiHandler(p, "admit", tagSet.has("ADMIT"));
+    setFlagViaUiHandler(p, "lateDc", tagSet.has("LATE_DC"));
     setFlagViaUiHandler(p, "ciwa", tagSet.has("CIWA"));
+    setFlagViaUiHandler(p, "vpo", tagSet.has("VPO"));
+    setFlagViaUiHandler(p, "restraint", tagSet.has("RESTRAINT"));
     setFlagViaUiHandler(p, "drip", tagSet.has("GTT"));
+
+    if (typeof p.bgChecks === "boolean") p.bgChecks = !!p.bg;
+    if (typeof p.cows === "boolean") p.cows = !!p.ciwa;
+    if (typeof p.ciwaCows === "boolean") p.ciwaCows = !!p.ciwa;
+    if (typeof p.iso === "boolean") p.iso = !!p.isolation;
+    if (typeof p.lateDC === "boolean") p.lateDC = !!p.lateDc;
+    if (typeof p.latedc === "boolean") p.latedc = !!p.lateDc;
+    if (typeof p.restraints === "boolean") p.restraints = !!p.restraint;
 
     const notes = [];
     if (tagSet.has("ISO")) notes.push("ISO");
@@ -788,7 +814,10 @@
     if (tagSet.has("BG")) notes.push("BG");
     if (tagSet.has("NIH")) notes.push("NIH");
     if (tagSet.has("ADMIT")) notes.push("ADMIT");
+    if (tagSet.has("LATE_DC")) notes.push("LATE DC");
     if (tagSet.has("CIWA")) notes.push("CIWA");
+    if (tagSet.has("VPO")) notes.push("VPO");
+    if (tagSet.has("RESTRAINT")) notes.push("RESTRAINT");
     if (tagSet.has("GTT")) notes.push("GTT");
 
     p.acuityNotes = notes;
@@ -924,6 +953,8 @@
       const options = opts && typeof opts === "object" ? opts : {};
       const overwritePerRoom = options.overwritePerRoom !== false;
       const replaceRoster = options.replaceRoster !== false;
+      const mode = String(options.mode || "").toLowerCase();
+      const isCsvMode = mode === "csv";
 
       // Build room-level updates from RN rooms
       const updates = [];
@@ -938,11 +969,21 @@
         }
       }
 
+      // CSV mode: clear supported acuity flags across all patients first,
+      // then apply only flags explicitly present in parsed CSV rows.
+      if (isCsvMode && overwritePerRoom) {
+        const allPatients = getPatientsArray();
+        for (const p of allPatients) {
+          if (!p) continue;
+          clearSupportedFlags(p);
+        }
+      }
+
       // Apply per-room updates (patient flags)
       for (const u of updates) {
         const p = findPatientByRoom(u.room);
         if (!p) continue;
-        if (overwritePerRoom) clearSupportedFlags(p);
+        if (!isCsvMode && overwritePerRoom) clearSupportedFlags(p);
         applyLevelAndTagsToPatient(p, u.level, u.tags);
       }
 

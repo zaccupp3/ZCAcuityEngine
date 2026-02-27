@@ -432,6 +432,7 @@ window.addEventListener("DOMContentLoaded", async () => {
     try { if (__DBG) __dbgCount("renderLiveAssignments()"); if (typeof window.renderLiveAssignments === "function") window.renderLiveAssignments(); } catch {}
     try { if (__DBG) __dbgCount("renderAssignmentOutput()"); if (typeof window.renderAssignmentOutput === "function") window.renderAssignmentOutput(); } catch {}
     try { if (__DBG) __dbgCount("renderPcaAssignmentOutput()"); if (typeof window.renderPcaAssignmentOutput === "function") window.renderPcaAssignmentOutput(); } catch {}
+    try { if (__DBG) __dbgCount("renderSitterAssignmentOutput()"); if (typeof window.renderSitterAssignmentOutput === "function") window.renderSitterAssignmentOutput(); } catch {}
     try { if (__DBG) __dbgCount("renderQueueList()"); if (typeof window.renderQueueList === "function") window.renderQueueList(); } catch {}
     try { if (__DBG) __dbgCount("updateDischargeCount()"); if (typeof window.updateDischargeCount === "function") window.updateDischargeCount(); } catch {}
 
@@ -930,6 +931,8 @@ window.addEventListener("DOMContentLoaded", async () => {
   const incomingNurseCountSel = document.getElementById("incomingNurseCount");
   const currentPcaCountSel = document.getElementById("currentPcaCount");
   const incomingPcaCountSel = document.getElementById("incomingPcaCount");
+  const currentSitterCountSel = document.getElementById("currentSitterCount");
+  const incomingSitterCountSel = document.getElementById("incomingSitterCount");
 
   if (!currentNurses.length) {
     if (currentNurseCountSel) currentNurseCountSel.value = 4;
@@ -961,6 +964,22 @@ window.addEventListener("DOMContentLoaded", async () => {
   } else {
     if (incomingPcaCountSel) incomingPcaCountSel.value = incomingPcas.length;
     renderIncomingPcaList();
+  }
+
+  if (!currentSitters.length) {
+    if (currentSitterCountSel) currentSitterCountSel.value = 1;
+    setupCurrentSitters();
+  } else {
+    if (currentSitterCountSel) currentSitterCountSel.value = currentSitters.length;
+    renderCurrentSitterList();
+  }
+
+  if (!incomingSitters.length) {
+    if (incomingSitterCountSel) incomingSitterCountSel.value = 1;
+    setupIncomingSitters();
+  } else {
+    if (incomingSitterCountSel) incomingSitterCountSel.value = incomingSitters.length;
+    renderIncomingSitterList();
   }
 
   const shiftSel = document.getElementById("pcaShift");
