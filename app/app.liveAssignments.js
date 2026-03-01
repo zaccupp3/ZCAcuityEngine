@@ -181,47 +181,29 @@
     return m ? m[1] : room;
   }
 
-  function assignSitterPatientsByRoomPair(sitters, activePatients) {
-    const owners = safeArray(sitters);
-    owners.forEach((s) => {
-      s.patients = [];
-      s.maxPatients = 2;
+  function applyPcaSitterDesignations(pcas, activePatients) {
+    const owners = safeArray(pcas);
+    const pts = safeArray(activePatients);
+    const pinned = new Set();
+
+    owners.forEach((pca) => {
+      const pair = String(pca?.sitterRoomPair || "").trim();
+      const isSitterPca = !!pca?.isSitter && !!pair;
+      if (!isSitterPca) return;
+
+      const hits = pts
+        .filter((p) => p && !p.isEmpty && !!p.sitter && getRoomPairKeyForSitter(p) === pair)
+        .sort((a, b) => getRoomNumberSafe(a) - getRoomNumberSafe(b))
+        .slice(0, 2)
+        .map((p) => Number(p.id))
+        .filter(Number.isFinite);
+
+      pca.patients = Array.from(new Set(hits));
+      pca.maxPatients = 2;
+      pca.patients.forEach((id) => pinned.add(id));
     });
-    if (!owners.length) return;
 
-    const sitterPts = safeArray(activePatients)
-      .filter((p) => p && !p.isEmpty && !!p.sitter)
-      .sort((a, b) => getRoomNumberSafe(a) - getRoomNumberSafe(b));
-
-    const groups = new Map();
-    sitterPts.forEach((p) => {
-      const key = getRoomPairKeyForSitter(p);
-      if (!groups.has(key)) groups.set(key, []);
-      groups.get(key).push(p);
-    });
-
-    const orderedGroups = Array.from(groups.values())
-      .map((arr) => arr.slice().sort((a, b) => getRoomNumberSafe(a) - getRoomNumberSafe(b)).slice(0, 2))
-      .sort((a, b) => getRoomNumberSafe(a[0]) - getRoomNumberSafe(b[0]));
-
-    const loads = new Map();
-    owners.forEach((s) => loads.set(Number(s.id), 0));
-
-    orderedGroups.forEach((group) => {
-      const target = owners
-        .slice()
-        .sort((a, b) => {
-          const la = loads.get(Number(a.id)) || 0;
-          const lb = loads.get(Number(b.id)) || 0;
-          if (la !== lb) return la - lb;
-          return Number(a.id) - Number(b.id);
-        })
-        .find((s) => (loads.get(Number(s.id)) || 0) + group.length <= 2);
-
-      if (!target) return;
-      group.forEach((p) => target.patients.push(p.id));
-      loads.set(Number(target.id), (loads.get(Number(target.id)) || 0) + group.length);
-    });
+    return pinned;
   }
 
   // -----------------------------
@@ -1191,11 +1173,8 @@
 
     const currentNursesAll = safeArray(window.currentNurses);
     const currentPcasAll = safeArray(window.currentPcas);
-    const currentSittersAll = safeArray(window.currentSitters);
-
     const currentNurses = currentNursesAll.filter((n) => n && !isHoldOwner(n));
     const currentPcas = currentPcasAll.filter((p) => p && !isHoldOwner(p));
-    const currentSitters = currentSittersAll.filter((s) => s);
 
     if (!currentNurses.length || !currentPcas.length) {
       alert("Please set up Current RNs and PCAs on the Staffing Details tab first.");
@@ -1214,12 +1193,15 @@
 
     currentNurses.forEach((n) => (n.patients = []));
     currentPcas.forEach((p) => (p.patients = []));
-    currentSitters.forEach((s) => { s.patients = []; s.maxPatients = 2; });
 
     if (typeof window.distributePatientsEvenly === "function") {
       window.distributePatientsEvenly(currentNurses, list, { randomize, role: "nurse" });
-      window.distributePatientsEvenly(currentPcas, list, { randomize, role: "pca" });
-      assignSitterPatientsByRoomPair(currentSitters, list);
+      const pinnedToSitterPcas = applyPcaSitterDesignations(currentPcas, list);
+      const pcaPool = list.filter((p) => !pinnedToSitterPcas.has(Number(p?.id)));
+      const openPcas = currentPcas.filter((p) => !(p?.isSitter && String(p?.sitterRoomPair || "").trim()));
+      if (openPcas.length) {
+        window.distributePatientsEvenly(openPcas, pcaPool, { randomize, role: "pca" });
+      }
     } else {
       // Fallback only: assignmentRules not loaded. Prefer loading app.assignmentRules.js so load-balanced distribution runs.
       list.forEach((p, i) => {
@@ -1227,12 +1209,15 @@
         rn.patients = safeArray(rn.patients);
         rn.patients.push(p.id);
       });
-      list.forEach((p, i) => {
-        const pc = currentPcas[i % currentPcas.length];
+      const pinnedToSitterPcas = applyPcaSitterDesignations(currentPcas, list);
+      const pcaPool = list.filter((p) => !pinnedToSitterPcas.has(Number(p?.id)));
+      const openPcas = currentPcas.filter((p) => !(p?.isSitter && String(p?.sitterRoomPair || "").trim()));
+      pcaPool.forEach((p, i) => {
+        if (!openPcas.length) return;
+        const pc = openPcas[i % openPcas.length];
         pc.patients = safeArray(pc.patients);
         pc.patients.push(p.id);
       });
-      assignSitterPatientsByRoomPair(currentSitters, list);
     }
 
     const holdRn = ensureHoldOwnerForRole("nurse");
@@ -1240,7 +1225,6 @@
 
     window.currentNurses = [holdRn].concat(currentNurses);
     window.currentPcas = [holdPca].concat(currentPcas);
-    window.currentSitters = currentSitters;
 
     try {
       syncHoldPatients("nurse");
@@ -1309,8 +1293,7 @@
   function renderLiveAssignments() {
     const nurseContainer = document.getElementById("liveNurseAssignments");
     const pcaContainer = document.getElementById("livePcaAssignments");
-    const sitterContainer = document.getElementById("liveSitterAssignments");
-    if (!nurseContainer || !pcaContainer || !sitterContainer) return;
+    if (!nurseContainer || !pcaContainer) return;
 
     try {
       hideLegacyAdmitQueuePanel();
@@ -1337,15 +1320,11 @@
 
     const currentNursesAll = safeArray(window.currentNurses);
     const currentPcasAll = safeArray(window.currentPcas);
-    const currentSittersAll = safeArray(window.currentSitters);
-
     const realNurses = currentNursesAll.filter((n) => n && !isHoldOwner(n));
     const realPcas = currentPcasAll.filter((p) => p && !isHoldOwner(p));
-    const realSitters = currentSittersAll.filter((s) => s);
 
     nurseContainer.innerHTML = "";
     pcaContainer.innerHTML = "";
-    sitterContainer.innerHTML = "";
 
     const rnEvalMap = getRuleEvalMap(realNurses, "nurse");
     const pcaEvalMap = getRuleEvalMap(realPcas, "pca");
@@ -1558,6 +1537,10 @@
 
       const ownerEval = getOwnerEval(pca, pcaEvalMap);
       const ruleIcon = buildRuleIconHtml(ownerEval, "PCA");
+      const sitterPair = String(pca?.sitterRoomPair || "").trim();
+      const isSitterPca = !!pca?.isSitter && !!sitterPair;
+      const sitterRoomsLabel = isSitterPca ? `${sitterPair}A, ${sitterPair}B` : "";
+      const titleRole = isSitterPca ? "Sitter" : "PCA";
 
       let rows = "";
       pts.forEach((p) => {
@@ -1602,10 +1585,12 @@
           <div class="assignment-header" style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;">
             <div>
               <div style="display:flex;align-items:flex-start;gap:10px;">
-                <div><strong>${escapeHtml(pca.name)}</strong> (PCA)</div>
+                <div>
+                  <strong>${escapeHtml(pca.name)}</strong> (${titleRole})${isSitterPca ? ` ${pts.length} | ${escapeHtml(sitterRoomsLabel)}` : ``}
+                </div>
                 <div class="icon-row">${ruleIcon}</div>
               </div>
-              <div>Patients: ${pts.length} | Load Score: ${loadScore}</div>
+              <div>${isSitterPca ? `Load Score: ${loadScore}` : `Patients: ${pts.length} | Load Score: ${loadScore}`}</div>
             </div>
             <div style="display:flex;align-items:center;gap:8px;">
               ${removeBtn}
@@ -1625,56 +1610,6 @@
             </tbody>
           </table>
 
-          ${emptyDrop}
-        </div>
-      `;
-    });
-
-    realSitters.forEach((sitter) => {
-      const pts = safeArray(sitter.patients)
-        .map((id) => getPatientByIdSafe(id))
-        .filter((p) => p && !p.isEmpty)
-        .sort((a, b) => getRoomNumberSafe(a) - getRoomNumberSafe(b));
-
-      let rows = "";
-      pts.forEach((p) => {
-        rows += `
-          <tr
-            draggable="true"
-            ondragstart="onRowDragStart(event, 'live', 'sitter', ${sitter.id}, ${p.id})"
-            ondragend="onRowDragEnd(event)"
-            ondblclick="openPatientProfileFromRoom(${p.id})"
-          >
-            <td>${p.room || ""}</td>
-            <td>${p.tele ? "Tele" : "MS"}</td>
-            <td>${typeof window.pcaTagString === "function" ? window.pcaTagString(p) : ""}</td>
-          </tr>
-        `;
-      });
-
-      const emptyDrop = !pts.length ? buildEmptyDropZoneHtml("live", "sitter", sitter.id, "Sitter") : "";
-
-      sitterContainer.innerHTML += `
-        <div class="assignment-card">
-          <div class="assignment-header" style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;">
-            <div>
-              <div><strong>${escapeHtml(sitter.name)}</strong> (Sitter)</div>
-              <div>Patients: ${pts.length}</div>
-            </div>
-          </div>
-
-          <table class="assignment-table">
-            <thead>
-              <tr>
-                <th>Room</th>
-                <th>Level</th>
-                <th>Acuity Notes</th>
-              </tr>
-            </thead>
-            <tbody ondragover="onRowDragOver(event)" ondrop="onRowDrop(event, 'live', 'sitter', ${sitter.id})">
-              ${rows || `<tr><td colspan="3" style="opacity:0.75;">Drop a sitter patient here</td></tr>`}
-            </tbody>
-          </table>
           ${emptyDrop}
         </div>
       `;
@@ -1704,8 +1639,7 @@
 
     const anyAssigned =
       currentNursesAll.some((n) => n && !isHoldOwner(n) && safeArray(n.patients).length > 0) ||
-      currentPcasAll.some((p) => p && !isHoldOwner(p) && safeArray(p.patients).length > 0) ||
-      safeArray(window.currentSitters).some((s) => s && safeArray(s.patients).length > 0);
+      currentPcasAll.some((p) => p && !isHoldOwner(p) && safeArray(p.patients).length > 0);
 
     if (anyAssigned) return;
 

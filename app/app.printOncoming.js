@@ -94,168 +94,266 @@
     return pts.filter((p) => p && !p.isEmpty);
   }
 
-  function collectHighRiskSections() {
-    const active = getActivePatients();
-    const config = [
-      { label: "Drips", key: "drip" },
-      { label: "NIH", key: "nih" },
-      { label: "BG Checks", key: "bg" },
-      { label: "CIWA/COWS", key: "ciwa" },
-      { label: "Restraints", key: "restraint" },
-      { label: "Sitters", key: "sitter" },
-      { label: "VPO", key: "vpo" },
-      { label: "Isolation", key: "isolation" },
-      { label: "Admits", key: "admit" },
-      { label: "Late DC", key: "lateDc" },
-      { label: "CHG", key: "chg" },
-      { label: "Foley", key: "foley" },
-      { label: "Q2 Turns", key: "q2turns" },
-      { label: "Heavy", key: "heavy" },
-      { label: "Feeders", key: "feeder" },
-    ];
-
-    return config
-      .map((c) => {
-        const rooms = active
-          .filter((p) => !!p[c.key])
-          .map((p) => getRoomLabelForPrint(p))
-          .filter(Boolean)
-          .sort((a, b) => roomSortKey(a).localeCompare(roomSortKey(b)));
-        return { ...c, rooms, count: rooms.length };
-      })
-      .filter((s) => s.count > 0);
-  }
-
-  function getDripRooms() {
+  function roomsForTag(tagKey) {
     return getActivePatients()
-      .filter((p) => !!p.drip)
+      .filter((p) => {
+        if (!p) return false;
+        if (tagKey === "strictIo") return !!(p.strictIo || p.heavy);
+        return !!p[tagKey];
+      })
       .map((p) => getRoomLabelForPrint(p))
       .filter(Boolean)
       .sort((a, b) => roomSortKey(a).localeCompare(roomSortKey(b)));
+  }
+
+  function roomsLine(tagKey) {
+    const rooms = roomsForTag(tagKey);
+    return rooms.length ? rooms.join(", ") : "None";
+  }
+
+  const EDITABLE_SECTIONS = [
+    { id: "drips", label: "Drips", autoKey: "drip" },
+    { id: "special_procedures", label: "Special Procedures", autoKey: "" },
+    { id: "tube_feeds", label: "Tube Feeds", autoKey: "tf" },
+    { id: "wounds", label: "Wounds", autoKey: "" },
+    { id: "central_lines", label: "Central Lines", autoKey: "" },
+    { id: "isolations", label: "Isolations", autoKey: "isolation" },
+    { id: "nih", label: "NIH", autoKey: "nih" },
+    { id: "ciwa", label: "CIWA", autoKey: "ciwa" },
+    { id: "sitters", label: "Sitters", autoKey: "sitter" },
+    { id: "co", label: "C/O", autoKey: "" },
+    { id: "restraints", label: "Restraints", autoKey: "restraint" },
+    { id: "special_endorsements", label: "Special Endorsements", autoKey: "" },
+  ];
+
+  const AUTOFILL_SECTIONS = [
+    { id: "admits", label: "Admits", autoKey: "admit" },
+    { id: "discharges", label: "D/C", autoKey: "lateDc" },
+    { id: "foley", label: "Foley Catheters", autoKey: "foley" },
+    { id: "strict_ios", label: "Strict I's & O's", autoKey: "strictIo" },
+    { id: "bg", label: "Blood Glucose", autoKey: "bg" },
+  ];
+
+  function buildDefaultHighRiskDraft() {
+    const details = {};
+    const roomDetails = {};
+    EDITABLE_SECTIONS.forEach((s) => {
+      details[s.id] = "";
+      roomDetails[s.id] = {};
+    });
+    return { details, roomDetails, updatedAt: new Date().toISOString() };
+  }
+
+  function normalizeHandoffDraft(rawObj) {
+    const base = buildDefaultHighRiskDraft();
+    const src = (rawObj && typeof rawObj === "object") ? rawObj : {};
+    const detailsSrc = (src.details && typeof src.details === "object") ? src.details : {};
+    const roomDetailsSrc = (src.roomDetails && typeof src.roomDetails === "object") ? src.roomDetails : {};
+    const editableSrc = (src.editable && typeof src.editable === "object") ? src.editable : {};
+
+    // Legacy compatibility: map old draft fields into editable sections
+    if (!detailsSrc.drips && src.dripByRoom && typeof src.dripByRoom === "object") {
+      const lines = Object.keys(src.dripByRoom)
+        .sort((a, b) => roomSortKey(a).localeCompare(roomSortKey(b)))
+        .map((room) => `${room} - ${String(src.dripByRoom[room] || "").trim()}`)
+        .filter(Boolean);
+      if (lines.length) detailsSrc.drips = lines.join("\n");
+    }
+    if (!detailsSrc.special_endorsements && src.endorsements) {
+      detailsSrc.special_endorsements = String(src.endorsements || "").trim();
+    }
+
+    // Legacy editor v1 wrote full text into editable[id]; map that into details.
+    EDITABLE_SECTIONS.forEach((s) => {
+      const fromDetails = String(detailsSrc[s.id] || "").trim();
+      if (fromDetails) {
+        base.details[s.id] = fromDetails;
+        if (s.autoKey) {
+          fromDetails
+            .split(/\r?\n/)
+            .map((line) => String(line || "").trim())
+            .filter(Boolean)
+            .forEach((line) => {
+              const m = line.match(/^([A-Za-z0-9]+)\s*-\s*(.+)$/);
+              if (m) base.roomDetails[s.id][m[1].trim()] = m[2].trim();
+            });
+        }
+        return;
+      }
+
+      const legacy = String(editableSrc[s.id] || "").trim();
+      if (!legacy || legacy === "None") return;
+
+      const auto = s.autoKey ? roomsLine(s.autoKey) : "None";
+      // If legacy value is just the auto rooms line, keep details empty.
+      if (legacy === auto) return;
+      base.details[s.id] = legacy;
+    });
+    EDITABLE_SECTIONS.forEach((s) => {
+      const srcObj = roomDetailsSrc[s.id];
+      if (!srcObj || typeof srcObj !== "object") return;
+      Object.keys(srcObj).forEach((room) => {
+        const txt = String(srcObj[room] || "").trim();
+        if (txt) base.roomDetails[s.id][room] = txt;
+      });
+    });
+    return base;
   }
 
   function loadHandoffDraft() {
     try {
       const raw = localStorage.getItem("handoffPacketDraft");
       const parsed = raw ? JSON.parse(raw) : null;
-      if (parsed && typeof parsed === "object") return parsed;
+      return normalizeHandoffDraft(parsed);
     } catch (_) {}
-    return { dripByRoom: {}, endorsements: "" };
+    return buildDefaultHighRiskDraft();
   }
 
   function saveHandoffDraft(draft) {
     try {
-      localStorage.setItem("handoffPacketDraft", JSON.stringify(draft || {}));
+      localStorage.setItem("handoffPacketDraft", JSON.stringify(normalizeHandoffDraft(draft)));
     } catch (_) {}
   }
 
-  function showHandoffInputModal(dripRooms) {
-    const rooms = Array.isArray(dripRooms) ? dripRooms : [];
+  function refreshHighRiskDraftFromPatients() {
     const prior = loadHandoffDraft();
-    return new Promise((resolve) => {
-      const overlay = document.createElement("div");
-      overlay.style.cssText = [
-        "position:fixed", "inset:0", "background:rgba(15,23,42,0.5)",
-        "display:flex", "align-items:center", "justify-content:center",
-        "z-index:10002", "padding:16px"
-      ].join(";");
+    // Rooms are always derived live from tags; only details are persisted.
+    saveHandoffDraft(prior);
+    return prior;
+  }
 
-      const rowsHtml = rooms.length
-        ? rooms.map((room) => `
-            <div style="display:grid; grid-template-columns:92px 1fr; gap:8px; align-items:center;">
-              <label for="handoffDrip_${escapeHtml(room)}" style="font-weight:700;">Room ${escapeHtml(room)}</label>
-              <input id="handoffDrip_${escapeHtml(room)}" data-room="${escapeHtml(room)}" type="text"
-                placeholder="Medication and rate (e.g., Heparin 12 u/kg/hr)"
-                value="${escapeHtml(prior.dripByRoom?.[room] || "")}"
-                style="padding:8px 10px; border:1px solid rgba(15,23,42,0.2); border-radius:8px;" />
-            </div>
-          `).join("")
-        : `<div style="font-size:12px; opacity:0.8;">No active drip patients currently flagged.</div>`;
-
-      const card = document.createElement("div");
-      card.style.cssText = [
-        "width:min(760px,96vw)", "max-height:90vh", "overflow:auto",
-        "background:#fff", "border-radius:12px", "border:1px solid rgba(15,23,42,0.16)",
-        "box-shadow:0 20px 45px rgba(2,6,23,0.28)", "padding:14px"
-      ].join(";");
-      card.innerHTML = `
-        <div style="font-weight:900; font-size:15px; color:#0f172a;">Hand-Off Details</div>
-        <div style="margin-top:4px; font-size:12px; color:#475569;">Add drip details and any special endorsements before packet preview.</div>
-        <div style="margin-top:12px; border:1px solid rgba(15,23,42,0.12); border-radius:10px; padding:10px;">
-          <div style="font-weight:800; margin-bottom:8px;">Drip Details by Room</div>
-          <div style="display:grid; gap:8px;">${rowsHtml}</div>
-        </div>
-        <div style="margin-top:10px; border:1px solid rgba(15,23,42,0.12); border-radius:10px; padding:10px;">
-          <div style="font-weight:800; margin-bottom:8px;">Special Endorsements / Patients to Monitor</div>
-          <textarea id="handoffEndorsements" rows="5" style="width:100%; padding:8px 10px; border:1px solid rgba(15,23,42,0.2); border-radius:8px; resize:vertical;">${escapeHtml(prior.endorsements || "")}</textarea>
-        </div>
-        <div style="display:flex; justify-content:flex-end; gap:8px; margin-top:12px;">
-          <button id="handoffCancel" type="button" style="padding:8px 12px;">Cancel</button>
-          <button id="handoffContinue" type="button" style="padding:8px 12px; font-weight:700;">Continue to Preview</button>
-        </div>
-      `;
-
-      overlay.appendChild(card);
-      document.body.appendChild(overlay);
-
-      const close = (result) => {
-        try { overlay.remove(); } catch (_) {}
-        resolve(result || null);
-      };
-
-      card.querySelector("#handoffCancel")?.addEventListener("click", () => close(null));
-      card.querySelector("#handoffContinue")?.addEventListener("click", () => {
-        const dripByRoom = {};
-        card.querySelectorAll("input[data-room]").forEach((el) => {
-          const room = String(el.getAttribute("data-room") || "");
-          const text = String(el.value || "").trim();
-          if (room && text) dripByRoom[room] = text;
-        });
-        const endorsements = String(card.querySelector("#handoffEndorsements")?.value || "").trim();
-        const out = { dripByRoom, endorsements };
-        saveHandoffDraft(out);
-        close(out);
+  function collectHighRiskDraftFromUi() {
+    const root = document.getElementById("highRiskStructuredEditor");
+    const draft = loadHandoffDraft();
+    if (root) {
+      EDITABLE_SECTIONS.forEach((s) => {
+        if (s.autoKey) {
+          const bucket = {};
+          root.querySelectorAll(`[data-hr-detail-room="${s.id}"]`).forEach((el) => {
+            const room = String(el.getAttribute("data-room") || "").trim();
+            if (!room) return;
+            const txt = String(el.value || "").trim();
+            if (txt) bucket[room] = txt;
+          });
+          draft.roomDetails[s.id] = bucket;
+        } else {
+          const el = root.querySelector(`[data-hr-detail="${s.id}"]`);
+          if (!el) return;
+          draft.details[s.id] = String(el.value || "").trim();
+        }
       });
-      overlay.addEventListener("click", (e) => { if (e.target === overlay) close(null); });
+      draft.updatedAt = new Date().toISOString();
+      saveHandoffDraft(draft);
+    }
+    return draft;
+  }
+
+  function renderHighRiskStructuredEditor() {
+    const root = document.getElementById("highRiskStructuredEditor");
+    if (!root) return;
+    const draft = refreshHighRiskDraftFromPatients();
+
+    const editableHtml = EDITABLE_SECTIONS.map((s) => {
+      const rooms = s.autoKey ? roomsForTag(s.autoKey) : [];
+      const details = String(draft.details?.[s.id] || "");
+      const roomDetails = (draft.roomDetails && draft.roomDetails[s.id] && typeof draft.roomDetails[s.id] === "object")
+        ? draft.roomDetails[s.id]
+        : {};
+      const roomFields = rooms.length
+        ? rooms.map((room) => `
+            <label style="display:flex; flex-direction:column; gap:4px;">
+              <span style="font-size:11px; font-weight:700;">Room ${escapeHtml(room)} Details</span>
+              <textarea data-hr-detail-room="${escapeHtml(s.id)}" data-room="${escapeHtml(room)}" rows="2" style="width:100%; resize:vertical; min-height:52px; padding:7px 8px; border:1px solid rgba(15,23,42,0.18); border-radius:6px; font-size:12px; line-height:1.25;">${escapeHtml(String(roomDetails[room] || ""))}</textarea>
+            </label>
+          `).join("")
+        : `<div style="font-size:12px; opacity:0.75; padding-top:4px;">No active rooms.</div>`;
+      return `
+      <div style="border:1px solid rgba(15,23,42,0.16); border-radius:8px; padding:8px; background:#fff;">
+        <div style="font-weight:800; font-size:12px; margin-bottom:6px;">${escapeHtml(s.label)}</div>
+        <div style="display:grid; grid-template-columns:1fr 1.35fr; gap:6px;">
+          <div>
+            <div style="font-size:11px; font-weight:700; margin-bottom:4px;">Rooms (Auto)</div>
+            <textarea readonly rows="3" style="width:100%; resize:none; min-height:64px; padding:7px 8px; border:1px solid rgba(15,23,42,0.15); border-radius:6px; font-size:12px; line-height:1.25; background:#f8fafc;">${escapeHtml(rooms.length ? rooms.join(", ") : "None")}</textarea>
+          </div>
+          <div>
+            ${
+              s.autoKey
+                ? `<div style="font-size:11px; font-weight:700; margin-bottom:4px;">Details by Room (Editable)</div>${roomFields}`
+                : `<div style="font-size:11px; font-weight:700; margin-bottom:4px;">Details (Editable)</div>
+                   <textarea data-hr-detail="${escapeHtml(s.id)}" rows="3" style="width:100%; resize:vertical; min-height:64px; padding:7px 8px; border:1px solid rgba(15,23,42,0.18); border-radius:6px; font-size:12px; line-height:1.25;">${escapeHtml(details)}</textarea>`
+            }
+          </div>
+        </div>
+      </div>
+    `;
+    }).join("");
+
+    const autoHtml = AUTOFILL_SECTIONS.map((s) => `
+      <div style="border:1px solid rgba(15,23,42,0.16); border-radius:8px; padding:8px; background:#f8fafc;">
+        <div style="font-weight:800; font-size:12px; margin-bottom:6px;">${escapeHtml(s.label)}</div>
+        <div style="font-size:12px; line-height:1.25; min-height:42px; white-space:pre-wrap;">${escapeHtml(roomsLine(s.autoKey))}</div>
+      </div>
+    `).join("");
+
+    root.innerHTML = `
+      <div style="font-weight:900; margin-bottom:8px;">High-Risk Hand-Off Editor</div>
+      <div style="font-size:12px; opacity:0.85; margin-bottom:10px;">
+        Editable sections are prefilled from active rooms when available. Admits/D-C/Foley/Strict I&O/BG are auto-populated.
+      </div>
+      <div style="display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:8px;">${editableHtml}</div>
+      <div style="font-weight:900; margin:10px 0 8px;">Auto-Populated (Read-Only)</div>
+      <div style="display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:8px;">${autoHtml}</div>
+    `;
+
+    root.querySelectorAll("textarea[data-hr-detail]").forEach((el) => {
+      el.addEventListener("input", () => { collectHighRiskDraftFromUi(); });
+      el.addEventListener("change", () => { collectHighRiskDraftFromUi(); });
+    });
+    root.querySelectorAll("textarea[data-hr-detail-room]").forEach((el) => {
+      el.addEventListener("input", () => { collectHighRiskDraftFromUi(); });
+      el.addEventListener("change", () => { collectHighRiskDraftFromUi(); });
     });
   }
 
   function buildHighRiskHandoffSection(opts = {}) {
-    const sections = collectHighRiskSections();
-    const dripDetails = opts.dripByRoom || {};
-    const endorsements = String(opts.endorsements || "").trim();
-
-    const sectionRows = sections.map((s) => `
-      <div class="hr-row">
-        <div class="hr-label">${escapeHtml(s.label)} (${s.count})</div>
-        <div class="hr-value">${escapeHtml(s.rooms.join(", "))}</div>
+    const draft = normalizeHandoffDraft(opts);
+    const editableCells = EDITABLE_SECTIONS.map((s) => `
+      <div class="hr-cell">
+        <div class="hr-cell-title">${escapeHtml(s.label)}:</div>
+        <div class="hr-cell-value"><strong>Rooms:</strong> ${escapeHtml(s.autoKey ? roomsLine(s.autoKey) : "None")}</div>
+        <div class="hr-cell-value"><strong>Details:</strong> ${escapeHtml(
+          s.autoKey
+            ? (() => {
+                const rooms = roomsForTag(s.autoKey);
+                if (!rooms.length) return "None";
+                const byRoom = draft.roomDetails?.[s.id] || {};
+                const lines = rooms
+                  .map((room) => {
+                    const txt = String(byRoom[room] || "").trim();
+                    return txt ? `${room} - ${txt}` : "";
+                  })
+                  .filter(Boolean);
+                return lines.length ? lines.join("\n") : "None";
+              })()
+            : String(draft.details?.[s.id] || "None")
+        )}</div>
       </div>
     `).join("");
 
-    const dripRooms = getDripRooms();
-    const dripRows = dripRooms.map((room) => `
-      <tr>
-        <td>${escapeHtml(room)}</td>
-        <td>${escapeHtml(dripDetails[room] || "")}</td>
-      </tr>
+    const autoCells = AUTOFILL_SECTIONS.map((s) => `
+      <div class="hr-cell hr-cell-auto">
+        <div class="hr-cell-title">${escapeHtml(s.label)}:</div>
+        <div class="hr-cell-value">${escapeHtml(roomsLine(s.autoKey))}</div>
+      </div>
     `).join("");
 
     return `
       <section class="handoff-risk-page">
         <div class="hr-title">High-Risk Hand-Off Report</div>
-        <div class="hr-sub">Only active acuity tags are shown.</div>
-        <div class="hr-sections">${sectionRows || `<div class="hr-empty">No high-risk tags flagged.</div>`}</div>
-        <div class="hr-drip-wrap">
-          <div class="hr-block-title">Drip Medication / Rate Details</div>
-          <table class="hr-drip-table">
-            <thead><tr><th>Room</th><th>Medication and Rate</th></tr></thead>
-            <tbody>${dripRows || `<tr><td colspan="2">No drip patients flagged.</td></tr>`}</tbody>
-          </table>
-        </div>
-        <div class="hr-endorse-wrap">
-          <div class="hr-block-title">Special Endorsements / Patients to Monitor</div>
-          <div class="hr-endorse-text">${escapeHtml(endorsements || "—")}</div>
-        </div>
+        <div class="hr-sub">Editable sections with auto-populated room correlations.</div>
+        <div class="hr-grid hr-grid-editable">${editableCells}</div>
+        <div class="hr-block-title" style="margin-top:6px;">Auto-Populated</div>
+        <div class="hr-grid hr-grid-auto">${autoCells}</div>
       </section>
     `;
   }
@@ -263,20 +361,18 @@
   function appendHighRiskSectionToDocument(htmlDoc, sectionHtml) {
     const style = `
       <style>
-        .handoff-risk-page{ break-before:page; page-break-before:always; padding:8px 2px; font-family:Arial,sans-serif; color:#0f172a; }
-        .hr-title{ font-size:22px; font-weight:900; letter-spacing:.01em; margin-bottom:4px; }
-        .hr-sub{ font-size:12px; color:#475569; margin-bottom:10px; }
-        .hr-sections{ display:grid; gap:7px; margin-bottom:12px; }
-        .hr-row{ display:grid; grid-template-columns:220px 1fr; gap:10px; border:1px solid rgba(15,23,42,0.15); border-radius:8px; padding:8px 10px; }
-        .hr-label{ font-weight:800; }
-        .hr-value{ font-weight:600; }
-        .hr-empty{ border:1px solid rgba(15,23,42,0.15); border-radius:8px; padding:10px; font-size:12px; color:#475569; }
-        .hr-block-title{ font-weight:900; margin-bottom:6px; font-size:13px; }
-        .hr-drip-wrap,.hr-endorse-wrap{ border:1px solid rgba(15,23,42,0.15); border-radius:8px; padding:10px; margin-bottom:10px; }
-        .hr-drip-table{ width:100%; border-collapse:collapse; table-layout:fixed; }
-        .hr-drip-table th,.hr-drip-table td{ border:1px solid rgba(15,23,42,0.18); padding:6px 8px; font-size:12px; vertical-align:top; text-align:left; }
-        .hr-drip-table th:first-child,.hr-drip-table td:first-child{ width:85px; text-align:center; }
-        .hr-endorse-text{ min-height:74px; white-space:pre-wrap; font-size:12px; line-height:1.35; }
+        @page { size: 11in 8.5in; margin: 6mm; }
+        .handoff-risk-page{ break-before:page; page-break-before:always; padding:2px 1px; font-family:Arial,sans-serif; color:#0f172a; }
+        .hr-title{ font-size:18px; font-weight:900; letter-spacing:.01em; margin-bottom:2px; }
+        .hr-sub{ font-size:10.5px; color:#475569; margin-bottom:6px; }
+        .hr-block-title{ font-weight:900; margin-bottom:4px; font-size:11px; }
+        .hr-grid{ display:grid; gap:4px; margin-bottom:6px; }
+        .hr-grid-editable{ grid-template-columns:repeat(4,minmax(0,1fr)); }
+        .hr-grid-auto{ grid-template-columns:repeat(5,minmax(0,1fr)); }
+        .hr-cell{ border:1px solid rgba(15,23,42,0.22); padding:4px 5px; min-height:56px; }
+        .hr-cell-title{ font-weight:900; font-size:10.5px; margin-bottom:2px; }
+        .hr-cell-value{ font-size:10.2px; line-height:1.2; white-space:pre-wrap; word-break:break-word; }
+        .hr-cell-auto{ min-height:42px; background:#f8fafc; }
       </style>
     `;
     if (htmlDoc.includes("</head>")) {
@@ -338,6 +434,16 @@
     if (totalRows <= 44) return 2;
     return 3;
   }
+
+  function splitStaffDisplay(title, fallback) {
+    const raw = String(title || fallback || "").trim();
+    const noRole = raw.replace(/\((RN|PCA|SITTER)\)/gi, "").trim();
+    const idMatch = noRole.match(/(?:#?\s*)(\d{5,})$/);
+    const id = idMatch ? `#${idMatch[1]}` : "";
+    const name = noRole.replace(/(?:#?\s*)\d{5,}$/, "").trim() || noRole || String(fallback || "");
+    return { name, id };
+  }
+
 
   function renderOneCardNew(card, kind) {
     const isPca = kind === "PCA";
@@ -416,7 +522,8 @@
   :root{ --ink:#0f172a; --panel:#fff; --panel-border:#e2e8f0; --panel-shadow:0 1px 0 rgba(15,23,42,.05); --table-head:#eef5ff; --row-divider:#e5e7eb; }
   *{ box-sizing:border-box; }
   html,body{ margin:0; padding:0; color:var(--ink); font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif; background:#fff; }
-  @page { margin:8mm; }
+  @page { margin:8mm; size:11in 8.5in; }
+  .print-wrap{ width:100%; max-width:10.7in; margin:0 auto; }
   .topbar-grid{ display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:8px; margin:0 0 8px; }
   .topbar-card{ background:var(--panel); border:1px solid var(--panel-border); border-radius:10px; padding:7px 10px; box-shadow:var(--panel-shadow); overflow:hidden; text-align:center; }
   .topbar-label{ font-size:10.5px; font-weight:950; letter-spacing:.08em; text-transform:uppercase; margin-bottom:2px; }
@@ -488,6 +595,7 @@
     return cards || `<div class="trad-empty">No RN assignments found.</div>`;
   }
 
+
   function buildPrintHTMLTraditional(data) {
     const shiftDate = getShiftDateLabel();
     const shift = getShiftTypeLabel(data.rnCards, data.pcaCards);
@@ -502,28 +610,29 @@
 <style>
   *{ box-sizing:border-box; }
   html,body{ margin:0; padding:0; background:#fff; color:#111827; font-family:"Times New Roman", serif; }
-  @page { margin:8mm; }
-  .wrap{ padding:4px; }
-  .top{ display:grid; grid-template-columns:1.35fr .85fr .8fr; gap:8px; margin-bottom:8px; align-items:start; }
-  .box{ border:1px solid #111; padding:5px; min-height:88px; }
+  @page { margin:8mm; size:11in 8.5in; }
+  .wrap{ padding:4px; width:100%; max-width:10.7in; margin:0 auto; }
+  .top{ display:grid; grid-template-columns:1.5fr 1.1fr; gap:8px; margin-bottom:8px; align-items:stretch; }
+  .box{ border:1px solid #111; padding:6px 8px; min-height:62px; }
   .title{ font-weight:700; font-size:13px; text-align:center; margin-bottom:4px; }
-  .center-line{ text-align:center; font-weight:700; margin:6px 0; font-size:12px; line-height:1.2; }
-  .right-top{ text-align:center; font-size:22px; font-weight:700; line-height:1.08; margin-bottom:6px; }
+  .center-line{ text-align:center; font-weight:700; margin:4px 0; font-size:12px; line-height:1.2; }
+  .right-top{ text-align:center; font-size:30px; font-weight:700; line-height:1.04; margin-bottom:3px; }
   .open-rooms{ font-size:11px; line-height:1.22; word-break:break-word; }
   table{ width:100%; border-collapse:collapse; table-layout:fixed; }
   th,td{ border:1px solid #111; padding:3px 4px; font-size:12px; vertical-align:top; }
   th{ background:#f3f4f6; text-align:center; font-weight:700; }
+  .trad-pca-wrap{ margin-top:8px; }
   .trad-pca-table{ table-layout:auto; }
   .trad-pca-table th, .trad-pca-table td{ padding:2px 4px; font-size:11px; line-height:1.15; }
-  .trad-pca-table td.name{ width:32%; font-weight:700; white-space:nowrap; }
-  .trad-pca-table th:nth-child(2), .trad-pca-table td.count{ width:42px; text-align:center; white-space:nowrap; }
+  .trad-pca-table td.name{ width:30%; font-weight:700; white-space:nowrap; }
+  .trad-pca-table th:nth-child(2), .trad-pca-table td.count{ width:40px; text-align:center; white-space:nowrap; }
   .trad-pca-table td.rooms{ white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   .trad-rn-grid{ display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:8px; }
-  .trad-rn-head{ border:1px solid #111; border-bottom:none; text-align:center; font-weight:700; padding:4px; font-size:13px; }
+  .trad-rn-head{ border:1px solid #111; border-bottom:none; text-align:center; font-weight:700; padding:4px 3px; font-size:13px; }
   .trad-rn-card table{ table-layout:fixed; }
-  .trad-rn-card th, .trad-rn-card td{ padding:2px 3px; line-height:1.1; }
-  .trad-rn-card th:nth-child(1), .trad-rn-card td:nth-child(1){ width:24%; text-align:center; }
-  .trad-rn-card th:nth-child(2), .trad-rn-card td:nth-child(2){ width:20%; text-align:center; }
+  .trad-rn-card th, .trad-rn-card td{ padding:2px 3px; line-height:1.05; font-size:11px; }
+  .trad-rn-card th:nth-child(1), .trad-rn-card td:nth-child(1){ width:30%; text-align:center; font-weight:700; }
+  .trad-rn-card th:nth-child(2), .trad-rn-card td:nth-child(2){ width:16%; text-align:center; font-weight:700; }
   .trad-rn-card th:nth-child(3){ text-align:center; }
   .trad-rn-card td:nth-child(3){ text-align:left; }
   .trad-empty{ border:1px solid #111; padding:8px; font-size:12px; }
@@ -533,10 +642,6 @@
 <body>
   <div class="wrap">
     <div class="top">
-      <div class="box">
-        <div class="title">PCA Assignments</div>
-        ${renderTraditionalPcaSummary(data.pcaCards)}
-      </div>
       <div class="box">
         <div class="title">Leadership Team</div>
         <div class="center-line">Charge Nurse: ${escapeHtml(data.charge || "-")}</div>
@@ -550,6 +655,10 @@
       </div>
     </div>
     <div class="trad-rn-grid">${renderTraditionalRnGrid(data.rnCards)}</div>
+    <div class="box trad-pca-wrap">
+      <div class="title">PCA Assignments</div>
+      ${renderTraditionalPcaSummary(data.pcaCards)}
+    </div>
   </div>
 </body>
 </html>`;
@@ -713,8 +822,8 @@
         if (!selectedMode) return;
       }
 
-      const handoffInput = await showHandoffInputModal(getDripRooms());
-      if (!handoffInput) return;
+      refreshHighRiskDraftFromPatients();
+      const handoffInput = collectHighRiskDraftFromUi();
 
       const data = {
         charge: getValueById("incomingChargeName"),
@@ -742,8 +851,8 @@
 
   async function openHighRiskOnlyPreview() {
     try {
-      const handoffInput = await showHandoffInputModal(getDripRooms());
-      if (!handoffInput) return;
+      refreshHighRiskDraftFromPatients();
+      const handoffInput = collectHighRiskDraftFromUi();
       const html = buildHighRiskOnlyDocument(handoffInput);
       openInAppPrintPreview(html, "High-Risk Hand-Off");
     } catch (e) {
@@ -758,8 +867,33 @@
     openTraditional: () => openPrintPreview("traditional"),
     openPacket: openPacketPreview,
     openHighRiskOnly: openHighRiskOnlyPreview,
+    refreshHighRiskDraftFromPatients,
+    collectHighRiskDraftFromUi,
+    renderHighRiskStructuredEditor,
   };
   window.app.printOncoming = window.printOncoming;
+
+  function hookAcuityTilesAutoRefresh() {
+    if (window.__highRiskAutoRefreshWrapped) return;
+    if (typeof window.updateAcuityTiles !== "function") return;
+    const original = window.updateAcuityTiles;
+    window.updateAcuityTiles = function wrappedUpdateAcuityTiles() {
+      const out = original.apply(this, arguments);
+      try { renderHighRiskStructuredEditor(); } catch (_) {}
+      return out;
+    };
+    window.__highRiskAutoRefreshWrapped = true;
+  }
+
+  hookAcuityTilesAutoRefresh();
+
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", () => {
+      try { renderHighRiskStructuredEditor(); } catch (_) {}
+    });
+  } else {
+    try { renderHighRiskStructuredEditor(); } catch (_) {}
+  }
 
   console.log("[printOncoming] loaded: window.printOncoming.open is ready");
 })();

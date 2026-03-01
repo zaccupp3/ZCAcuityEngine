@@ -114,10 +114,10 @@
       name: "",
       gender: "",
 
-      tele: false, drip: false, nih: false, bg: false, ciwa: false, restraint: false, sitter: false,
+      tele: false, drip: false, nih: false, bg: false, tf: false, ciwa: false, restraint: false, sitter: false,
       vpo: false, isolation: false, admit: false, lateDc: false,
 
-      chg: false, foley: false, q2turns: false, heavy: false, feeder: false,
+      chg: false, foley: false, q2turns: false, strictIo: false, heavy: false, feeder: false,
 
       isEmpty: true,
       recentlyDischarged: false,

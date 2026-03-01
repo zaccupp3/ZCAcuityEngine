@@ -726,6 +726,7 @@
       "drip",
       "nih",
       "bg",
+      "tf",
       "bgChecks",
       "ciwa",
       "cows",
@@ -740,6 +741,13 @@
       "lateDc",
       "lateDC",
       "latedc",
+      "chg",
+      "foley",
+      "q2turns",
+      "q2Turns",
+      "strictIo",
+      "heavy",
+      "feeder",
     ];
     for (const key of boolKeys) {
       if (typeof p[key] === "boolean") p[key] = false;
@@ -792,6 +800,7 @@
     setFlagViaUiHandler(p, "isolation", tagSet.has("ISO"));
     setFlagViaUiHandler(p, "sitter", tagSet.has("SITTER"));
     setFlagViaUiHandler(p, "bg", tagSet.has("BG"));
+    setFlagViaUiHandler(p, "tf", tagSet.has("TF"));
     setFlagViaUiHandler(p, "nih", tagSet.has("NIH"));
     setFlagViaUiHandler(p, "admit", tagSet.has("ADMIT"));
     setFlagViaUiHandler(p, "lateDc", tagSet.has("LATE_DC"));
@@ -799,6 +808,11 @@
     setFlagViaUiHandler(p, "vpo", tagSet.has("VPO"));
     setFlagViaUiHandler(p, "restraint", tagSet.has("RESTRAINT"));
     setFlagViaUiHandler(p, "drip", tagSet.has("GTT"));
+    setFlagViaUiHandler(
+      p,
+      "strictIo",
+      tagSet.has("STRICT I/O") || tagSet.has("STRICT_IO") || tagSet.has("STRICTIO") || tagSet.has("HEAVY")
+    );
 
     if (typeof p.bgChecks === "boolean") p.bgChecks = !!p.bg;
     if (typeof p.cows === "boolean") p.cows = !!p.ciwa;
@@ -807,11 +821,13 @@
     if (typeof p.lateDC === "boolean") p.lateDC = !!p.lateDc;
     if (typeof p.latedc === "boolean") p.latedc = !!p.lateDc;
     if (typeof p.restraints === "boolean") p.restraints = !!p.restraint;
+    if (typeof p.heavy === "boolean") p.heavy = !!p.strictIo;
 
     const notes = [];
     if (tagSet.has("ISO")) notes.push("ISO");
     if (tagSet.has("SITTER")) notes.push("SITTER");
     if (tagSet.has("BG")) notes.push("BG");
+    if (tagSet.has("TF")) notes.push("TF");
     if (tagSet.has("NIH")) notes.push("NIH");
     if (tagSet.has("ADMIT")) notes.push("ADMIT");
     if (tagSet.has("LATE_DC")) notes.push("LATE DC");
@@ -819,6 +835,7 @@
     if (tagSet.has("VPO")) notes.push("VPO");
     if (tagSet.has("RESTRAINT")) notes.push("RESTRAINT");
     if (tagSet.has("GTT")) notes.push("GTT");
+    if (tagSet.has("STRICT I/O") || tagSet.has("STRICT_IO") || tagSet.has("STRICTIO") || tagSet.has("HEAVY")) notes.push("STRICT I/O");
 
     p.acuityNotes = notes;
     p.tags = notes;

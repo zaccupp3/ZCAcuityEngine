@@ -128,6 +128,15 @@
     return 3;
   }
 
+  function splitStaffDisplay(title, fallback) {
+    const raw = String(title || fallback || "").trim();
+    const noRole = raw.replace(/\((RN|PCA|SITTER)\)/gi, "").trim();
+    const idMatch = noRole.match(/(?:#?\s*)(\d{5,})$/);
+    const id = idMatch ? `#${idMatch[1]}` : "";
+    const name = noRole.replace(/(?:#?\s*)\d{5,}$/, "").trim() || noRole || String(fallback || "");
+    return { name, id };
+  }
+
   function renderOneCardNew(card, kind) {
     const isPca = kind === "PCA";
     const rowsHtml = (card.rows || [])
@@ -174,7 +183,7 @@
   }
 
   function buildPrintHTMLNew(data, orientation) {
-    const pageSize = orientation === "landscape" ? "size: landscape;" : "";
+    const pageSize = "size: 11in 8.5in;";
     const dateMonDay = formatMonDay(new Date());
     const shift = data.shift || detectShift();
     const pcaTight = computePcaTightness(data.pcaCards);
@@ -204,6 +213,7 @@
   *{ box-sizing:border-box; }
   html,body{ margin:0; padding:0; color:var(--ink); font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif; background:#fff; }
   @page { margin:8mm; ${pageSize} }
+  .print-wrap{ width:100%; max-width:10.7in; margin:0 auto; }
   .topbar-grid{ display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:8px; margin:0 0 8px; }
   .topbar-card{ background:var(--panel); border:1px solid var(--panel-border); border-radius:10px; padding:7px 10px; box-shadow:var(--panel-shadow); text-align:center; }
   .topbar-label{ font-size:10.5px; font-weight:950; letter-spacing:.08em; text-transform:uppercase; margin-bottom:2px; }
@@ -275,8 +285,9 @@
     return cards || `<div class="trad-empty">No RN assignments found.</div>`;
   }
 
+
   function buildPrintHTMLTraditional(data, orientation) {
-    const pageSize = orientation === "landscape" ? "size: landscape;" : "";
+    const pageSize = "size: 11in 8.5in;";
     const shiftDate = `${new Date().getMonth() + 1}/${new Date().getDate()}/${String(new Date().getFullYear()).slice(-2)}`;
     const shift = data.shift || detectShift();
     const openRooms = getOpenRoomLabels();
@@ -291,27 +302,28 @@
   *{ box-sizing:border-box; }
   html,body{ margin:0; padding:0; background:#fff; color:#111827; font-family:"Times New Roman", serif; }
   @page { margin:8mm; ${pageSize} }
-  .wrap{ padding:4px; }
-  .top{ display:grid; grid-template-columns:1.35fr .85fr .8fr; gap:8px; margin-bottom:8px; align-items:start; }
-  .box{ border:1px solid #111; padding:5px; min-height:88px; }
+  .wrap{ padding:4px; width:100%; max-width:10.7in; margin:0 auto; }
+  .top{ display:grid; grid-template-columns:1.5fr 1.1fr; gap:8px; margin-bottom:8px; align-items:stretch; }
+  .box{ border:1px solid #111; padding:6px 8px; min-height:62px; }
   .title{ font-weight:700; font-size:13px; text-align:center; margin-bottom:4px; }
-  .center-line{ text-align:center; font-weight:700; margin:6px 0; font-size:12px; line-height:1.2; }
-  .right-top{ text-align:center; font-size:22px; font-weight:700; line-height:1.08; margin-bottom:6px; }
+  .center-line{ text-align:center; font-weight:700; margin:4px 0; font-size:12px; line-height:1.2; }
+  .right-top{ text-align:center; font-size:30px; font-weight:700; line-height:1.04; margin-bottom:3px; }
   .open-rooms{ font-size:11px; line-height:1.22; word-break:break-word; }
   table{ width:100%; border-collapse:collapse; table-layout:fixed; }
   th,td{ border:1px solid #111; padding:3px 4px; font-size:12px; vertical-align:top; }
   th{ background:#f3f4f6; text-align:center; font-weight:700; }
+  .trad-pca-wrap{ margin-top:8px; }
   .trad-pca-table{ table-layout:auto; }
   .trad-pca-table th,.trad-pca-table td{ padding:2px 4px; font-size:11px; line-height:1.15; }
-  .trad-pca-table td.name{ width:32%; font-weight:700; white-space:nowrap; }
-  .trad-pca-table th:nth-child(2), .trad-pca-table td.count{ width:42px; text-align:center; white-space:nowrap; }
+  .trad-pca-table td.name{ width:30%; font-weight:700; white-space:nowrap; }
+  .trad-pca-table th:nth-child(2), .trad-pca-table td.count{ width:40px; text-align:center; white-space:nowrap; }
   .trad-pca-table td.rooms{ white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   .trad-rn-grid{ display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:8px; }
-  .trad-rn-head{ border:1px solid #111; border-bottom:none; text-align:center; font-weight:700; padding:4px; font-size:13px; }
+  .trad-rn-head{ border:1px solid #111; border-bottom:none; text-align:center; font-weight:700; padding:4px 3px; font-size:13px; }
   .trad-rn-card table{ table-layout:fixed; }
-  .trad-rn-card th,.trad-rn-card td{ padding:2px 3px; line-height:1.1; }
-  .trad-rn-card th:nth-child(1), .trad-rn-card td:nth-child(1){ width:24%; text-align:center; }
-  .trad-rn-card th:nth-child(2), .trad-rn-card td:nth-child(2){ width:20%; text-align:center; }
+  .trad-rn-card th, .trad-rn-card td{ padding:2px 3px; line-height:1.05; font-size:11px; }
+  .trad-rn-card th:nth-child(1), .trad-rn-card td:nth-child(1){ width:30%; text-align:center; font-weight:700; }
+  .trad-rn-card th:nth-child(2), .trad-rn-card td:nth-child(2){ width:16%; text-align:center; font-weight:700; }
   .trad-rn-card th:nth-child(3){ text-align:center; }
   .trad-rn-card td:nth-child(3){ text-align:left; }
   .trad-empty{ border:1px solid #111; padding:8px; font-size:12px; }
@@ -321,7 +333,6 @@
 <body>
   <div class="wrap">
     <div class="top">
-      <div class="box"><div class="title">PCA Assignments</div>${renderTraditionalPcaSummary(data.pcaCards)}</div>
       <div class="box">
         <div class="title">Leadership Team</div>
         <div class="center-line">Charge Nurse: ${escapeHtml(data.charge || "-")}</div>
@@ -335,6 +346,10 @@
       </div>
     </div>
     <div class="trad-rn-grid">${renderTraditionalRnGrid(data.rnCards)}</div>
+    <div class="box trad-pca-wrap">
+      <div class="title">PCA Assignments</div>
+      ${renderTraditionalPcaSummary(data.pcaCards)}
+    </div>
   </div>
 </body>
 </html>`;
@@ -493,7 +508,7 @@
         ? buildPrintHTMLTraditional(data, orientation)
         : buildPrintHTMLNew(data, orientation);
 
-      const label = `${mode === "traditional" ? "Traditional" : "New / Expanded"} • ${orientation === "landscape" ? "Landscape" : "Portrait"}`;
+      const label = `${mode === "traditional" ? "Traditional" : "New / Expanded"} - Landscape (11x8.5)`;
       openInAppPrintPreview(html, label);
     } catch (e) {
       console.error("[printLive] open() error:", e);

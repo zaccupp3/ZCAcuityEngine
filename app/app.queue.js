@@ -151,6 +151,7 @@
         drip: !!item.preAdmit.drip,
         nih: !!item.preAdmit.nih,
         bg: !!item.preAdmit.bg,
+        tf: !!item.preAdmit.tf,
         ciwa: !!item.preAdmit.ciwa,
         restraint: !!item.preAdmit.restraint,
         sitter: !!item.preAdmit.sitter,
@@ -162,7 +163,8 @@
         chg: !!item.preAdmit.chg,
         foley: !!item.preAdmit.foley,
         q2turns: !!item.preAdmit.q2turns,
-        heavy: !!item.preAdmit.heavy,
+        strictIo: !!(item.preAdmit.strictIo || item.preAdmit.heavy),
+        heavy: !!(item.preAdmit.strictIo || item.preAdmit.heavy),
         feeder: !!item.preAdmit.feeder
       };
       return;
@@ -177,6 +179,7 @@
       drip: !!legacyTags.drip,
       nih: !!legacyTags.nih,
       bg: !!legacyTags.bg,
+      tf: !!legacyTags.tf,
       ciwa: !!legacyTags.ciwa,
       restraint: !!legacyTags.restraint,
       sitter: !!legacyTags.sitter,
@@ -188,7 +191,8 @@
       chg: !!legacyTags.chg,
       foley: !!legacyTags.foley,
       q2turns: !!legacyTags.q2,
-      heavy: !!legacyTags.heavy,
+      strictIo: !!(legacyTags.strictIo || legacyTags.heavy),
+      heavy: !!(legacyTags.strictIo || legacyTags.heavy),
       feeder: !!legacyTags.feeder
     };
   }
@@ -197,9 +201,9 @@
     if (!draft) return "";
     const out = [];
     const map = [
-      ["tele","Tele"],["drip","Drip"],["nih","NIH"],["bg","BG"],["ciwa","CIWA/COWS"],
+      ["tele","Tele"],["drip","Drip"],["nih","NIH"],["bg","BG"],["tf","TF"],["ciwa","CIWA/COWS"],
       ["restraint","Restraint"],["sitter","Sitter"],["vpo","VPO"],["isolation","ISO"],["admit","Admit"],["lateDc","Late DC"],
-      ["chg","CHG"],["foley","Foley"],["q2turns","Q2"],["heavy","Heavy"],["feeder","Feeder"]
+      ["chg","CHG"],["foley","Foley"],["q2turns","Q2"],["strictIo","Strict I/O"],["feeder","Feeder"]
     ];
     map.forEach(([k,label]) => { if (draft[k]) out.push(label); });
     return out.join(", ");
@@ -225,6 +229,7 @@
     targetPatient.nih = !!d.nih;
     targetPatient.bg = !!d.bg;
     targetPatient.bgChecks = !!d.bg;
+    targetPatient.tf = !!d.tf;
     targetPatient.ciwa = !!d.ciwa;
     targetPatient.cows = !!d.ciwa;
     targetPatient.ciwaCows = !!d.ciwa;
@@ -236,7 +241,8 @@
     targetPatient.foley = !!d.foley;
     targetPatient.q2turns = !!d.q2turns;
     targetPatient.q2Turns = !!d.q2turns;
-    targetPatient.heavy = !!d.heavy;
+    targetPatient.strictIo = !!(d.strictIo || d.heavy);
+    targetPatient.heavy = targetPatient.strictIo;
     targetPatient.feeder = !!d.feeder;
   }
 
@@ -323,11 +329,11 @@
       preAdmit: {
         gender: "",
         tele: false,
-        drip: false, nih: false, bg: false, ciwa: false, restraint: false, sitter: false, vpo: false,
+        drip: false, nih: false, bg: false, tf: false, ciwa: false, restraint: false, sitter: false, vpo: false,
         isolation: false,
         admit: false,
         lateDc: false,
-        chg: false, foley: false, q2turns: false, heavy: false, feeder: false
+        chg: false, foley: false, q2turns: false, strictIo: false, heavy: false, feeder: false
       },
       preAdmitTagsText: ""
     };
@@ -661,6 +667,7 @@
               ${tagItem("__padDrip", "Drip", !!d.drip)}
               ${tagItem("__padNih", "NIH", !!d.nih)}
               ${tagItem("__padBg", "BG", !!d.bg)}
+              ${tagItem("__padTf", "TF", !!d.tf)}
               ${tagItem("__padCiwa", "CIWA/COWS", !!d.ciwa)}
               ${tagItem("__padRestraint", "Restraint", !!d.restraint)}
               ${tagItem("__padSitter", "Sitter", !!d.sitter)}
@@ -681,7 +688,7 @@
               ${tagItem("__padChg", "CHG", !!d.chg)}
               ${tagItem("__padFoley", "Foley", !!d.foley)}
               ${tagItem("__padQ2", "Q2 Turns", !!d.q2turns)}
-              ${tagItem("__padHeavy", "Heavy", !!d.heavy)}
+              ${tagItem("__padHeavy", "Strict I/O", !!(d.strictIo || d.heavy))}
               ${tagItem("__padFeeder", "Feeder", !!d.feeder)}
             </div>
           </div>
@@ -755,6 +762,7 @@
     d.drip = getCheck("#__padDrip");
     d.nih = getCheck("#__padNih");
     d.bg = getCheck("#__padBg");
+    d.tf = getCheck("#__padTf");
     d.ciwa = getCheck("#__padCiwa");
     d.restraint = getCheck("#__padRestraint");
     d.sitter = getCheck("#__padSitter");
@@ -763,7 +771,8 @@
     d.chg = getCheck("#__padChg");
     d.foley = getCheck("#__padFoley");
     d.q2turns = getCheck("#__padQ2");
-    d.heavy = getCheck("#__padHeavy");
+    d.strictIo = getCheck("#__padHeavy");
+    d.heavy = d.strictIo;
     d.feeder = getCheck("#__padFeeder");
 
     d.admit = false;

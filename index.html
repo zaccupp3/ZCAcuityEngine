@@ -3,7 +3,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title> Zac Cupp - Acuity Engine </title>
+  <title>Charge Nurse Platform</title>
   <link rel="stylesheet" href="style.css" />
 
   <!-- ✅ Staffing Details v2 layout helpers (safe, scoped) -->
@@ -22,7 +22,7 @@
       }
     }
 
-    .staffing-col h2 { margin-top: 0; }
+    .staffing-col h2 { margin-top: 0; text-align: center; }
 
     .leadership-row {
       display: grid;
@@ -93,7 +93,7 @@
 
     .totals-three-sections {
       display: grid;
-      grid-template-columns: 1fr 1fr 1fr auto;
+      grid-template-columns: 1fr 1fr 1fr;
       gap: 12px;
       align-items: center;
       margin: 8px 0;
@@ -101,9 +101,10 @@
 
     .totals-three-sections .totals-section {
       display: grid;
-      grid-template-columns: minmax(120px, 1fr) 90px;
+      grid-template-columns: auto 90px;
       align-items: center;
       gap: 10px;
+      justify-content: center;
     }
 
     .totals-three-sections .totals-section .totals-label {
@@ -125,7 +126,7 @@
 
     .totals-three-sections .totals-status {
       display: flex;
-      justify-content: flex-end;
+      justify-content: center;
       align-items: center;
     }
 
@@ -254,8 +255,7 @@
       <div class="brand">
         <span class="brand-dot" aria-hidden="true"></span>
         <span class="brand-text">
-          <span id="brandTitle" class="brand-title">Acuity Engine & Workforce Optimizer</span>
-          <span class="brand-subtitle">Created by Zachary Cupp, BSN, RN</span>
+          <span id="brandTitle" class="brand-title">Charge Nurse Platform</span>
         </span>
       </div>
     </div>
@@ -376,7 +376,10 @@
           <h2>Current Shift</h2>
 
           <div class="totals-block">
-            <div class="totals-title">Leadership Team</div>
+            <div class="totals-title" style="display:flex; align-items:center; justify-content:space-between; gap:8px;">
+              <span>Leadership Team</span>
+              <button type="button" onclick="window.clearCurrentLeadershipTeam && window.clearCurrentLeadershipTeam()" style="padding:4px 8px; font-size:12px;">Clear Leadership</button>
+            </div>
             <div class="leadership-row">
               <div class="leadership-field">
                 <label for="currentChargeName">Charge</label>
@@ -400,7 +403,6 @@
               <div class="totals-section">
                 <span class="totals-label">Total RNs:</span>
                 <select id="currentNurseCount">
-                  <option>1</option><option>2</option><option>3</option><option>4</option>
                   <option>5</option><option>6</option><option>7</option><option>8</option>
                   <option>9</option><option>10</option>
                 </select>
@@ -408,15 +410,8 @@
               <div class="totals-section">
                 <span class="totals-label">Total PCAs:</span>
                 <select id="currentPcaCount">
-                  <option>1</option><option>2</option><option>3</option>
-                  <option>4</option><option>5</option><option>6</option><option>7</option>
-                </select>
-              </div>
-              <div class="totals-section">
-                <span class="totals-label">Total Sitters:</span>
-                <select id="currentSitterCount">
-                  <option>1</option><option>2</option><option>3</option>
-                  <option>4</option><option>5</option><option>6</option><option>7</option>
+                  <option>3</option><option>4</option><option>5</option><option>6</option>
+                  <option>7</option><option>8</option>
                 </select>
               </div>
               <div class="totals-section totals-status">
@@ -430,18 +425,19 @@
           </div>
 
           <div class="staff-card">
-            <div class="staff-card-header">Current RNs</div>
+            <div class="staff-card-header" style="display:flex; align-items:center; justify-content:space-between; gap:8px;">
+              <span>Current RNs</span>
+              <button type="button" onclick="window.clearCurrentRnNames && window.clearCurrentRnNames()" style="padding:4px 8px; font-size:12px;">Clear RN</button>
+            </div>
             <div id="currentNurseList" class="staffList"></div>
           </div>
 
           <div class="staff-card">
-            <div class="staff-card-header">Current PCAs</div>
+            <div class="staff-card-header" style="display:flex; align-items:center; justify-content:space-between; gap:8px;">
+              <span>Current PCAs</span>
+              <button type="button" onclick="window.clearCurrentPcaNames && window.clearCurrentPcaNames()" style="padding:4px 8px; font-size:12px;">Clear PCA</button>
+            </div>
             <div id="currentPcaList" class="staffList"></div>
-          </div>
-
-          <div class="staff-card">
-            <div class="staff-card-header">Current Sitters</div>
-            <div id="currentSitterList" class="staffList"></div>
           </div>
         </div>
 
@@ -450,7 +446,10 @@
           <h2>Oncoming Shift</h2>
 
           <div class="totals-block">
-            <div class="totals-title">Leadership Team</div>
+            <div class="totals-title" style="display:flex; align-items:center; justify-content:space-between; gap:8px;">
+              <span>Leadership Team</span>
+              <button type="button" onclick="window.clearIncomingLeadershipTeam && window.clearIncomingLeadershipTeam()" style="padding:4px 8px; font-size:12px;">Clear Leadership</button>
+            </div>
             <div class="leadership-row">
               <div class="leadership-field">
                 <label for="incomingChargeName">Charge</label>
@@ -474,7 +473,6 @@
               <div class="totals-section">
                 <span class="totals-label">Total RNs:</span>
                 <select id="incomingNurseCount">
-                  <option>1</option><option>2</option><option>3</option><option>4</option>
                   <option>5</option><option>6</option><option>7</option><option>8</option>
                   <option>9</option><option>10</option>
                 </select>
@@ -482,15 +480,8 @@
               <div class="totals-section">
                 <span class="totals-label">Total PCAs:</span>
                 <select id="incomingPcaCount">
-                  <option>1</option><option>2</option><option>3</option>
-                  <option>4</option><option>5</option><option>6</option><option>7</option>
-                </select>
-              </div>
-              <div class="totals-section">
-                <span class="totals-label">Total Sitters:</span>
-                <select id="incomingSitterCount">
-                  <option>1</option><option>2</option><option>3</option>
-                  <option>4</option><option>5</option><option>6</option><option>7</option>
+                  <option>3</option><option>4</option><option>5</option><option>6</option>
+                  <option>7</option><option>8</option>
                 </select>
               </div>
               <div class="totals-section totals-status">
@@ -504,18 +495,19 @@
           </div>
 
           <div class="staff-card">
-            <div class="staff-card-header">Oncoming RNs</div>
+            <div class="staff-card-header" style="display:flex; align-items:center; justify-content:space-between; gap:8px;">
+              <span>Oncoming RNs</span>
+              <button type="button" onclick="window.clearIncomingRnNames && window.clearIncomingRnNames()" style="padding:4px 8px; font-size:12px;">Clear RN</button>
+            </div>
             <div id="incomingNurseList" class="staffList"></div>
           </div>
 
           <div class="staff-card">
-            <div class="staff-card-header">Oncoming PCAs</div>
+            <div class="staff-card-header" style="display:flex; align-items:center; justify-content:space-between; gap:8px;">
+              <span>Oncoming PCAs</span>
+              <button type="button" onclick="window.clearIncomingPcaNames && window.clearIncomingPcaNames()" style="padding:4px 8px; font-size:12px;">Clear PCA</button>
+            </div>
             <div id="incomingPcaList" class="staffList"></div>
-          </div>
-
-          <div class="staff-card">
-            <div class="staff-card-header">Oncoming Sitters</div>
-            <div id="incomingSitterList" class="staffList"></div>
           </div>
         </div>
 
@@ -533,6 +525,7 @@
       <div class="actions-row">
         <button type="button" onclick="window.activateAllRooms && window.activateAllRooms()">Add All Rooms</button>
         <button type="button" onclick="window.emptyAllRooms && window.emptyAllRooms()">Empty All Rooms</button>
+        <button type="button" onclick="window.clearAllPatientAcuityTags && window.clearAllPatientAcuityTags()">Clear All Tags</button>
       </div>
 
       <div id="patientList" class="patient-grid"></div>
@@ -547,13 +540,13 @@
       </p>
 
       <div class="actions-row">
-        <button onclick="updateAcuityTiles()">Refresh High Risk Report</button>
-        <button onclick="openAcuityModal()">Open Full Acuity Modal</button>
+        <button onclick="openAcuityModal()">Open Acuity Tiles Popup</button>
         <button type="button" onclick="window.printOncoming && window.printOncoming.openHighRiskOnly && window.printOncoming.openHighRiskOnly()">
-          Preview High-Risk Hand-Off
+          Print High-Risk Hand-Off
         </button>
       </div>
 
+      <div id="highRiskStructuredEditor" class="totals-block" style="margin-bottom:12px;"></div>
       <div id="acuityTiles" class="acuity-tiles-container"></div>
     </section>
 
@@ -563,6 +556,9 @@
 
       <div class="actions-row">
         <button onclick="window.populateLiveAssignment(false)">Populate Live Assignment</button>
+        <button type="button" onclick="window.printLive && window.printLive.open && window.printLive.open()">
+          Print Live Assignment
+        </button>
 
         <button type="button" onclick="window.openImportAssignmentScan && window.openImportAssignmentScan()">
           Import Assignment to LIVE (Photo)
@@ -585,12 +581,6 @@
         </div>
       </div>
 
-      <div class="live-layout live-layout--pca-only" style="margin-top: 16px;">
-        <div class="live-column">
-          <h2>Current Sitter Assignments</h2>
-          <div id="liveSitterAssignments" class="assignment-grid live-grid live-grid-pca"></div>
-        </div>
-      </div>
     </section>
 
     <!-- ONCOMING ASSIGNMENT TAB -->
@@ -655,10 +645,6 @@
       </div>
       <div id="pcaAssignmentOutput" class="assignment-grid two-column-grid"></div>
 
-      <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; margin-top: 24px;">
-        <h2 style="margin:0;">Incoming Sitter Assignments</h2>
-      </div>
-      <div id="sitterAssignmentOutput" class="assignment-grid two-column-grid"></div>
     </section>
 
     <!-- ✅ UNIT PULSE TAB -->
@@ -735,6 +721,7 @@
             <label><input type="checkbox" id="profDrip" /> Drip</label>
             <label><input type="checkbox" id="profNih" /> NIH</label>
             <label><input type="checkbox" id="profBg" /> BG</label>
+            <label><input type="checkbox" id="profTf" /> TF</label>
             <label><input type="checkbox" id="profCiwa" /> CIWA/COWS</label>
             <label><input type="checkbox" id="profRestraint" /> Restraint</label>
             <label><input type="checkbox" id="profSitter" /> Sitter</label>
@@ -753,7 +740,7 @@
             <label><input type="checkbox" id="profChg" /> CHG</label>
             <label><input type="checkbox" id="profFoley" /> Foley</label>
             <label><input type="checkbox" id="profQ2" /> Q2 Turns</label>
-            <label><input type="checkbox" id="profHeavy" /> Heavy</label>
+            <label><input type="checkbox" id="profHeavy" /> Strict I/O</label>
             <label><input type="checkbox" id="profFeeder" /> Feeder</label>
           </div>
         </div>
@@ -843,6 +830,7 @@
             <label><input type="checkbox" id="adDrip" /> Drip</label>
             <label><input type="checkbox" id="adNih" /> NIH</label>
             <label><input type="checkbox" id="adBg" /> BG</label>
+            <label><input type="checkbox" id="adTf" /> TF</label>
             <label><input type="checkbox" id="adCiwa" /> CIWA/COWS</label>
             <label><input type="checkbox" id="adRestraint" /> Restraint</label>
             <label><input type="checkbox" id="adSitter" /> Sitter</label>
@@ -856,7 +844,7 @@
             <label><input type="checkbox" id="adChg" /> CHG</label>
             <label><input type="checkbox" id="adFoley" /> Foley</label>
             <label><input type="checkbox" id="adQ2" /> Q2 Turns</label>
-            <label><input type="checkbox" id="adHeavy" /> Heavy</label>
+            <label><input type="checkbox" id="adHeavy" /> Strict I/O</label>
             <label><input type="checkbox" id="adFeeder" /> Feeder</label>
           </div>
         </div>

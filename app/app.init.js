@@ -931,56 +931,28 @@ window.addEventListener("DOMContentLoaded", async () => {
   const incomingNurseCountSel = document.getElementById("incomingNurseCount");
   const currentPcaCountSel = document.getElementById("currentPcaCount");
   const incomingPcaCountSel = document.getElementById("incomingPcaCount");
-  const currentSitterCountSel = document.getElementById("currentSitterCount");
-  const incomingSitterCountSel = document.getElementById("incomingSitterCount");
+  const DEFAULT_CURRENT_RN = 8;
+  const DEFAULT_INCOMING_RN = 8;
+  const DEFAULT_CURRENT_PCA = 4;
+  const DEFAULT_INCOMING_PCA = 4;
 
-  if (!currentNurses.length) {
-    if (currentNurseCountSel) currentNurseCountSel.value = 4;
-    setupCurrentNurses();
-  } else {
-    if (currentNurseCountSel) currentNurseCountSel.value = currentNurses.length;
-    renderCurrentNurseList();
-  }
+  if (currentNurseCountSel) currentNurseCountSel.value = DEFAULT_CURRENT_RN;
+  if (!currentNurses.length || currentNurses.length !== DEFAULT_CURRENT_RN) setupCurrentNurses(DEFAULT_CURRENT_RN);
+  else renderCurrentNurseList();
 
-  if (!incomingNurses.length) {
-    if (incomingNurseCountSel) incomingNurseCountSel.value = 4;
-    setupIncomingNurses();
-  } else {
-    if (incomingNurseCountSel) incomingNurseCountSel.value = incomingNurses.length;
-    renderIncomingNurseList();
-  }
+  if (incomingNurseCountSel) incomingNurseCountSel.value = DEFAULT_INCOMING_RN;
+  if (!incomingNurses.length || incomingNurses.length !== DEFAULT_INCOMING_RN) setupIncomingNurses(DEFAULT_INCOMING_RN);
+  else renderIncomingNurseList();
 
-  if (!currentPcas.length) {
-    if (currentPcaCountSel) currentPcaCountSel.value = 2;
-    setupCurrentPcas();
-  } else {
-    if (currentPcaCountSel) currentPcaCountSel.value = currentPcas.length;
-    renderCurrentPcaList();
-  }
+  if (currentPcaCountSel) currentPcaCountSel.value = DEFAULT_CURRENT_PCA;
+  if (!currentPcas.length || currentPcas.length !== DEFAULT_CURRENT_PCA) setupCurrentPcas(DEFAULT_CURRENT_PCA);
+  else renderCurrentPcaList();
 
-  if (!incomingPcas.length) {
-    if (incomingPcaCountSel) incomingPcaCountSel.value = 2;
-    setupIncomingPcas();
-  } else {
-    if (incomingPcaCountSel) incomingPcaCountSel.value = incomingPcas.length;
-    renderIncomingPcaList();
-  }
+  if (incomingPcaCountSel) incomingPcaCountSel.value = DEFAULT_INCOMING_PCA;
+  if (!incomingPcas.length || incomingPcas.length !== DEFAULT_INCOMING_PCA) setupIncomingPcas(DEFAULT_INCOMING_PCA);
+  else renderIncomingPcaList();
 
-  if (!currentSitters.length) {
-    if (currentSitterCountSel) currentSitterCountSel.value = 1;
-    setupCurrentSitters();
-  } else {
-    if (currentSitterCountSel) currentSitterCountSel.value = currentSitters.length;
-    renderCurrentSitterList();
-  }
-
-  if (!incomingSitters.length) {
-    if (incomingSitterCountSel) incomingSitterCountSel.value = 1;
-    setupIncomingSitters();
-  } else {
-    if (incomingSitterCountSel) incomingSitterCountSel.value = incomingSitters.length;
-    renderIncomingSitterList();
-  }
+  // Sitter is modeled as PCA designation (no standalone sitter roster bootstrapping).
 
   const shiftSel = document.getElementById("pcaShift");
   if (shiftSel) shiftSel.value = pcaShift;

@@ -37,6 +37,10 @@
   // Tabs
   // -----------------------------
   function showTab(sectionId) {
+    if (!canAccessTab(sectionId, window.activeUnitRole)) {
+      sectionId = "staffingTab";
+    }
+
     const sections = document.querySelectorAll(".tab-section");
     sections.forEach((sec) => {
       sec.style.display = sec.id === sectionId ? "block" : "none";
@@ -137,6 +141,22 @@
     return r === "owner" || r === "admin" || r === "charge";
   }
 
+  function isOwnerRole(role) {
+    return String(role || "").toLowerCase() === "owner";
+  }
+
+  function canAccessHighRisk(role) {
+    const r = String(role || "").toLowerCase();
+    return r === "owner" || r === "admin" || r === "supervisor";
+  }
+
+  function canAccessTab(sectionId, role) {
+    const target = String(sectionId || "");
+    if (target === "highRiskTab") return canAccessHighRisk(role);
+    if (target === "unitPulseTab" || target === "unitMetricsTab") return isOwnerRole(role);
+    return true;
+  }
+
   // -----------------------------
   // Multi-unit UI wiring (header-only)
   // -----------------------------
@@ -155,19 +175,35 @@
 
   function refreshHeaderBrandTitle() {
     const el = document.getElementById("brandTitle");
-    if (!el) return;
-
     const activeId = String(window.activeUnitId || "");
     const rows = Array.isArray(window.availableUnits) ? window.availableUnits : [];
     const match = rows.find((r) => String(r?.unit_id || "") === activeId);
     const unitName = getUnitNameFromMembership(match);
+    const titleText = unitName ? `${unitName}: Charge Nurse Platform` : "Charge Nurse Platform";
 
-    if (unitName) {
-      el.textContent = `${unitName}: Charge Nurse Platform`;
-      return;
+    if (el) el.textContent = titleText;
+    document.title = titleText;
+  }
+
+  function applyRoleTabVisibility() {
+    const role = window.activeUnitRole;
+    ["highRiskTab", "unitPulseTab", "unitMetricsTab"].forEach((target) => {
+      const btn = document.querySelector(`.tabButton[data-target="${target}"]`);
+      const section = document.getElementById(target);
+      const hide = !canAccessTab(target, role);
+
+      if (btn) {
+        btn.style.display = hide ? "none" : "";
+        btn.setAttribute("aria-hidden", hide ? "true" : "false");
+      }
+      if (section && hide) section.style.display = "none";
+    });
+
+    const active = document.querySelector(".tabButton.active[data-target]");
+    const activeTarget = active?.getAttribute("data-target") || "staffingTab";
+    if (!canAccessTab(activeTarget, role)) {
+      showTab("staffingTab");
     }
-
-    el.textContent = "Charge Nurse Platform";
   }
 
   function populateUnitSelect(selectEl) {
@@ -432,7 +468,7 @@
     };
 
     updateBtnAccess();
-    window.onAuthRoleChanged = updateBtnAccess;
+    window.__updateFinalizeButtonAccess = updateBtnAccess;
   }
 
   // -----------------------------
@@ -584,10 +620,21 @@
   // -----------------------------
   // Membership refresh hook (so UI updates after auth)
   // -----------------------------
-  window.onMembershipsUpdated = function onMembershipsUpdated() {
-    // called by auth UI or init after refreshMyUnits
-    wireUnitSwitcherHeaderOnly();
+  function refreshRoleDrivenUi() {
+    if (typeof window.__updateFinalizeButtonAccess === "function") {
+      try { window.__updateFinalizeButtonAccess(); } catch (_) {}
+    }
+    applyRoleTabVisibility();
     refreshHeaderBrandTitle();
+  }
+
+  window.onAuthRoleChanged = function onAuthRoleChanged() {
+    refreshRoleDrivenUi();
+  };
+
+  window.onMembershipsUpdated = function onMembershipsUpdated() {
+    wireUnitSwitcherHeaderOnly();
+    refreshRoleDrivenUi();
   };
 
   // -----------------------------
@@ -611,6 +658,7 @@
     if (Array.isArray(window.availableUnits) && window.availableUnits.length) {
       window.onMembershipsUpdated();
     }
+    refreshRoleDrivenUi();
   }
 
   if (document.readyState === "loading") {

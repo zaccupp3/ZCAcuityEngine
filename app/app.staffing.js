@@ -33,11 +33,13 @@
 
   // ✅ Max caps (used by +/- adjust logic)
   // Keep in sync with your setup functions:
-  // - RNs max 10
-  // - PCAs max 7
+  // - RNs: min 5, max 10
+  // - PCAs: min 3, max 8
   // - Sitters max 7
+  const MIN_RN = 5;
+  const MIN_PCA = 3;
   const MAX_RN = 10;
-  const MAX_PCA = 7;
+  const MAX_PCA = 8;
   const MAX_SITTER = 7;
 
   // ✅ PCA max-patient cap (shift dropdown removed; keep stable default)
@@ -198,9 +200,39 @@
     if (is) set("incomingSitterCount", is);
   }
 
-  function canDecrementByLastHasNoPatients(listRaw) {
+  function roomPairKeyFromRoomLabel(room) {
+    const m = String(room || "").trim().toUpperCase().match(/^(\d+)/);
+    return m ? m[1] : "";
+  }
+
+  function getSitterRoomPairOptions() {
+    const pts = safeArray(window.patients);
+    const byPair = new Map();
+
+    pts.forEach((p) => {
+      const room = String(p?.room || "").trim().toUpperCase();
+      if (!room) return;
+      const key = roomPairKeyFromRoomLabel(room);
+      if (!key) return;
+      if (!byPair.has(key)) byPair.set(key, []);
+      byPair.get(key).push(room);
+    });
+
+    return Array.from(byPair.entries())
+      .map(([key, rooms]) => {
+        const uniq = Array.from(new Set(rooms)).sort();
+        const label = uniq.length >= 2 ? `${uniq[0]}/${uniq[1]}` : `${uniq[0] || key}`;
+        return { key, label };
+      })
+      .sort((a, b) => Number(a.key) - Number(b.key));
+  }
+
+  function canDecrementByLastHasNoPatients(listRaw, minCount, label) {
     const list = filterOutHoldBuckets(listRaw);
-    if (list.length <= 1) return { ok: false, reason: "Minimum is 1." };
+    const min = safeInt(minCount, 1);
+    if (list.length <= min) {
+      return { ok: false, reason: `${label || "Staff"} cannot go below ${min}.` };
+    }
 
     const last = list[list.length - 1];
     const pts = safeArray(last?.patients);
@@ -221,9 +253,9 @@
       let count =
         (typeof countOverride === "number" && Number.isFinite(countOverride))
           ? countOverride
-          : safeInt(sel && sel.value, 1);
+          : safeInt(sel && sel.value, MIN_RN);
 
-      count = clamp(count, 1, MAX_RN);
+      count = clamp(count, MIN_RN, MAX_RN);
       if (sel) sel.value = count;
 
       const oldRaw = safeArray(currentNurses);
@@ -270,9 +302,9 @@
       let count =
         (typeof countOverride === "number" && Number.isFinite(countOverride))
           ? countOverride
-          : safeInt(sel && sel.value, 1);
+          : safeInt(sel && sel.value, MIN_RN);
 
-      count = clamp(count, 1, MAX_RN);
+      count = clamp(count, MIN_RN, MAX_RN);
       if (sel) sel.value = count;
 
       const old = filterOutHoldBuckets(incomingNurses);
@@ -503,9 +535,9 @@
       let count =
         (typeof countOverride === "number" && Number.isFinite(countOverride))
           ? countOverride
-          : safeInt(sel && sel.value, 1);
+          : safeInt(sel && sel.value, MIN_PCA);
 
-      count = clamp(count, 1, MAX_PCA);
+      count = clamp(count, MIN_PCA, MAX_PCA);
       if (sel) sel.value = count;
 
       const oldRaw = safeArray(currentPcas);
@@ -523,6 +555,8 @@
           staff_id: prev?.staff_id || null,
           name: prev?.name || `Current PCA ${i + 1}`,
           restrictions: { noIso: !!(prev && prev.restrictions && prev.restrictions.noIso) },
+          isSitter: !!prev?.isSitter,
+          sitterRoomPair: String(prev?.sitterRoomPair || ""),
           maxPatients,
           patients: Array.isArray(prev?.patients) ? prev.patients.slice() : []
         });
@@ -549,9 +583,9 @@
       let count =
         (typeof countOverride === "number" && Number.isFinite(countOverride))
           ? countOverride
-          : safeInt(sel && sel.value, 1);
+          : safeInt(sel && sel.value, MIN_PCA);
 
-      count = clamp(count, 1, MAX_PCA);
+      count = clamp(count, MIN_PCA, MAX_PCA);
       if (sel) sel.value = count;
 
       const old = filterOutHoldBuckets(incomingPcas);
@@ -567,6 +601,8 @@
           staff_id: prev?.staff_id || null,
           name: prev?.name || `Incoming PCA ${i + 1}`,
           restrictions: { noIso: !!(prev && prev.restrictions && prev.restrictions.noIso) },
+          isSitter: !!prev?.isSitter,
+          sitterRoomPair: String(prev?.sitterRoomPair || ""),
           maxPatients,
           patients: Array.isArray(prev?.patients) ? prev.patients.slice() : []
         });
@@ -591,8 +627,21 @@
     if (!container) return;
     container.innerHTML = "";
 
+    const roomPairs = getSitterRoomPairOptions();
     filterOutHoldBuckets(currentPcas).forEach((p, index) => {
       const r = p.restrictions || { noIso: false };
+      const isSitter = !!p.isSitter;
+      const selectedPair = String(p.sitterRoomPair || "");
+      const pairOptions = roomPairs.map((opt) => `<option value="${opt.key}" ${opt.key === selectedPair ? "selected" : ""}>${opt.label}</option>`).join("");
+      const sitterRoomPairControl = isSitter ? `
+          <label>
+            Sitter Room Pair:
+            <select onchange="updateCurrentPcaSitterRoom(${index}, this.value)">
+              <option value="">Select room pair</option>
+              ${pairOptions}
+            </select>
+          </label>
+      ` : ``;
       container.innerHTML += `
         <div class="pcaRow">
           <label>
@@ -608,7 +657,12 @@
               <input type="checkbox" ${r.noIso ? "checked" : ""}
                      onchange="updateCurrentPcaRestriction(${index}, this.checked)"> No ISO
             </label>
+            <label class="restrictionOption">
+              <input type="checkbox" ${isSitter ? "checked" : ""}
+                     onchange="updateCurrentPcaSitter(${index}, this.checked)"> Sitter Assignment
+            </label>
           </div>
+          ${sitterRoomPairControl}
         </div>
       `;
     });
@@ -619,8 +673,21 @@
     if (!container) return;
     container.innerHTML = "";
 
+    const roomPairs = getSitterRoomPairOptions();
     filterOutHoldBuckets(incomingPcas).forEach((p, index) => {
       const r = p.restrictions || { noIso: false };
+      const isSitter = !!p.isSitter;
+      const selectedPair = String(p.sitterRoomPair || "");
+      const pairOptions = roomPairs.map((opt) => `<option value="${opt.key}" ${opt.key === selectedPair ? "selected" : ""}>${opt.label}</option>`).join("");
+      const sitterRoomPairControl = isSitter ? `
+          <label>
+            Sitter Room Pair:
+            <select onchange="updateIncomingPcaSitterRoom(${index}, this.value)">
+              <option value="">Select room pair</option>
+              ${pairOptions}
+            </select>
+          </label>
+      ` : ``;
       container.innerHTML += `
         <div class="pcaRow">
           <label>
@@ -636,7 +703,12 @@
               <input type="checkbox" ${r.noIso ? "checked" : ""}
                      onchange="updateIncomingPcaRestriction(${index}, this.checked)"> No ISO
             </label>
+            <label class="restrictionOption">
+              <input type="checkbox" ${isSitter ? "checked" : ""}
+                     onchange="updateIncomingPcaSitter(${index}, this.checked)"> Sitter Assignment
+            </label>
           </div>
+          ${sitterRoomPairControl}
         </div>
       `;
     });
@@ -698,6 +770,46 @@
     if (!p.restrictions) p.restrictions = { noIso: false };
     p.restrictions.noIso = !!checked;
 
+    syncWindowRefs();
+    refreshAllViews();
+    if (typeof window.saveState === "function") window.saveState();
+  };
+
+  window.updateCurrentPcaSitter = function (index, checked) {
+    const p = getCurrentPcaByFilteredIndex(index);
+    if (!p) return;
+    p.isSitter = !!checked;
+    if (!p.isSitter) p.sitterRoomPair = "";
+    syncWindowRefs();
+    window.renderCurrentPcaList();
+    refreshAllViews();
+    if (typeof window.saveState === "function") window.saveState();
+  };
+
+  window.updateIncomingPcaSitter = function (index, checked) {
+    const p = getIncomingPcaByFilteredIndex(index);
+    if (!p) return;
+    p.isSitter = !!checked;
+    if (!p.isSitter) p.sitterRoomPair = "";
+    syncWindowRefs();
+    window.renderIncomingPcaList();
+    refreshAllViews();
+    if (typeof window.saveState === "function") window.saveState();
+  };
+
+  window.updateCurrentPcaSitterRoom = function (index, roomPair) {
+    const p = getCurrentPcaByFilteredIndex(index);
+    if (!p) return;
+    p.sitterRoomPair = String(roomPair || "").trim();
+    syncWindowRefs();
+    refreshAllViews();
+    if (typeof window.saveState === "function") window.saveState();
+  };
+
+  window.updateIncomingPcaSitterRoom = function (index, roomPair) {
+    const p = getIncomingPcaByFilteredIndex(index);
+    if (!p) return;
+    p.sitterRoomPair = String(roomPair || "").trim();
     syncWindowRefs();
     refreshAllViews();
     if (typeof window.saveState === "function") window.saveState();
@@ -884,11 +996,12 @@
       const list = isRn ? incomingNurses : (isPca ? incomingPcas : incomingSitters);
       const count = filterOutHoldBuckets(list).length || 0;
 
+      const min = isRn ? MIN_RN : (isPca ? MIN_PCA : 1);
       if (d < 0) {
-        const chk = canDecrementByLastHasNoPatients(list);
+        const chk = canDecrementByLastHasNoPatients(list, min, isRn ? "RNs" : (isPca ? "PCAs" : "Sitters"));
         if (!chk.ok) return chk;
       }
-      const nextCount = clamp(count + d, 1, max);
+      const nextCount = clamp(count + d, min, max);
       if (nextCount === count) return { ok: false, reason: "Limit reached." };
 
       if (isRn) window.setupIncomingNurses(nextCount);
@@ -902,11 +1015,12 @@
     const list = isRn ? currentNurses : (isPca ? currentPcas : currentSitters);
     const count = filterOutHoldBuckets(list).length || 0;
 
+    const min = isRn ? MIN_RN : (isPca ? MIN_PCA : 1);
     if (d < 0) {
-      const chk = canDecrementByLastHasNoPatients(list);
+      const chk = canDecrementByLastHasNoPatients(list, min, isRn ? "RNs" : (isPca ? "PCAs" : "Sitters"));
       if (!chk.ok) return chk;
     }
-    const nextCount = clamp(count + d, 1, max);
+    const nextCount = clamp(count + d, min, max);
     if (nextCount === count) return { ok: false, reason: "Limit reached." };
 
     if (isRn) window.setupCurrentNurses(nextCount);
@@ -1114,7 +1228,7 @@
   function decrementIncomingSafely(roleUpper) {
     if (roleUpper === "RN") {
       const arr = safeArray(window.incomingNurses);
-      if (arr.length <= 1) return { ok: false, reason: "Incoming RNs cannot go below 1." };
+      if (arr.length <= MIN_RN) return { ok: false, reason: `Incoming RNs cannot go below ${MIN_RN}.` };
 
       const last = arr[arr.length - 1];
       moveIncomingRemovedOwnerPatientsToUnassigned("RN", last);
@@ -1128,7 +1242,7 @@
     }
 
     const arr = safeArray(window.incomingPcas);
-    if (arr.length <= 1) return { ok: false, reason: "Incoming PCAs cannot go below 1." };
+    if (arr.length <= MIN_PCA) return { ok: false, reason: `Incoming PCAs cannot go below ${MIN_PCA}.` };
 
     const last = arr[arr.length - 1];
     moveIncomingRemovedOwnerPatientsToUnassigned("PCA", last);
@@ -1219,14 +1333,88 @@
     const incRn = document.getElementById("incomingNurseCount");
     const incPca = document.getElementById("incomingPcaCount");
     const incSitter = document.getElementById("incomingSitterCount");
-    if (curRn) curRn.addEventListener("change", () => { if (typeof window.setupCurrentNurses === "function") window.setupCurrentNurses(); });
-    if (curPca) curPca.addEventListener("change", () => { if (typeof window.setupCurrentPcas === "function") window.setupCurrentPcas(); });
+    if (curRn) {
+      const h = () => { if (typeof window.setupCurrentNurses === "function") window.setupCurrentNurses(); };
+      curRn.addEventListener("input", h);
+      curRn.addEventListener("change", h);
+    }
+    if (curPca) {
+      const h = () => { if (typeof window.setupCurrentPcas === "function") window.setupCurrentPcas(); };
+      curPca.addEventListener("input", h);
+      curPca.addEventListener("change", h);
+    }
     if (curSitter) curSitter.addEventListener("change", () => { if (typeof window.setupCurrentSitters === "function") window.setupCurrentSitters(); });
-    if (incRn) incRn.addEventListener("change", () => { if (typeof window.setupIncomingNurses === "function") window.setupIncomingNurses(); });
-    if (incPca) incPca.addEventListener("change", () => { if (typeof window.setupIncomingPcas === "function") window.setupIncomingPcas(); });
+    if (incRn) {
+      const h = () => { if (typeof window.setupIncomingNurses === "function") window.setupIncomingNurses(); };
+      incRn.addEventListener("input", h);
+      incRn.addEventListener("change", h);
+    }
+    if (incPca) {
+      const h = () => { if (typeof window.setupIncomingPcas === "function") window.setupIncomingPcas(); };
+      incPca.addEventListener("input", h);
+      incPca.addEventListener("change", h);
+    }
     if (incSitter) incSitter.addEventListener("change", () => { if (typeof window.setupIncomingSitters === "function") window.setupIncomingSitters(); });
     window.__staffingTotalsListenersAttached = true;
   }
+
+  function clearNames(list, makeDefault) {
+    filterOutHoldBuckets(list).forEach((s, idx) => {
+      s.name = makeDefault(idx + 1);
+      s.staff_id = null;
+    });
+  }
+
+  window.clearCurrentRnNames = function () {
+    clearNames(currentNurses, (n) => `Current RN ${n}`);
+    syncWindowRefs();
+    try { window.renderCurrentNurseList && window.renderCurrentNurseList(); } catch (_) {}
+    refreshAllViews();
+    if (typeof window.saveState === "function") window.saveState();
+  };
+
+  window.clearIncomingRnNames = function () {
+    clearNames(incomingNurses, (n) => `Incoming RN ${n}`);
+    syncWindowRefs();
+    try { window.renderIncomingNurseList && window.renderIncomingNurseList(); } catch (_) {}
+    refreshAllViews();
+    if (typeof window.saveState === "function") window.saveState();
+  };
+
+  window.clearCurrentPcaNames = function () {
+    clearNames(currentPcas, (n) => `Current PCA ${n}`);
+    syncWindowRefs();
+    try { window.renderCurrentPcaList && window.renderCurrentPcaList(); } catch (_) {}
+    refreshAllViews();
+    if (typeof window.saveState === "function") window.saveState();
+  };
+
+  window.clearIncomingPcaNames = function () {
+    clearNames(incomingPcas, (n) => `Incoming PCA ${n}`);
+    syncWindowRefs();
+    try { window.renderIncomingPcaList && window.renderIncomingPcaList(); } catch (_) {}
+    refreshAllViews();
+    if (typeof window.saveState === "function") window.saveState();
+  };
+
+  function clearLeadershipFields(ids) {
+    ids.forEach((id) => {
+      const el = document.getElementById(id);
+      if (!el) return;
+      el.value = "";
+      try { el.dispatchEvent(new Event("input", { bubbles: true })); } catch (_) {}
+      try { el.dispatchEvent(new Event("change", { bubbles: true })); } catch (_) {}
+    });
+    if (typeof window.saveState === "function") window.saveState();
+  }
+
+  window.clearCurrentLeadershipTeam = function () {
+    clearLeadershipFields(["currentChargeName", "currentMentorName", "currentCtaName"]);
+  };
+
+  window.clearIncomingLeadershipTeam = function () {
+    clearLeadershipFields(["incomingChargeName", "incomingMentorName", "incomingCtaName"]);
+  };
 
   // Keep these light touches:
   window.addEventListener("DOMContentLoaded", () => {

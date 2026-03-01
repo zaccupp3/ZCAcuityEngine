@@ -42,6 +42,7 @@
       drip: !!p.drip,
       nih: !!p.nih,
       bg: !!p.bg,
+      tf: !!p.tf,
       ciwa: !!p.ciwa,
       restraint: !!p.restraint,
       sitter: !!p.sitter,
@@ -53,7 +54,7 @@
       chg: !!p.chg,
       foley: !!p.foley,
       q2turns: !!p.q2turns,
-      heavy: !!p.heavy,
+      strictIo: !!(p.strictIo || p.heavy),
       feeder: !!p.feeder
     };
   }
@@ -333,6 +334,7 @@
       ["profDrip", "Drip", !!p.drip],
       ["profNih", "NIH", !!p.nih],
       ["profBg", "BG", !!(p.bg || p.bgChecks)],
+      ["profTf", "TF", !!p.tf],
       ["profCiwa", "CIWA/COWS", !!(p.ciwa || p.cows || p.ciwaCows)],
       ["profRestraint", "Restraint", !!(p.restraint || p.restraints)],
       ["profSitter", "Sitter", !!p.sitter],
@@ -350,7 +352,7 @@
       ["profChg", "CHG", !!p.chg],
       ["profFoley", "Foley", !!p.foley],
       ["profQ2", "Q2 Turns", !!(p.q2turns || p.q2Turns)],
-      ["profHeavy", "Heavy", !!p.heavy],
+      ["profHeavy", "Strict I/O", !!(p.strictIo || p.heavy)],
       ["profFeeder", "Feeder", !!(p.feeder || p.feeders)],
     ];
 
@@ -530,6 +532,7 @@
     p.nih = getCheck("profNih");
     p.bg = getCheck("profBg");
     p.bgChecks = p.bg;
+    p.tf = getCheck("profTf");
 
     p.ciwa = getCheck("profCiwa");
     p.cows = p.ciwa;
@@ -543,7 +546,8 @@
     p.foley = getCheck("profFoley");
     p.q2turns = getCheck("profQ2");
     p.q2Turns = p.q2turns;
-    p.heavy = getCheck("profHeavy");
+    p.strictIo = getCheck("profHeavy");
+    p.heavy = p.strictIo;
     p.feeder = getCheck("profFeeder");
 
     p.isEmpty = false;

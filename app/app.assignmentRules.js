@@ -90,7 +90,6 @@
     if (p.chg) score += 3;
     if (p.foley) score += 3;
     if (p.q2turns) score += 4;
-    if (p.heavy) score += 5;
     if (p.feeder) score += 3;
     return score;
   }
@@ -119,6 +118,7 @@
     drip: 1,
     nih: 1,
     bg: 2,
+    tf: 2,
     ciwa: 1,
     restraint: 1,
     sitter: 1,
@@ -133,7 +133,6 @@
     foley: 1,
     q2turns: 1,
     feeder: 1,
-    heavy: 1,
     isolation: 2,
     admit: 1,
     lateDc: 1
@@ -143,6 +142,7 @@
     drip: ["drip", "drips"],
     nih: ["nih"],
     bg: ["bg", "bgChecks"],
+    tf: ["tf"],
     ciwa: ["ciwa", "cows", "ciwaCows"],
     restraint: ["restraint", "restraints"],
     sitter: ["sitter"],
@@ -158,7 +158,7 @@
     foley: ["foley"],
     q2turns: ["q2turns", "q2Turns"],
     feeder: ["feeder", "feeders"],
-    heavy: ["heavy"],
+    strictIo: ["strictIo", "heavy"],
     isolation: ["isolation", "isoPca", "iso"],
     admit: ["admitPca", "admit"],
     lateDc: ["lateDcPca", "lateDc", "lateDC", "latedc"]

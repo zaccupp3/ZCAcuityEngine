@@ -83,6 +83,10 @@ function roomPairKeyFromPatient(p) {
   return m ? m[1] : room;
 }
 
+function roomPairKeyFromOwnerSitter(owner) {
+  return String(owner?.sitterRoomPair || "").trim();
+}
+
 // Prefer stable staff_id if present; fall back to local numeric id.
 function stableStaffId(owner) {
   if (!owner) return null;
@@ -287,6 +291,36 @@ function onRowDrop(event, context, role, newOwnerId) {
         dragCtx = null;
         return;
       }
+    }
+  }
+
+  // PCA marked as sitter can only hold sitter-tagged patients in its configured room pair (max 2).
+  if (role === "pca" && !!toOwner?.isSitter) {
+    const p = (typeof window.getPatientById === "function") ? window.getPatientById(pid) : null;
+    const pair = roomPairKeyFromOwnerSitter(toOwner);
+    const pKey = roomPairKeyFromPatient(p);
+    const toPids = (toOwner.patients || []).map((x) => Number(x)).filter(Number.isFinite);
+    const currentCountExcludingThis = toPids.filter((x) => x !== pid).length;
+
+    if (!p || !p.sitter) {
+      alert("This PCA is designated as a sitter and can only accept Sitter-tagged patients.");
+      dragCtx = null;
+      return;
+    }
+    if (!pair) {
+      alert("This PCA is marked as sitter but has no room pair selected.");
+      dragCtx = null;
+      return;
+    }
+    if (pKey !== pair) {
+      alert(`This sitter PCA is locked to room pair ${pair}A/${pair}B.`);
+      dragCtx = null;
+      return;
+    }
+    if (currentCountExcludingThis >= 2) {
+      alert("Sitter assignment is capped at 2 patients.");
+      dragCtx = null;
+      return;
     }
   }
 

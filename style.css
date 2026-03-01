@@ -717,25 +717,11 @@ button:active{
   max-width: 240px;
 }
 
-#liveSitterAssignments{
-  display: flex !important;
-  flex-wrap: nowrap;
-  gap: 10px;
-  align-items: stretch;
-  overflow-x: auto;
-  padding-bottom: 6px;
-}
-#liveSitterAssignments .assignment-card{
-  flex: 0 0 240px;
-  max-width: 240px;
-}
-
 /* =========================
    ONCOMING Assignment — layout
 ========================= */
 #assignmentOutput,
-#pcaAssignmentOutput,
-#sitterAssignmentOutput{
+#pcaAssignmentOutput{
   display: grid;
   gap: 12px;
   align-items: start;
@@ -754,20 +740,17 @@ button:active{
 #pcaAssignmentOutput{
   grid-template-columns: repeat(5, minmax(0, 1fr));
 }
-#sitterAssignmentOutput{
-  grid-template-columns: repeat(5, minmax(0, 1fr));
-}
 @media (max-width: 1700px){
-  #pcaAssignmentOutput, #sitterAssignmentOutput{ grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  #pcaAssignmentOutput{ grid-template-columns: repeat(4, minmax(0, 1fr)); }
 }
 @media (max-width: 1400px){
-  #pcaAssignmentOutput, #sitterAssignmentOutput{ grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  #pcaAssignmentOutput{ grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
 @media (max-width: 1100px){
-  #pcaAssignmentOutput, #sitterAssignmentOutput{ grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  #pcaAssignmentOutput{ grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 @media (max-width: 800px){
-  #pcaAssignmentOutput, #sitterAssignmentOutput{ grid-template-columns: 1fr; }
+  #pcaAssignmentOutput{ grid-template-columns: 1fr; }
 }
 
 #pcaAssignmentOutput .pcaBlock{ width: 100%; }
