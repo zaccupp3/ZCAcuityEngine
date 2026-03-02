@@ -669,6 +669,7 @@ window.addEventListener("DOMContentLoaded", async () => {
   async function publishUnitStateNow(reason = "") {
     if (!sbReady()) return;
     if (!window.activeUnitId) return;
+    if (window.demoMode || window.__authSignedIn === false) return;
 
     const role = window.activeUnitRole;
     if (!canWriteRole(role)) return;
@@ -726,6 +727,7 @@ window.addEventListener("DOMContentLoaded", async () => {
 
   function publishUnitStateDebounced(reason = "") {
     if (window.__cloud.mutePublishDepth > 0) return;
+    if (window.demoMode || window.__authSignedIn === false) return;
 
     const snapStr = snapshotString();
     if (!snapStr) return;

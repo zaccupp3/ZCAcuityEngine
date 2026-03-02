@@ -3,6 +3,23 @@
 // ✅ Environment tab/page removed — environment is now ONLY the header unit selector (#unitSwitcher)
 
 (function () {
+  // Canonical domain guard:
+  // - Keep production on chargenurse.app
+  // - Redirect www + vercel preview hosts to apex domain
+  try {
+    const host = String(window.location.hostname || "").toLowerCase();
+    const shouldRedirect =
+      host === "www.chargenurse.app" ||
+      host.endsWith(".vercel.app");
+    if (shouldRedirect) {
+      const target = `https://chargenurse.app${window.location.pathname || "/"}${window.location.search || ""}${window.location.hash || ""}`;
+      if (window.location.href !== target) {
+        window.location.replace(target);
+        return;
+      }
+    }
+  } catch (_) {}
+
   // -----------------------------
   // Quick Auth Debug Helpers (console)
   // -----------------------------

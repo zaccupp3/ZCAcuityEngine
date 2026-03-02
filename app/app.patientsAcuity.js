@@ -42,6 +42,7 @@
   // Helpers (canonical)
   // =========================
   function safeArray(v) { return Array.isArray(v) ? v : []; }
+  function isDemoEditLocked() { return false; }
 
   // Version marker for debugging
   window.__patientsAcuityLoaded =
@@ -602,10 +603,18 @@
   }
 
   function setBedEmptyState(patientId, makeEmpty) {
+    if (isDemoEditLocked()) {
+      alert("Patient edits are disabled in demo mode. Sign in to make changes.");
+      return;
+    }
     setBedEmptyStateInternal(patientId, makeEmpty, { suppressRefresh: false, source: "patient_details" });
   }
 
   function movePatientToBed(fromPatientId, toPatientId) {
+    if (isDemoEditLocked()) {
+      alert("Room changes are disabled in demo mode. Sign in to make changes.");
+      return false;
+    }
     ensurePatientsReady();
 
     const fromId = Number(fromPatientId);
@@ -730,6 +739,10 @@
   // =========================
 
   function activateAllRooms() {
+    if (isDemoEditLocked()) {
+      alert("Bulk room edits are disabled in demo mode. Sign in to make changes.");
+      return;
+    }
     ensurePatientsReady();
     const ok = confirm("Add All Rooms: mark every bed In Use (active)?");
     if (!ok) return;
@@ -745,6 +758,10 @@
   }
 
   function emptyAllRooms() {
+    if (isDemoEditLocked()) {
+      alert("Bulk room edits are disabled in demo mode. Sign in to make changes.");
+      return;
+    }
     ensurePatientsReady();
     const ok = confirm("Empty All Rooms: set every bed EMPTY and clear LIVE + Oncoming assignments?");
     if (!ok) return;
@@ -764,6 +781,10 @@
   }
 
   function clearAllPatientAcuityTags() {
+    if (isDemoEditLocked()) {
+      alert("Tag edits are disabled in demo mode. Sign in to make changes.");
+      return;
+    }
     ensurePatientsReady();
     const ok = confirm("Clear all RN/PCA acuity tags for all rooms? Occupancy and assignments will stay unchanged.");
     if (!ok) return;
@@ -834,6 +855,10 @@
   }
 
   function togglePatientFlag(id, key, checked) {
+    if (isDemoEditLocked()) {
+      alert("Tag edits are disabled in demo mode. Sign in to make changes.");
+      return;
+    }
     const p = getPatientById(id);
     if (!p) return;
 

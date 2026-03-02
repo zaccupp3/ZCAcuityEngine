@@ -72,6 +72,24 @@
     }
   }
 
+  async function waitForSessionUser(maxMs = 1500) {
+    const start = Date.now();
+    while (Date.now() - start <= maxMs) {
+      const s = await getSession();
+      if (s?.user) return s;
+      await new Promise((r) => setTimeout(r, 120));
+    }
+
+    try {
+      const c = getClient();
+      if (typeof c?.auth?.refreshSession === "function") {
+        const { data } = await c.auth.refreshSession();
+        if (data?.session?.user) return data.session;
+      }
+    } catch (_) {}
+    return null;
+  }
+
   // -----------------------------
   // Username -> hidden email mapping
   // -----------------------------
@@ -129,6 +147,7 @@
       localStorage.removeItem("__sessionOnly");
       if (!rememberEl?.checked) localStorage.setItem("__sessionOnly", "1");
       localStorage.removeItem("__demoMode");
+      window.demoMode = false;
     } catch {}
 
     setMsg("Signing in…");
@@ -151,18 +170,22 @@
         return;
       }
 
+      await waitForSessionUser(1500);
       setMsg("Logged in. Loading…", "ok");
       hideGate();
 
       // Let dropdown refresh itself cleanly
       if (window.authUI && typeof window.authUI.refreshAuthUI === "function") {
-        try { await window.authUI.refreshAuthUI(); } catch {}
+        try { window.authUI.refreshAuthUI({ skipCloudSync: true }); } catch {}
+        setTimeout(() => {
+          try { window.authUI.refreshAuthUI(); } catch {}
+        }, 0);
       }
 
       // Optional post-auth hook
       if (typeof window.afterAuthRoute === "function") {
         const session = await getSession();
-        await window.afterAuthRoute(session);
+        setTimeout(() => { window.afterAuthRoute(session).catch?.(() => {}); }, 0);
       }
     } catch (e) {
       console.error(e);
@@ -214,6 +237,7 @@
       localStorage.setItem("__demoMode", "1");
       localStorage.removeItem("__sessionOnly");
       window.demoMode = true;
+      window.__authSignedIn = false;
     } catch {}
 
     hideGate();
@@ -260,21 +284,14 @@
     wireUI();
     setupSessionOnlyBehavior();
 
-    // Demo shortcut
-    try {
-      if (localStorage.getItem("__demoMode") === "1") {
-        window.demoMode = true;
-        hideGate();
-        if (typeof window.loadDemoEnvironment === "function") window.loadDemoEnvironment();
-        return;
-      }
-    } catch {}
-
     // Wait briefly so we don't flash errors
     await waitForSupabase(8000);
 
     const session = await getSession();
     if (session) {
+      try { localStorage.removeItem("__demoMode"); } catch {}
+      window.demoMode = false;
+      window.__authSignedIn = true;
       hideGate();
       if (window.authUI && typeof window.authUI.refreshAuthUI === "function") {
         try { await window.authUI.refreshAuthUI(); } catch {}
@@ -285,6 +302,22 @@
       return;
     }
 
+    // Signed out: optionally keep demo mode active.
+    try {
+      if (localStorage.getItem("__demoMode") === "1") {
+        window.demoMode = true;
+        window.__authSignedIn = false;
+        hideGate();
+        if (window.authUI && typeof window.authUI.refreshAuthUI === "function") {
+          try { await window.authUI.refreshAuthUI(); } catch {}
+        }
+        if (typeof window.loadDemoEnvironment === "function") window.loadDemoEnvironment();
+        return;
+      }
+    } catch {}
+
+    window.demoMode = false;
+    window.__authSignedIn = false;
     showGate();
   }
 

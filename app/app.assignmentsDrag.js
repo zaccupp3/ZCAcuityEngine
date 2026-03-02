@@ -15,6 +15,18 @@
 // ---------------------------------------------------------
 
 let dragCtx = null; // { context: 'live'|'incoming', role: 'nurse'|'pca'|'sitter', ownerId, patientId }
+let __demoEditWarnAt = 0;
+
+function isDemoEditLocked() {
+  return false;
+}
+
+function warnDemoEditLocked() {
+  const now = Date.now();
+  if (now - __demoEditWarnAt < 1200) return;
+  __demoEditWarnAt = now;
+  alert("Editing assignments is disabled in demo mode. Sign in to make changes.");
+}
 
 // -----------------------------
 // Canonical globals
@@ -205,6 +217,12 @@ function ownerNameForIncomingRn(rnId) {
 // -----------------------------
 
 function onRowDragStart(event, context, role, ownerId, patientId) {
+  if (isDemoEditLocked()) {
+    warnDemoEditLocked();
+    dragCtx = null;
+    if (event && event.preventDefault) event.preventDefault();
+    return;
+  }
   dragCtx = { context, role, ownerId, patientId };
   if (event && event.dataTransfer) {
     event.dataTransfer.effectAllowed = "move";
@@ -220,6 +238,11 @@ function onRowDragOver(event) {
 
 function onRowDrop(event, context, role, newOwnerId) {
   event.preventDefault();
+  if (isDemoEditLocked()) {
+    warnDemoEditLocked();
+    dragCtx = null;
+    return;
+  }
   if (!dragCtx) return;
 
   if (dragCtx.context !== context) {
@@ -430,6 +453,11 @@ function onDischargeDragOver(event) {
 
 function onDischargeDrop(event) {
   event.preventDefault();
+  if (isDemoEditLocked()) {
+    warnDemoEditLocked();
+    dragCtx = null;
+    return;
+  }
   if (!dragCtx) return;
 
   // Discharge only allowed from LIVE context
@@ -577,6 +605,10 @@ function closeDischargeHistoryModal() {
 // -----------------------------
 
 function reinstateDischargedPatient(index) {
+  if (isDemoEditLocked()) {
+    warnDemoEditLocked();
+    return;
+  }
   const history = window.dischargeHistory;
   if (!Array.isArray(history)) return;
   if (index < 0 || index >= history.length) return;

@@ -25,7 +25,6 @@
 
     emailInput: $("authMenuEmail"),
     passwordInput: $("authMenuPassword"),
-    btnMagic: $("btnMagicLink"),
     btnSignInPw: $("btnSignInPassword"),
     btnSignUpPw: $("btnSignUpPassword"),
     btnResetPw: $("btnResetPassword"),
@@ -113,6 +112,28 @@
     return sawPasswordRecoveryEvent || urlIndicatesRecovery();
   }
 
+  async function waitForSessionUser(maxMs = 1500) {
+    const start = Date.now();
+    while (Date.now() - start <= maxMs) {
+      try {
+        const c = getClient();
+        const { data } = await c.auth.getSession();
+        if (data?.session?.user) return data.session;
+      } catch (_) {}
+      await new Promise((r) => setTimeout(r, 120));
+    }
+
+    // Last-resort token refresh for sticky browser/session timing.
+    try {
+      const c = getClient();
+      if (typeof c?.auth?.refreshSession === "function") {
+        const { data } = await c.auth.refreshSession();
+        if (data?.session?.user) return data.session;
+      }
+    } catch (_) {}
+    return null;
+  }
+
   async function getSessionSafe() {
     try {
       const c = getClient();
@@ -129,15 +150,15 @@
     const name = u?.name || "";
     const code = u?.code || "";
     if (name && code) return `${name} (${code})`;
-    return name || code || (m?.unit_id || "—");
+    return name || code || (m?.unit_id || "-");
   }
 
   function refreshAuthPill() {
     const rows = Array.isArray(window.availableUnits) ? window.availableUnits : [];
     const activeId = window.activeUnitId;
 
-    let unitLabel = "—";
-    let role = window.activeUnitRole || "—";
+    let unitLabel = "-";
+    let role = window.activeUnitRole || "-";
 
     if (activeId) {
       const match = rows.find(r => String(r.unit_id) === String(activeId));
@@ -277,8 +298,21 @@
   // -----------------------------
   // Auth UI refresh (dropdown only)
   // -----------------------------
-  async function refreshAuthUI() {
+  async function refreshAuthUI(opts = {}) {
+    const skipMembershipSync = !!opts.skipMembershipSync;
+    const skipCloudSync = !!opts.skipCloudSync;
     if (window.demoMode) {
+      try {
+        const c = getClient();
+        const { data } = await c.auth.getSession();
+        if (data?.session?.user) {
+          window.demoMode = false;
+          try { localStorage.removeItem("__demoMode"); } catch (_) {}
+        }
+      } catch (_) {}
+    }
+    if (window.demoMode) {
+      window.__authSignedIn = false;
       setStatus("Demo mode");
       setMsg("");
       showLoggedIn(false);
@@ -287,11 +321,12 @@
     }
 
     if (!sbReady()) {
+      window.__authSignedIn = false;
       setStatus("Supabase not ready");
       setMsg("");
       showLoggedIn(false);
       showRecoveryUI(false);
-      if (el.unitRole) el.unitRole.textContent = "unit: — | role: —";
+      if (el.unitRole) el.unitRole.textContent = "unit: - | role: -";
       return;
     }
 
@@ -309,11 +344,12 @@
     const session = data?.session || null;
 
     if (!session) {
+      window.__authSignedIn = false;
       setStatus("Signed out");
       setMsg("");
       showLoggedIn(false);
       if (el.userEmail) el.userEmail.textContent = "";
-      if (el.unitRole) el.unitRole.textContent = "unit: — | role: —";
+      if (el.unitRole) el.unitRole.textContent = "unit: - | role: -";
 
       if (window.cloudSync && typeof window.cloudSync.unsubscribeUnitState === "function") {
         try { window.cloudSync.unsubscribeUnitState(); } catch {}
@@ -327,20 +363,25 @@
     }
 
     setStatus("Signed in");
+    window.__authSignedIn = true;
     showLoggedIn(true);
 
     const label = displayNameForUser(session.user) || "(user)";
     if (el.userEmail) el.userEmail.textContent = label;
 
-    try {
-      const r = await refreshMembershipsAndUnit();
-      if (!r?.ok) console.warn("[auth] refreshMembershipsAndUnit not ok", r?.error);
-    } catch (e) {
-      console.warn("[auth] refreshMembershipsAndUnit failed", e);
+    if (!skipMembershipSync) {
+      try {
+        const r = await refreshMembershipsAndUnit();
+        if (!r?.ok) console.warn("[auth] refreshMembershipsAndUnit not ok", r?.error);
+      } catch (e) {
+        console.warn("[auth] refreshMembershipsAndUnit failed", e);
+      }
     }
 
     refreshAuthPill();
-    await syncCloudForActiveUnit();
+    if (!skipCloudSync) {
+      await syncCloudForActiveUnit();
+    }
 
     if (!isRecoveryMode()) setMsg("");
   }
@@ -348,26 +389,6 @@
   // -----------------------------
   // Auth actions (dropdown)
   // -----------------------------
-  async function sendMagicLink() {
-    if (!sbReady()) return setMsg("Supabase not ready yet. Refresh and try again.");
-
-    const identifier = (el.emailInput?.value || "").trim();
-    if (!identifier) return setMsg("Enter a username or email first.");
-
-    const email = identifierToEmail(identifier);
-    if (!email) return setMsg("Enter a valid username or email.");
-
-    if (typeof window.sb?.signInWithEmail !== "function") {
-      return setMsg("Auth helper missing (sb.signInWithEmail). Update app.supabase.js export.");
-    }
-
-    setMsg("Sending magic link...");
-    const { error } = await window.sb.signInWithEmail(email);
-    if (error) return setMsg(error.message || String(error));
-
-    setMsg("Magic link sent. Check your email.");
-  }
-
   async function signInWithPassword() {
     if (!sbReady()) return setMsg("Supabase not ready yet. Refresh and try again.");
 
@@ -384,11 +405,15 @@
     }
 
     setMsg("Signing in...");
+    window.demoMode = false;
+    try { localStorage.removeItem("__demoMode"); } catch (_) {}
     const { error } = await window.sb.signInWithPassword(email, password);
     if (error) return setMsg(error.message || String(error));
 
+    await waitForSessionUser(1500);
     setMsg("");
-    await refreshAuthUI();
+    await refreshAuthUI({ skipCloudSync: true });
+    setTimeout(() => { refreshAuthUI().catch(() => {}); }, 0);
   }
 
   async function signUpWithPassword() {
@@ -407,6 +432,8 @@
     }
 
     setMsg("Creating account...");
+    window.demoMode = false;
+    try { localStorage.removeItem("__demoMode"); } catch (_) {}
     const { error } = await window.sb.signUpWithPassword(email, password);
     if (error) return setMsg(error.message || String(error));
 
@@ -424,6 +451,8 @@
     if (!email) return setMsg("Enter a valid username or email.");
 
     setMsg("Sending password reset email...");
+    window.demoMode = false;
+    try { localStorage.removeItem("__demoMode"); } catch (_) {}
     const c = getClient();
     const { error } = await c.auth.resetPasswordForEmail(email, {
       redirectTo: window.location.origin
@@ -465,28 +494,31 @@
       return setMsg("Auth helper missing (sb.signOut). Update app.supabase.js export.");
     }
 
-    setMsg("Signing out...");
-    const { error } = await window.sb.signOut();
-    if (error) setMsg(error.message || String(error));
-    else setMsg("");
+    // Fast UI update first, then complete sign-out network call.
+    setStatus("Signed out");
+    setMsg("");
+    sawPasswordRecoveryEvent = false;
+    showRecoveryUI(false);
+
+    if (el.userEmail) el.userEmail.textContent = "";
+    if (el.unitRole) el.unitRole.textContent = "unit: - | role: -";
+    showLoggedIn(false);
+    closeDropdown();
 
     if (window.cloudSync && typeof window.cloudSync.unsubscribeUnitState === "function") {
       try { window.cloudSync.unsubscribeUnitState(); } catch {}
     }
 
-    sawPasswordRecoveryEvent = false;
-    showRecoveryUI(false);
-
-    if (el.userEmail) el.userEmail.textContent = "";
-    if (el.unitRole) el.unitRole.textContent = "unit: — | role: —";
-    showLoggedIn(false);
-
     if (typeof window.onAuthRoleChanged === "function") {
       try { window.onAuthRoleChanged(); } catch (_) {}
     }
 
-    window.demoMode = false;
-    await refreshAuthUI();
+    window.demoMode = true;
+    try { localStorage.setItem("__demoMode", "1"); } catch (_) {}
+    window.__authSignedIn = false;
+    const { error } = await window.sb.signOut();
+    if (error) setMsg(error.message || String(error));
+    await refreshAuthUI({ skipMembershipSync: true, skipCloudSync: true });
   }
 
   // -----------------------------
@@ -524,12 +556,18 @@
     // Wait up to ~8s for sbReady (in case of load order / slow CDN)
     const start = Date.now();
     while (!sbReady()) {
-      if (Date.now() - start > 8000) return;
+      if (Date.now() - start > 8000) {
+        setTimeout(attachAuthListenerWhenReady, 1000);
+        return;
+      }
       await new Promise(r => setTimeout(r, 50));
     }
 
     const c = getClient();
-    if (!c?.auth?.onAuthStateChange) return;
+    if (!c?.auth?.onAuthStateChange) {
+      setTimeout(attachAuthListenerWhenReady, 1000);
+      return;
+    }
 
     authListenerAttached = true;
 
@@ -538,13 +576,19 @@
         sawPasswordRecoveryEvent = true;
         openDropdown();
         showRecoveryUI(true);
+        await refreshAuthUI({ skipCloudSync: true });
+        return;
       }
-      await refreshAuthUI();
+      if (event === "SIGNED_IN") {
+        await refreshAuthUI({ skipCloudSync: true });
+        setTimeout(() => { refreshAuthUI().catch(() => {}); }, 0);
+        return;
+      }
+      await refreshAuthUI({ skipCloudSync: true });
     });
   }
 
   function wireAuthActions() {
-    if (el.btnMagic) el.btnMagic.addEventListener("click", sendMagicLink);
     if (el.btnSignInPw) el.btnSignInPw.addEventListener("click", signInWithPassword);
     if (el.btnSignUpPw) el.btnSignUpPw.addEventListener("click", signUpWithPassword);
     if (el.btnResetPw) el.btnResetPw.addEventListener("click", sendPasswordReset);

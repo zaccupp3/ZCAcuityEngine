@@ -1113,6 +1113,17 @@
     return null;
   }
 
+  let __demoStaffWarnAt = 0;
+  function isDemoEditLocked() {
+    return false;
+  }
+  function warnDemoStaffLocked() {
+    const now = Date.now();
+    if (now - __demoStaffWarnAt < 1200) return;
+    __demoStaffWarnAt = now;
+    alert("Staffing edits are disabled in demo mode. Sign in to make changes.");
+  }
+
   function wireInput(el) {
     if (!el || el.__staffWired) return;
 
@@ -1123,6 +1134,7 @@
 
     let t = null;
     el.addEventListener("input", () => {
+      if (isDemoEditLocked()) return;
       clearTimeout(t);
       const q = el.value;
       t = setTimeout(async () => {
@@ -1132,6 +1144,10 @@
     });
 
     async function onCommit() {
+      if (isDemoEditLocked()) {
+        warnDemoStaffLocked();
+        return;
+      }
       await ensureStaff(role, el.value);
     }
     el.addEventListener("blur", onCommit);
@@ -1271,6 +1287,11 @@
     root.__staffingPlusMinusDelegated = true;
 
     root.addEventListener("click", (e) => {
+      if (isDemoEditLocked()) {
+        const btnProbe = e.target?.closest?.('button[data-staff-ctrl="1"]');
+        if (btnProbe) warnDemoStaffLocked();
+        if (btnProbe) return;
+      }
       const btn = e.target?.closest?.('button[data-staff-ctrl="1"]');
       if (!btn) return;
 
@@ -1334,27 +1355,45 @@
     const incPca = document.getElementById("incomingPcaCount");
     const incSitter = document.getElementById("incomingSitterCount");
     if (curRn) {
-      const h = () => { if (typeof window.setupCurrentNurses === "function") window.setupCurrentNurses(); };
+      const h = () => {
+        if (isDemoEditLocked()) { warnDemoStaffLocked(); return; }
+        if (typeof window.setupCurrentNurses === "function") window.setupCurrentNurses();
+      };
       curRn.addEventListener("input", h);
       curRn.addEventListener("change", h);
     }
     if (curPca) {
-      const h = () => { if (typeof window.setupCurrentPcas === "function") window.setupCurrentPcas(); };
+      const h = () => {
+        if (isDemoEditLocked()) { warnDemoStaffLocked(); return; }
+        if (typeof window.setupCurrentPcas === "function") window.setupCurrentPcas();
+      };
       curPca.addEventListener("input", h);
       curPca.addEventListener("change", h);
     }
-    if (curSitter) curSitter.addEventListener("change", () => { if (typeof window.setupCurrentSitters === "function") window.setupCurrentSitters(); });
+    if (curSitter) curSitter.addEventListener("change", () => {
+      if (isDemoEditLocked()) { warnDemoStaffLocked(); return; }
+      if (typeof window.setupCurrentSitters === "function") window.setupCurrentSitters();
+    });
     if (incRn) {
-      const h = () => { if (typeof window.setupIncomingNurses === "function") window.setupIncomingNurses(); };
+      const h = () => {
+        if (isDemoEditLocked()) { warnDemoStaffLocked(); return; }
+        if (typeof window.setupIncomingNurses === "function") window.setupIncomingNurses();
+      };
       incRn.addEventListener("input", h);
       incRn.addEventListener("change", h);
     }
     if (incPca) {
-      const h = () => { if (typeof window.setupIncomingPcas === "function") window.setupIncomingPcas(); };
+      const h = () => {
+        if (isDemoEditLocked()) { warnDemoStaffLocked(); return; }
+        if (typeof window.setupIncomingPcas === "function") window.setupIncomingPcas();
+      };
       incPca.addEventListener("input", h);
       incPca.addEventListener("change", h);
     }
-    if (incSitter) incSitter.addEventListener("change", () => { if (typeof window.setupIncomingSitters === "function") window.setupIncomingSitters(); });
+    if (incSitter) incSitter.addEventListener("change", () => {
+      if (isDemoEditLocked()) { warnDemoStaffLocked(); return; }
+      if (typeof window.setupIncomingSitters === "function") window.setupIncomingSitters();
+    });
     window.__staffingTotalsListenersAttached = true;
   }
 
@@ -1366,6 +1405,7 @@
   }
 
   window.clearCurrentRnNames = function () {
+    if (isDemoEditLocked()) return warnDemoStaffLocked();
     clearNames(currentNurses, (n) => `Current RN ${n}`);
     syncWindowRefs();
     try { window.renderCurrentNurseList && window.renderCurrentNurseList(); } catch (_) {}
@@ -1374,6 +1414,7 @@
   };
 
   window.clearIncomingRnNames = function () {
+    if (isDemoEditLocked()) return warnDemoStaffLocked();
     clearNames(incomingNurses, (n) => `Incoming RN ${n}`);
     syncWindowRefs();
     try { window.renderIncomingNurseList && window.renderIncomingNurseList(); } catch (_) {}
@@ -1382,6 +1423,7 @@
   };
 
   window.clearCurrentPcaNames = function () {
+    if (isDemoEditLocked()) return warnDemoStaffLocked();
     clearNames(currentPcas, (n) => `Current PCA ${n}`);
     syncWindowRefs();
     try { window.renderCurrentPcaList && window.renderCurrentPcaList(); } catch (_) {}
@@ -1390,6 +1432,7 @@
   };
 
   window.clearIncomingPcaNames = function () {
+    if (isDemoEditLocked()) return warnDemoStaffLocked();
     clearNames(incomingPcas, (n) => `Incoming PCA ${n}`);
     syncWindowRefs();
     try { window.renderIncomingPcaList && window.renderIncomingPcaList(); } catch (_) {}
@@ -1409,10 +1452,12 @@
   }
 
   window.clearCurrentLeadershipTeam = function () {
+    if (isDemoEditLocked()) return warnDemoStaffLocked();
     clearLeadershipFields(["currentChargeName", "currentMentorName", "currentCtaName"]);
   };
 
   window.clearIncomingLeadershipTeam = function () {
+    if (isDemoEditLocked()) return warnDemoStaffLocked();
     clearLeadershipFields(["incomingChargeName", "incomingMentorName", "incomingCtaName"]);
   };
 
