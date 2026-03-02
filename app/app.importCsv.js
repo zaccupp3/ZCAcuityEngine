@@ -32,17 +32,17 @@
       <div style="width:min(760px,96vw); background:#fff; border-radius:16px; box-shadow:0 12px 50px rgba(0,0,0,.28); overflow:hidden;">
         <div style="display:flex; align-items:center; justify-content:space-between; padding:14px 16px; border-bottom:1px solid #eee;">
           <div>
-            <div style="font-weight:800;">Import Assignment (CSV)</div>
-            <div style="font-size:12px; opacity:.7;">Structured import. Best accuracy + fastest review.</div>
+            <div style="font-weight:800;">Import Current Assignment</div>
+            <div style="font-size:12px; opacity:.7;">Import CSV from Excel.</div>
           </div>
-          <button id="importCsvClose" type="button" style="border:0; background:#f3f3f3; padding:10px 12px; border-radius:12px; cursor:pointer;">Close</button>
+          <button id="importCsvClose" type="button" style="border:0; background:#f3f3f3; padding:10px 12px; border-radius:12px; cursor:pointer;">Cancel</button>
         </div>
 
         <div style="padding:16px;">
           <div id="importCsvDrop"
                style="border:2px dashed #ddd; border-radius:16px; padding:18px; text-align:center; cursor:pointer;">
-            <div style="font-weight:800;">Drag & drop CSV here</div>
-            <div style="font-size:12px; opacity:.7; margin-top:6px;">or click to choose a file</div>
+            <div style="font-weight:800;">Drop file</div>
+            <div style="font-size:12px; opacity:.7; margin-top:6px;">or click to choose a CSV file</div>
             <div style="margin-top:10px; font-size:12px; opacity:.65;">Accepted: .csv</div>
             <input id="importCsvFile" type="file" accept=".csv,text/csv" style="display:none;" />
           </div>
@@ -58,7 +58,7 @@
             <button id="importCsvContinue" type="button"
               style="border:0; background:#111; color:#fff; padding:10px 12px; border-radius:12px; cursor:pointer;"
               disabled>
-              Continue to Review
+              Parse
             </button>
           </div>
 

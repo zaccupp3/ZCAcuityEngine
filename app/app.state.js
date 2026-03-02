@@ -492,26 +492,6 @@
     saveState();
   }
 
-  // ============ HIGH-ACUITY MODAL ============
-  function openAcuityModal() {
-    const modal = document.getElementById("acuityModal");
-    const body = document.getElementById("acuityReportBody");
-    if (!modal || !body) return;
-
-    if (typeof window.buildHighAcuityText === "function") {
-      body.innerHTML = window.buildHighAcuityText();
-    } else {
-      body.innerHTML = "<p>No high-risk patients flagged.</p>";
-    }
-
-    modal.style.display = "flex";
-  }
-
-  function closeAcuityModal() {
-    const modal = document.getElementById("acuityModal");
-    if (modal) modal.style.display = "none";
-  }
-
   // ============ COMPATIBILITY HELPERS ============
   window.getRoomNumber = window.getRoomNumber || function getRoomNumber(p) {
     if (!p) return 9999;
@@ -656,9 +636,6 @@
   if (typeof window.clearRecentlyDischargedFlags !== "function") {
     window.clearRecentlyDischargedFlags = clearRecentlyDischargedFlags;
   }
-
-  window.openAcuityModal = openAcuityModal;
-  window.closeAcuityModal = closeAcuityModal;
 
   // multi-unit exports
   window.applyUnitSettings = applyUnitSettings;

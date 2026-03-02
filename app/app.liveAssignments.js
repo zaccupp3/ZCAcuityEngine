@@ -1615,15 +1615,7 @@
       `;
     });
 
-    // ✅ Mount Shift Narrative button next to Import Assignment button (LIVE header)
-    try {
-      window.shiftReport?.mountButtonNextToImport?.();
-      setTimeout(() => {
-        try {
-          window.shiftReport?.mountButtonNextToImport?.();
-        } catch {}
-      }, 0);
-    } catch {}
+    // Shift log button intentionally hidden for now.
   }
 
   function autoPopulateLiveAssignments() {

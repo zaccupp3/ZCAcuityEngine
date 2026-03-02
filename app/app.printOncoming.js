@@ -225,6 +225,10 @@
   function collectHighRiskDraftFromUi() {
     const root = document.getElementById("highRiskStructuredEditor");
     const draft = loadHandoffDraft();
+    const normalizeDraftText = (v) => {
+      const txt = String(v || "").trim();
+      return /^none$/i.test(txt) ? "" : txt;
+    };
     if (root) {
       EDITABLE_SECTIONS.forEach((s) => {
         if (s.autoKey) {
@@ -232,14 +236,14 @@
           root.querySelectorAll(`[data-hr-detail-room="${s.id}"]`).forEach((el) => {
             const room = String(el.getAttribute("data-room") || "").trim();
             if (!room) return;
-            const txt = String(el.value || "").trim();
+            const txt = normalizeDraftText(el.value);
             if (txt) bucket[room] = txt;
           });
           draft.roomDetails[s.id] = bucket;
         } else {
           const el = root.querySelector(`[data-hr-detail="${s.id}"]`);
           if (!el) return;
-          draft.details[s.id] = String(el.value || "").trim();
+          draft.details[s.id] = normalizeDraftText(el.value);
         }
       });
       draft.updatedAt = new Date().toISOString();
@@ -248,61 +252,115 @@
     return draft;
   }
 
+  function clearHighRiskDraftText() {
+    const draft = loadHandoffDraft();
+    EDITABLE_SECTIONS.forEach((s) => {
+      draft.details[s.id] = "";
+      draft.roomDetails[s.id] = {};
+    });
+    draft.updatedAt = new Date().toISOString();
+    saveHandoffDraft(draft);
+    renderHighRiskStructuredEditor();
+  }
+
   function renderHighRiskStructuredEditor() {
     const root = document.getElementById("highRiskStructuredEditor");
     if (!root) return;
     const draft = refreshHighRiskDraftFromPatients();
+    const sectionById = Object.fromEntries(EDITABLE_SECTIONS.map((s) => [s.id, s]));
+    const autoLines = Object.fromEntries(AUTOFILL_SECTIONS.map((s) => [s.autoKey, roomsLine(s.autoKey)]));
 
-    const editableHtml = EDITABLE_SECTIONS.map((s) => {
-      const rooms = s.autoKey ? roomsForTag(s.autoKey) : [];
-      const details = String(draft.details?.[s.id] || "");
+    const sectionTitle = (id, fallback) => escapeHtml(sectionById[id]?.label || fallback || id);
+
+    function renderAutoByRoomSection(id, customTitle) {
+      const s = sectionById[id];
+      const title = customTitle || s?.label || id;
+      if (!s || !s.autoKey) return `<div style="font-size:13px; color:#64748b;">None</div>`;
+      const rooms = roomsForTag(s.autoKey);
       const roomDetails = (draft.roomDetails && draft.roomDetails[s.id] && typeof draft.roomDetails[s.id] === "object")
         ? draft.roomDetails[s.id]
         : {};
-      const roomFields = rooms.length
-        ? rooms.map((room) => `
-            <label style="display:flex; flex-direction:column; gap:4px;">
-              <span style="font-size:11px; font-weight:700;">Room ${escapeHtml(room)} Details</span>
-              <textarea data-hr-detail-room="${escapeHtml(s.id)}" data-room="${escapeHtml(room)}" rows="2" style="width:100%; resize:vertical; min-height:52px; padding:7px 8px; border:1px solid rgba(15,23,42,0.18); border-radius:6px; font-size:12px; line-height:1.25;">${escapeHtml(String(roomDetails[room] || ""))}</textarea>
-            </label>
-          `).join("")
-        : `<div style="font-size:12px; opacity:0.75; padding-top:4px;">No active rooms.</div>`;
-      return `
-      <div style="border:1px solid rgba(15,23,42,0.16); border-radius:8px; padding:8px; background:#fff;">
-        <div style="font-weight:800; font-size:12px; margin-bottom:6px;">${escapeHtml(s.label)}</div>
-        <div style="display:grid; grid-template-columns:1fr 1.35fr; gap:6px;">
-          <div>
-            <div style="font-size:11px; font-weight:700; margin-bottom:4px;">Rooms (Auto)</div>
-            <textarea readonly rows="3" style="width:100%; resize:none; min-height:64px; padding:7px 8px; border:1px solid rgba(15,23,42,0.15); border-radius:6px; font-size:12px; line-height:1.25; background:#f8fafc;">${escapeHtml(rooms.length ? rooms.join(", ") : "None")}</textarea>
-          </div>
-          <div>
-            ${
-              s.autoKey
-                ? `<div style="font-size:11px; font-weight:700; margin-bottom:4px;">Details by Room (Editable)</div>${roomFields}`
-                : `<div style="font-size:11px; font-weight:700; margin-bottom:4px;">Details (Editable)</div>
-                   <textarea data-hr-detail="${escapeHtml(s.id)}" rows="3" style="width:100%; resize:vertical; min-height:64px; padding:7px 8px; border:1px solid rgba(15,23,42,0.18); border-radius:6px; font-size:12px; line-height:1.25;">${escapeHtml(details)}</textarea>`
-            }
-          </div>
+      if (!rooms.length) return `<div style="font-size:13px; color:#64748b;">None</div>`;
+      const rows = rooms.map((room) => `
+        <div style="display:grid; grid-template-columns:auto minmax(0,1fr); gap:8px; align-items:start; margin-bottom:6px;">
+          <div style="display:inline-flex; align-items:center; justify-content:center; width:fit-content; padding:6px 10px; border:1px solid rgba(15,23,42,0.16); border-radius:10px; font-size:14px; line-height:1.1; background:#f8fafc; font-weight:800; color:#0f172a;">${escapeHtml(room)}</div>
+          <textarea data-hr-detail-room="${escapeHtml(s.id)}" data-room="${escapeHtml(room)}" rows="1" data-hr-autosize="1" placeholder="None" style="width:100%; resize:none; min-height:30px; padding:6px 10px; border:1px solid rgba(15,23,42,0.2); border-radius:10px; font-size:14px; line-height:1.25; color:#0f172a; overflow:hidden;">${escapeHtml(String(roomDetails[room] || ""))}</textarea>
         </div>
-      </div>
-    `;
-    }).join("");
+      `).join("");
+      return `
+        <div style="font-weight:700; font-size:15px; text-decoration:underline; margin-bottom:4px;">${escapeHtml(title)}:</div>
+        ${rows}
+      `;
+    }
 
-    const autoHtml = AUTOFILL_SECTIONS.map((s) => `
-      <div style="border:1px solid rgba(15,23,42,0.16); border-radius:8px; padding:8px; background:#f8fafc;">
-        <div style="font-weight:800; font-size:12px; margin-bottom:6px;">${escapeHtml(s.label)}</div>
-        <div style="font-size:12px; line-height:1.25; min-height:42px; white-space:pre-wrap;">${escapeHtml(roomsLine(s.autoKey))}</div>
-      </div>
-    `).join("");
+    function renderFreeTextSection(id, customTitle) {
+      const s = sectionById[id];
+      const title = customTitle || s?.label || id;
+      const value = String(draft.details?.[id] || "");
+      return `
+        <div style="font-weight:700; font-size:15px; text-decoration:underline; margin-bottom:4px;">${escapeHtml(title)}:</div>
+        <textarea data-hr-detail="${escapeHtml(id)}" rows="1" data-hr-autosize="1" placeholder="None" style="width:100%; resize:none; min-height:30px; padding:6px 10px; border:1px solid rgba(15,23,42,0.2); border-radius:10px; font-size:14px; line-height:1.25; color:#0f172a; overflow:hidden;">${escapeHtml(value)}</textarea>
+      `;
+    }
+
+    function renderReadOnlySection(title, text) {
+      return `
+        <div style="font-weight:700; font-size:15px; text-decoration:underline; margin-bottom:4px;">${escapeHtml(title)}:</div>
+        <div style="font-size:14px; line-height:1.22; white-space:pre-wrap; min-height:22px;">${escapeHtml(String(text || "None"))}</div>
+      `;
+    }
 
     root.innerHTML = `
-      <div style="font-weight:900; margin-bottom:8px;">High-Risk Hand-Off Editor</div>
-      <div style="font-size:12px; opacity:0.85; margin-bottom:10px;">
-        Editable sections are prefilled from active rooms when available. Admits/D-C/Foley/Strict I&O/BG are auto-populated.
+      <div style="font-weight:900; font-size:28px; line-height:1.05; margin-bottom:8px; letter-spacing:-0.02em; color:#0f172a;">High-Risk Hand-Off Editor</div>
+      <div style="font-size:14px; color:#334155; margin-bottom:10px;">
+        Same structure as printed hand-off. Edit in place and print as shown.
       </div>
-      <div style="display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:8px;">${editableHtml}</div>
-      <div style="font-weight:900; margin:10px 0 8px;">Auto-Populated (Read-Only)</div>
-      <div style="display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:8px;">${autoHtml}</div>
+      <div style="border:1px solid #222; background:#fff;">
+        <div style="display:grid; grid-template-columns:2.3fr 1fr; border-bottom:1px solid #222;">
+          <div style="padding:6px; border-right:1px solid #222;">
+            ${renderAutoByRoomSection("drips", "GTT")}
+            ${renderAutoByRoomSection("tube_feeds", "TF")}
+          </div>
+          <div style="padding:6px;">
+            ${renderReadOnlySection("Admits", autoLines.admit)}
+            ${renderReadOnlySection("D/C", autoLines.lateDc)}
+            ${renderReadOnlySection("Transfers", "None")}
+          </div>
+        </div>
+
+        <div style="display:grid; grid-template-columns:1.2fr 1fr .9fr 1.4fr; border-bottom:1px solid #222;">
+          <div style="padding:6px; border-right:1px solid #222;">${renderFreeTextSection("special_procedures", sectionTitle("special_procedures"))}</div>
+          <div style="padding:6px; border-right:1px solid #222;">${renderFreeTextSection("wounds", sectionTitle("wounds"))}</div>
+          <div style="padding:6px; border-right:1px solid #222;">
+            ${renderFreeTextSection("central_lines", sectionTitle("central_lines"))}
+            ${renderReadOnlySection("Foley Catheters", autoLines.foley)}
+          </div>
+          <div style="padding:6px;">${renderAutoByRoomSection("isolations", "Isolation")}</div>
+        </div>
+
+        <div style="display:grid; grid-template-columns:1.2fr 1fr .9fr 1.4fr; border-bottom:1px solid #222;">
+          <div style="padding:6px; border-right:1px solid #222;">${renderAutoByRoomSection("nih", "NIH")}</div>
+          <div style="padding:6px; border-right:1px solid #222;">
+            ${renderAutoByRoomSection("ciwa", "CIWA")}
+            ${renderReadOnlySection("COWS", "None")}
+          </div>
+          <div style="padding:6px; border-right:1px solid #222;">${renderReadOnlySection("Strict I's & O's", autoLines.strictIo)}</div>
+          <div style="padding:6px;">${renderReadOnlySection("Blood Glucose", autoLines.bg)}</div>
+        </div>
+
+        <div style="display:grid; grid-template-columns:1.8fr 1fr; border-bottom:1px solid #222;">
+          <div style="padding:6px; border-right:1px solid #222;">${renderAutoByRoomSection("sitters", "Sitters")}</div>
+          <div style="padding:6px;">
+            ${renderFreeTextSection("co", "CO")}
+            ${renderAutoByRoomSection("restraints", "Restraints")}
+            ${renderReadOnlySection("Code 55/BURT", "None")}
+          </div>
+        </div>
+
+        <div style="padding:6px;">
+          ${renderFreeTextSection("special_endorsements", sectionTitle("special_endorsements"))}
+        </div>
+      </div>
     `;
 
     root.querySelectorAll("textarea[data-hr-detail]").forEach((el) => {
@@ -313,47 +371,144 @@
       el.addEventListener("input", () => { collectHighRiskDraftFromUi(); });
       el.addEventListener("change", () => { collectHighRiskDraftFromUi(); });
     });
+    root.querySelectorAll("textarea[data-hr-autosize]").forEach((el) => {
+      const autoSize = () => {
+        el.style.height = "0px";
+        el.style.height = `${Math.max(30, el.scrollHeight)}px`;
+      };
+      autoSize();
+      el.addEventListener("input", autoSize);
+      el.addEventListener("focus", () => {
+        if (/^none$/i.test(String(el.value || "").trim())) {
+          el.value = "";
+          autoSize();
+        }
+      });
+      el.addEventListener("blur", () => {
+        if (!String(el.value || "").trim()) {
+          el.value = "None";
+          autoSize();
+        }
+      });
+      if (!String(el.value || "").trim()) {
+        el.value = "None";
+        autoSize();
+      }
+    });
   }
 
   function buildHighRiskHandoffSection(opts = {}) {
     const draft = normalizeHandoffDraft(opts);
-    const editableCells = EDITABLE_SECTIONS.map((s) => `
-      <div class="hr-cell">
-        <div class="hr-cell-title">${escapeHtml(s.label)}:</div>
-        <div class="hr-cell-value"><strong>Rooms:</strong> ${escapeHtml(s.autoKey ? roomsLine(s.autoKey) : "None")}</div>
-        <div class="hr-cell-value"><strong>Details:</strong> ${escapeHtml(
-          s.autoKey
-            ? (() => {
-                const rooms = roomsForTag(s.autoKey);
-                if (!rooms.length) return "None";
-                const byRoom = draft.roomDetails?.[s.id] || {};
-                const lines = rooms
-                  .map((room) => {
-                    const txt = String(byRoom[room] || "").trim();
-                    return txt ? `${room} - ${txt}` : "";
-                  })
-                  .filter(Boolean);
-                return lines.length ? lines.join("\n") : "None";
-              })()
-            : String(draft.details?.[s.id] || "None")
-        )}</div>
-      </div>
-    `).join("");
+    const byId = {};
+    EDITABLE_SECTIONS.forEach((s) => { byId[s.id] = s; });
 
-    const autoCells = AUTOFILL_SECTIONS.map((s) => `
-      <div class="hr-cell hr-cell-auto">
-        <div class="hr-cell-title">${escapeHtml(s.label)}:</div>
-        <div class="hr-cell-value">${escapeHtml(roomsLine(s.autoKey))}</div>
-      </div>
-    `).join("");
+    const editableValue = (id) => {
+      const s = byId[id];
+      if (!s) return "None";
+      if (!s.autoKey) {
+        const txt = String(draft.details?.[s.id] || "").trim();
+        return txt || "None";
+      }
+      const rooms = roomsForTag(s.autoKey);
+      if (!rooms.length) return "None";
+      const byRoom = draft.roomDetails?.[s.id] || {};
+      const lines = rooms.map((room) => {
+        const txt = String(byRoom[room] || "").trim();
+        return txt ? `${room} - ${txt}` : `${room}`;
+      });
+      return lines.join("\n");
+    };
+
+    const autoValue = (key) => {
+      const line = String(roomsLine(key) || "").trim();
+      return line || "None";
+    };
 
     return `
       <section class="handoff-risk-page">
         <div class="hr-title">High-Risk Hand-Off Report</div>
-        <div class="hr-sub">Editable sections with auto-populated room correlations.</div>
-        <div class="hr-grid hr-grid-editable">${editableCells}</div>
-        <div class="hr-block-title" style="margin-top:6px;">Auto-Populated</div>
-        <div class="hr-grid hr-grid-auto">${autoCells}</div>
+        <div class="hr-sheet">
+          <div class="hr-row hr-row-top">
+            <div class="hr-cell">
+              <div class="hr-cell-title">GTT:</div>
+              <div class="hr-cell-value">${escapeHtml(editableValue("drips"))}</div>
+              <div class="hr-cell-title">TF:</div>
+              <div class="hr-cell-value">${escapeHtml(editableValue("tube_feeds"))}</div>
+            </div>
+            <div class="hr-cell">
+              <div class="hr-cell-title">Admits:</div>
+              <div class="hr-cell-value">${escapeHtml(autoValue("admit"))}</div>
+              <div class="hr-cell-title">D/C:</div>
+              <div class="hr-cell-value">${escapeHtml(autoValue("lateDc"))}</div>
+              <div class="hr-cell-title">Transfers:</div>
+              <div class="hr-cell-value">None</div>
+            </div>
+          </div>
+
+          <div class="hr-row hr-row-mid4">
+            <div class="hr-cell">
+              <div class="hr-cell-title">Special Procedures:</div>
+              <div class="hr-cell-value">${escapeHtml(editableValue("special_procedures"))}</div>
+            </div>
+            <div class="hr-cell">
+              <div class="hr-cell-title">Wounds:</div>
+              <div class="hr-cell-value">${escapeHtml(editableValue("wounds"))}</div>
+            </div>
+            <div class="hr-cell">
+              <div class="hr-cell-title">Central Lines:</div>
+              <div class="hr-cell-value">${escapeHtml(editableValue("central_lines"))}</div>
+              <div class="hr-cell-title">Foley Catheters:</div>
+              <div class="hr-cell-value">${escapeHtml(autoValue("foley"))}</div>
+            </div>
+            <div class="hr-cell">
+              <div class="hr-cell-title">Isolation:</div>
+              <div class="hr-cell-value">${escapeHtml(editableValue("isolations"))}</div>
+            </div>
+          </div>
+
+          <div class="hr-row hr-row-mid4">
+            <div class="hr-cell">
+              <div class="hr-cell-title">NIH</div>
+              <div class="hr-cell-value">${escapeHtml(editableValue("nih"))}</div>
+            </div>
+            <div class="hr-cell">
+              <div class="hr-cell-title">CIWA:</div>
+              <div class="hr-cell-value">${escapeHtml(editableValue("ciwa"))}</div>
+              <div class="hr-cell-title">COWS:</div>
+              <div class="hr-cell-value">None</div>
+            </div>
+            <div class="hr-cell">
+              <div class="hr-cell-title">Strict I's & O's:</div>
+              <div class="hr-cell-value">${escapeHtml(autoValue("strictIo"))}</div>
+            </div>
+            <div class="hr-cell">
+              <div class="hr-cell-title">Blood Glucose:</div>
+              <div class="hr-cell-value">${escapeHtml(autoValue("bg"))}</div>
+            </div>
+          </div>
+
+          <div class="hr-row hr-row-bottom">
+            <div class="hr-cell">
+              <div class="hr-cell-title">Sitters:</div>
+              <div class="hr-cell-value">${escapeHtml(editableValue("sitters"))}</div>
+            </div>
+            <div class="hr-cell">
+              <div class="hr-cell-title">CO:</div>
+              <div class="hr-cell-value">${escapeHtml(editableValue("co"))}</div>
+              <div class="hr-cell-title">Restraints:</div>
+              <div class="hr-cell-value">${escapeHtml(editableValue("restraints"))}</div>
+              <div class="hr-cell-title">Code 55/BURT:</div>
+              <div class="hr-cell-value">None</div>
+            </div>
+          </div>
+
+          <div class="hr-row hr-row-endorse">
+            <div class="hr-cell">
+              <div class="hr-cell-title">Special Endorsements:</div>
+              <div class="hr-cell-value">${escapeHtml(editableValue("special_endorsements"))}</div>
+            </div>
+          </div>
+        </div>
       </section>
     `;
   }
@@ -361,18 +516,20 @@
   function appendHighRiskSectionToDocument(htmlDoc, sectionHtml) {
     const style = `
       <style>
-        @page { size: 11in 8.5in; margin: 6mm; }
-        .handoff-risk-page{ break-before:page; page-break-before:always; padding:2px 1px; font-family:Arial,sans-serif; color:#0f172a; }
-        .hr-title{ font-size:18px; font-weight:900; letter-spacing:.01em; margin-bottom:2px; }
-        .hr-sub{ font-size:10.5px; color:#475569; margin-bottom:6px; }
-        .hr-block-title{ font-weight:900; margin-bottom:4px; font-size:11px; }
-        .hr-grid{ display:grid; gap:4px; margin-bottom:6px; }
-        .hr-grid-editable{ grid-template-columns:repeat(4,minmax(0,1fr)); }
-        .hr-grid-auto{ grid-template-columns:repeat(5,minmax(0,1fr)); }
-        .hr-cell{ border:1px solid rgba(15,23,42,0.22); padding:4px 5px; min-height:56px; }
-        .hr-cell-title{ font-weight:900; font-size:10.5px; margin-bottom:2px; }
-        .hr-cell-value{ font-size:10.2px; line-height:1.2; white-space:pre-wrap; word-break:break-word; }
-        .hr-cell-auto{ min-height:42px; background:#f8fafc; }
+        @page { size: 11in 8.5in; margin: 5mm; }
+        .handoff-risk-page{ break-before:page; page-break-before:always; padding:2px 1px; font-family:"Times New Roman",serif; color:#000; }
+        .hr-title{ font-size:24px; font-weight:700; text-align:center; margin-bottom:4px; }
+        .hr-sheet{ border:1px solid #222; display:grid; grid-template-rows:1.45fr 1.1fr 1.1fr 1fr .65fr; min-height:7.75in; }
+        .hr-row{ display:grid; gap:0; min-height:0; align-items:stretch; }
+        .hr-row + .hr-row{ border-top:1px solid #222; }
+        .hr-row-top{ grid-template-columns:2.3fr 1fr; }
+        .hr-row-mid4{ grid-template-columns:1.2fr 1fr .9fr 1.4fr; }
+        .hr-row-bottom{ grid-template-columns:1.8fr 1fr; }
+        .hr-row-endorse{ grid-template-columns:1fr; }
+        .hr-cell{ padding:3px 6px; min-height:34px; border-left:1px solid #222; display:flex; flex-direction:column; }
+        .hr-cell:first-child{ border-left:none; }
+        .hr-cell-title{ font-weight:700; font-size:14px; text-decoration:underline; margin-bottom:1px; }
+        .hr-cell-value{ font-size:14px; line-height:1.22; white-space:pre-wrap; word-break:break-word; margin-bottom:2px; }
       </style>
     `;
     if (htmlDoc.includes("</head>")) {
@@ -522,8 +679,8 @@
   :root{ --ink:#0f172a; --panel:#fff; --panel-border:#e2e8f0; --panel-shadow:0 1px 0 rgba(15,23,42,.05); --table-head:#eef5ff; --row-divider:#e5e7eb; }
   *{ box-sizing:border-box; }
   html,body{ margin:0; padding:0; color:var(--ink); font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif; background:#fff; }
-  @page { margin:8mm; size:11in 8.5in; }
-  .print-wrap{ width:100%; max-width:10.7in; margin:0 auto; }
+  @page { margin:5mm; size:11in 8.5in; }
+  .print-wrap{ width:100%; max-width:10.9in; margin:0 auto; }
   .topbar-grid{ display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:8px; margin:0 0 8px; }
   .topbar-card{ background:var(--panel); border:1px solid var(--panel-border); border-radius:10px; padding:7px 10px; box-shadow:var(--panel-shadow); overflow:hidden; text-align:center; }
   .topbar-label{ font-size:10.5px; font-weight:950; letter-spacing:.08em; text-transform:uppercase; margin-bottom:2px; }
@@ -610,8 +767,8 @@
 <style>
   *{ box-sizing:border-box; }
   html,body{ margin:0; padding:0; background:#fff; color:#111827; font-family:"Times New Roman", serif; }
-  @page { margin:8mm; size:11in 8.5in; }
-  .wrap{ padding:4px; width:100%; max-width:10.7in; margin:0 auto; }
+  @page { margin:5mm; size:11in 8.5in; }
+  .wrap{ padding:2px; width:100%; max-width:10.9in; margin:0 auto; }
   .top{ display:grid; grid-template-columns:1.5fr 1.1fr; gap:8px; margin-bottom:8px; align-items:stretch; }
   .box{ border:1px solid #111; padding:6px 8px; min-height:62px; }
   .title{ font-weight:700; font-size:13px; text-align:center; margin-bottom:4px; }
@@ -869,6 +1026,7 @@
     openHighRiskOnly: openHighRiskOnlyPreview,
     refreshHighRiskDraftFromPatients,
     collectHighRiskDraftFromUi,
+    clearAllText: clearHighRiskDraftText,
     renderHighRiskStructuredEditor,
   };
   window.app.printOncoming = window.printOncoming;

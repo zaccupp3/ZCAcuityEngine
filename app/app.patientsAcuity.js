@@ -504,6 +504,7 @@
     // If any older variants exist, defensively zero them too
     try {
       if ("late_dc" in p) p.late_dc = false;
+      if ("Q2" in p) p.Q2 = false;
       if ("q2" in p) p.q2 = false;
     } catch (_) {}
   }
@@ -955,7 +956,7 @@
                       ${pcaTag(p, "tele", "Tele")}
                       ${pcaTag(p, "chg", "CHG")}
                       ${pcaTag(p, "foley", "Foley")}
-                      ${pcaTag(p, "q2turns", "Q2")}
+                      ${pcaTag(p, "q2turns", "Totals")}
                       ${pcaTag(p, "strictIo", "Strict I/O")}
                       ${pcaTag(p, "feeder", "Feeder")}
                       ${pcaTag(p, "isolation", "ISO")}
@@ -1091,16 +1092,16 @@
     const pts = safeArray(patientsInAssignment);
     if (!pts.length) return 0;
 
-    let q2 = 0, iso = 0;
+    let Totals = 0, iso = 0;
 
     pts.forEach(p => {
       if (!p || p.isEmpty) return;
-      if (p.q2turns) q2++;
+      if (p.q2turns) Totals++;
       if (p.isolation) iso++;
     });
 
     let bonus = 0;
-    if (q2 >= 2) bonus += 4;
+    if (Totals >= 2) bonus += 4;
     if (iso >= 3) bonus += 4;
 
     return bonus;
@@ -1204,14 +1205,14 @@
 
   function getPcaDriversSummaryFromPatientIds(patientIds) {
     const ids = safeArray(patientIds);
-    const counts = { Tele:0, "Strict I/O":0, Q2:0, ISO:0, CHG:0, Foley:0, Feeder:0, Admit:0, "Late DC":0 };
+    const counts = { Tele:0, "Strict I/O":0, Totals:0, ISO:0, CHG:0, Foley:0, Feeder:0, Admit:0, "Late DC":0 };
 
     ids.forEach(id => {
       const p = getPatientById(id);
       if (!p || p.isEmpty) return;
       if (p.tele) counts.Tele++;
       if (p.strictIo || p.heavy) counts["Strict I/O"]++;
-      if (p.q2turns) counts.Q2++;
+      if (p.q2turns) counts.Totals++;
       if (p.isolation) counts.ISO++;
       if (p.chg) counts.CHG++;
       if (p.foley) counts.Foley++;
@@ -1220,7 +1221,7 @@
       if (p.lateDc) counts["Late DC"]++;
     });
 
-    const order = ["Tele","Strict I/O","Q2","ISO","CHG","Foley","Feeder","Admit","Late DC"];
+    const order = ["Tele","Strict I/O","Totals","ISO","CHG","Foley","Feeder","Admit","Late DC"];
     return fmtDriversFromCounts(order, counts);
   }
 
@@ -1247,7 +1248,7 @@
     if (p.lateDc) tags.push("Late DC");
     if (p.chg) tags.push("CHG");
     if (p.foley) tags.push("Foley");
-    if (p.q2turns) tags.push("Q2");
+    if (p.q2turns) tags.push("Totals");
     if (p.strictIo || p.heavy) tags.push("Strict I/O");
     if (p.feeder) tags.push("Feeder");
     return tags.join(", ");
@@ -1280,7 +1281,7 @@
       { id: "lateDc", label: "Late DC", key: "lateDc" },
       { id: "chg", label: "CHG", key: "chg" },
       { id: "foley", label: "Foley", key: "foley" },
-      { id: "q2turns", label: "Q2 Turns", key: "q2turns" },
+      { id: "q2turns", label: "Totals", key: "q2turns" },
       { id: "strictIo", label: "Strict I/O", key: "strictIo" },
       { id: "feeder", label: "Feeders", key: "feeder" }
     ];
@@ -1325,7 +1326,7 @@
       if (p.isolation) tags.push("ISO");
       if (p.chg) tags.push("CHG");
       if (p.foley) tags.push("Foley");
-      if (p.q2turns) tags.push("Q2");
+      if (p.q2turns) tags.push("Totals");
       if (p.strictIo || p.heavy) tags.push("Strict I/O");
       if (p.feeder) tags.push("Feeder");
       if (!tags.length) return;
@@ -1488,7 +1489,7 @@
       ["profLateDcPca", "Late DC", !!(p.lateDc || p.lateDC || p.latedc)],
       ["profChg", "CHG", !!p.chg],
       ["profFoley", "Foley", !!p.foley],
-      ["profQ2", "Q2 Turns", !!(p.q2turns || p.q2Turns)],
+      ["profQ2", "Totals", !!(p.q2turns || p.q2Turns)],
       ["profHeavy", "Strict I/O", !!(p.strictIo || p.heavy)],
       ["profFeeder", "Feeder", !!(p.feeder || p.feeders)],
     ];

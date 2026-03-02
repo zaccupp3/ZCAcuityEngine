@@ -67,6 +67,18 @@
     const activeBtn = document.querySelector(`.tabButton[data-target="${sectionId}"]`);
     if (activeBtn) activeBtn.classList.add("active");
 
+    // Header print action (tab-contextual)
+    const packetBtn = document.getElementById("topPrintPacketBtn");
+    if (packetBtn) packetBtn.style.display = sectionId === "oncomingAssignmentTab" ? "" : "none";
+    const headerDivider = document.getElementById("headerPacketUnitDivider");
+    if (headerDivider) headerDivider.style.display = sectionId === "oncomingAssignmentTab" ? "" : "none";
+
+    // Under-discharge-bin print actions (tab-contextual)
+    const globalLivePrintBtn = document.getElementById("globalPrintLiveBtn");
+    const globalOncomingPrintBtn = document.getElementById("globalPrintOncomingBtn");
+    if (globalLivePrintBtn) globalLivePrintBtn.style.display = sectionId === "liveAssignmentTab" ? "" : "none";
+    if (globalOncomingPrintBtn) globalOncomingPrintBtn.style.display = sectionId === "oncomingAssignmentTab" ? "" : "none";
+
     // lightweight refresh when entering tabs that depend on unit/settings
     if (sectionId === "unitPulseTab") {
       if (typeof window.renderUnitPulseTab === "function") window.renderUnitPulseTab();

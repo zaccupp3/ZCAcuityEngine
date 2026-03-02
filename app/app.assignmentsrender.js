@@ -248,6 +248,19 @@ if (window.__assignmentsRenderLoaded) {
     return pinned;
   }
 
+  function __sanitizeOwnerAssignmentsToActiveBeds(owner, activeIdSet) {
+    if (!owner || !activeIdSet) return [];
+    const raw = Array.isArray(owner.patients) ? owner.patients : [];
+    const cleaned = raw
+      .map((id) => Number(id))
+      .filter((id) => Number.isFinite(id) && activeIdSet.has(id));
+    const unique = Array.from(new Set(cleaned));
+    if (!Array.isArray(owner.patients) || owner.patients.length !== unique.length || owner.patients.some((v, i) => Number(v) !== unique[i])) {
+      owner.patients = unique;
+    }
+    return unique;
+  }
+
   // -----------------------------
   // RN Continuity Pin helpers
   // -----------------------------
@@ -796,6 +809,12 @@ if (window.__assignmentsRenderLoaded) {
 
     let html = "";
     const allOwners = __getIncomingNurses();
+    const activeIdSet = new Set(
+      __getPatients()
+        .filter((p) => p && !p.isEmpty)
+        .map((p) => Number(p.id))
+        .filter(Number.isFinite)
+    );
 
     const { prevRnByPid } = prevMaps || buildPrevOwnerMaps();
 
@@ -803,7 +822,8 @@ if (window.__assignmentsRenderLoaded) {
     const rnRuleMap = safeGetRuleEvalMap(allOwners, "nurse");
 
     allOwners.forEach(nurse => {
-      const pts = (nurse.patients || [])
+      const validAssignedIds = __sanitizeOwnerAssignmentsToActiveBeds(nurse, activeIdSet);
+      const pts = validAssignedIds
         .map(pid => getPatientById(pid))
         .filter(p => p && !p.isEmpty)
         .sort(safeSortPatientsForDisplay);
@@ -932,6 +952,12 @@ if (window.__assignmentsRenderLoaded) {
 
     let html = "";
     const allOwners = __getIncomingPcas();
+    const activeIdSet = new Set(
+      __getPatients()
+        .filter((p) => p && !p.isEmpty)
+        .map((p) => Number(p.id))
+        .filter(Number.isFinite)
+    );
 
     const { prevPcaByPid } = prevMaps || buildPrevOwnerMaps();
 
@@ -939,7 +965,8 @@ if (window.__assignmentsRenderLoaded) {
     const pcaRuleMap = safeGetRuleEvalMap(allOwners, "pca");
 
     allOwners.forEach(pca => {
-      const pts = (pca.patients || [])
+      const validAssignedIds = __sanitizeOwnerAssignmentsToActiveBeds(pca, activeIdSet);
+      const pts = validAssignedIds
         .map(pid => getPatientById(pid))
         .filter(p => p && !p.isEmpty)
         .sort(safeSortPatientsForDisplay);

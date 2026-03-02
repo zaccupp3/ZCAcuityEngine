@@ -212,8 +212,8 @@
   :root{ --ink:#0f172a; --panel:#fff; --panel-border:#e2e8f0; --panel-shadow:0 1px 0 rgba(15,23,42,.05); --table-head:#eef5ff; --row-divider:#e5e7eb; }
   *{ box-sizing:border-box; }
   html,body{ margin:0; padding:0; color:var(--ink); font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif; background:#fff; }
-  @page { margin:8mm; ${pageSize} }
-  .print-wrap{ width:100%; max-width:10.7in; margin:0 auto; }
+  @page { margin:5mm; ${pageSize} }
+  .print-wrap{ width:100%; max-width:10.9in; margin:0 auto; }
   .topbar-grid{ display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:8px; margin:0 0 8px; }
   .topbar-card{ background:var(--panel); border:1px solid var(--panel-border); border-radius:10px; padding:7px 10px; box-shadow:var(--panel-shadow); text-align:center; }
   .topbar-label{ font-size:10.5px; font-weight:950; letter-spacing:.08em; text-transform:uppercase; margin-bottom:2px; }
@@ -301,8 +301,8 @@
 <style>
   *{ box-sizing:border-box; }
   html,body{ margin:0; padding:0; background:#fff; color:#111827; font-family:"Times New Roman", serif; }
-  @page { margin:8mm; ${pageSize} }
-  .wrap{ padding:4px; width:100%; max-width:10.7in; margin:0 auto; }
+  @page { margin:5mm; ${pageSize} }
+  .wrap{ padding:2px; width:100%; max-width:10.9in; margin:0 auto; }
   .top{ display:grid; grid-template-columns:1.5fr 1.1fr; gap:8px; margin-bottom:8px; align-items:stretch; }
   .box{ border:1px solid #111; padding:6px 8px; min-height:62px; }
   .title{ font-weight:700; font-size:13px; text-align:center; margin-bottom:4px; }

@@ -702,19 +702,28 @@ button:active{
   #liveNurseAssignments{ grid-template-columns: 1fr; }
 }
 
-/* PCA row on LIVE: horizontal scroll */
+/* PCA grid on LIVE: familiar assignment layout */
 #livePcaAssignments{
-  display: flex !important;
-  flex-wrap: nowrap;
-  gap: 10px;
-  align-items: stretch;
-  overflow-x: auto;
-  padding-bottom: 6px;
+  display: grid !important;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  align-items: start;
+  overflow: visible;
+  padding-bottom: 0;
+}
+@media (max-width: 1600px){
+  #livePcaAssignments{ grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+@media (max-width: 1100px){
+  #livePcaAssignments{ grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 700px){
+  #livePcaAssignments{ grid-template-columns: 1fr; }
 }
 #livePcaAssignments .pcaBlock,
 #livePcaAssignments .liveCard{
-  flex: 0 0 240px;
-  max-width: 240px;
+  width: 100%;
+  max-width: none;
 }
 
 /* =========================
@@ -2007,4 +2016,48 @@ button[onclick*="populateLiveAssignment"]{
   position: relative !important;
   top: auto !important;
   right: auto !important;
+}
+
+
+/* Header contextual print actions (match compact +Add CTA feel) */
+.header-right .header-action-btn{
+  background:#111 !important;
+  color:#fff !important;
+  border:1px solid #111 !important;
+  border-radius:10px !important;
+  height:34px !important;
+  padding:0 12px !important;
+  font-weight:900 !important;
+  font-size:13px !important;
+  white-space:nowrap;
+}
+.header-right .header-action-btn:hover{
+  background:#000 !important;
+  border-color:#000 !important;
+}
+
+.header-pill-divider{
+  width:14px;
+  height:26px;
+  border-radius:999px;
+  background:rgba(148,163,184,0.55);
+  margin:0 6px;
+}
+
+.global-tab-print-btn{
+  width:100%;
+  background:#111;
+  color:#fff;
+  border:1px solid #111;
+  border-radius:10px;
+  height:34px;
+  padding:0 12px;
+  font-size:13px;
+  font-weight:900;
+  cursor:pointer;
+  text-align:center;
+}
+.global-tab-print-btn:hover{
+  background:#000;
+  border-color:#000;
 }

@@ -351,7 +351,7 @@
       ["profLateDcPca", "Late DC", !!(p.lateDc || p.lateDC || p.latedc)],
       ["profChg", "CHG", !!p.chg],
       ["profFoley", "Foley", !!p.foley],
-      ["profQ2", "Q2 Turns", !!(p.q2turns || p.q2Turns)],
+      ["profQ2", "Totals", !!(p.q2turns || p.q2Turns)],
       ["profHeavy", "Strict I/O", !!(p.strictIo || p.heavy)],
       ["profFeeder", "Feeder", !!(p.feeder || p.feeders)],
     ];

@@ -549,7 +549,7 @@
       imgEl.style.display = "none";
       if (noteEl) {
         noteEl.style.display = "block";
-        noteEl.innerHTML = `<b>CSV file:</b> ${esc(payload?.imagePath || payload?.file?.name || "—")}<br/><span style="opacity:.75;">Click “Parse CSV Now” to build the review.</span>`;
+        noteEl.innerHTML = `<b>CSV file:</b> ${esc(payload?.imagePath || payload?.file?.name || "-")}<br/><span style="opacity:.75;">Click "Parse" to build the review.</span>`;
       }
       return;
     }
@@ -1167,21 +1167,33 @@
     $("scanReviewUnit").textContent = payload?.unitId || "—";
     $("scanReviewFileType").textContent = isCsv ? "CSV" : (isPdf ? "PDF" : "Image");
 
+
     const runBtn = $("scanReviewRun");
+    const closeBtn = $("scanReviewClose");
+    const applyBtn = $("scanReviewApplyBtn");
     const subtitle = $("scanReviewSubtitle");
-    if (runBtn) runBtn.textContent = isCsv ? "Parse CSV Now" : "Run OCR Now";
+    const rotWrap = $("scanReviewRotateWrap");
+    const debugBtn = $("scanReviewDebugBtn");
+
+    if (runBtn) runBtn.textContent = isCsv ? "Parse" : "Run OCR Now";
+    if (closeBtn) closeBtn.textContent = isCsv ? "Cancel" : "Close";
+    if (applyBtn) applyBtn.textContent = isCsv ? "Apply" : "Apply to LIVE";
+
     if (subtitle) subtitle.textContent = isCsv
       ? "CSV import is deterministic. Parse and verify before applying."
       : "Verify rooms, Tele/MS, and acuity notes before applying.";
 
-    const rotWrap = $("scanReviewRotateWrap");
     const allowRotate = !isPdf && !isCsv;
-    if (rotWrap) rotWrap.style.opacity = allowRotate ? "1" : "0.45";
+    if (rotWrap) {
+      rotWrap.style.display = isCsv ? "none" : "flex";
+      rotWrap.style.opacity = allowRotate ? "1" : "0.45";
+    }
+    if (debugBtn) debugBtn.style.display = isCsv ? "none" : "inline-block";
     $("scanReviewRotateLeft").disabled = !allowRotate;
     $("scanReviewRotateRight").disabled = !allowRotate;
 
     $("scanReviewParsed").innerHTML = `<div style="font-size:12px; opacity:.7;">No parsed data yet.</div>`;
-    setStatus(isCsv ? 'No parsed data yet. Click "Parse CSV Now".' : 'No parsed data yet. Click "Run OCR Now".');
+    setStatus(isCsv ? 'No parsed data yet. Click "Parse".' : 'No parsed data yet. Click "Run OCR Now".');
 
     $("scanReviewModal").style.display = "flex";
     await setPreviewFromPayload(payload);

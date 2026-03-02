@@ -134,7 +134,7 @@
   // Change formatting
   // ---------------------------------------
   function prettyTagName(rawKey) {
-    // turn ciwaCows -> CIWA/COWS, q2Turns -> Q2 Turns, lateDc -> Late DC, etc.
+    // turn ciwaCows -> CIWA/COWS, q2Turns -> Totals, lateDc -> Late DC, etc.
     const k = String(rawKey || "").trim();
     if (!k) return "Tag";
     const nk = normKey(k);
@@ -143,7 +143,7 @@
       ciwa: "CIWA/COWS",
       cows: "CIWA/COWS",
       ciwacows: "CIWA/COWS",
-      q2turns: "Q2 Turns",
+      q2turns: "Totals",
       latedc: "Late DC",
       bg: "BG",
       tf: "TF",

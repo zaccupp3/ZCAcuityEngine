@@ -273,6 +273,12 @@
 
     <!-- Right: Unit Switch + Compact Auth Menu -->
     <div class="header-right">
+      <button id="topPrintPacketBtn" type="button" class="header-action-btn" style="display:none;"
+              onclick="window.printOncoming && window.printOncoming.openPacket && window.printOncoming.openPacket()">
+        Print Hand-Off Packet
+      </button>
+      <span id="headerPacketUnitDivider" class="header-pill-divider" style="display:none;" aria-hidden="true"></span>
+
       <div class="unit-switcher" style="display:flex; align-items:center; gap:8px; margin-right:10px;">
         <span style="font-size:12px; opacity:0.75;">Unit</span>
         <select id="unitSwitcher" style="max-width:220px;">
@@ -354,10 +360,25 @@
     box-sizing:border-box;
     pointer-events:none;
   ">
-    <div id="globalDischargeBinHost" style="
+    <div id="globalTopRightStack" style="
       width: 280px;
       pointer-events:auto;
-    "></div>
+      display:flex;
+      flex-direction:column;
+      gap:10px;
+    ">
+      <div id="globalDischargeBinHost" style="width:100%;"></div>
+      <div id="globalAssignmentPrintActions" style="display:flex; flex-direction:column; gap:8px;">
+        <button id="globalPrintLiveBtn" type="button" class="global-tab-print-btn" style="display:none;"
+                onclick="window.printLive && window.printLive.open && window.printLive.open()">
+          Print Live Assignment
+        </button>
+        <button id="globalPrintOncomingBtn" type="button" class="global-tab-print-btn" style="display:none;"
+                onclick="window.printOncoming && window.printOncoming.open && window.printOncoming.open()">
+          Print Oncoming Assignment
+        </button>
+      </div>
+    </div>
   </div>
 
   <!-- MAIN CONTENT -->
@@ -539,7 +560,9 @@
       </p>
 
       <div class="actions-row">
-        <button onclick="openAcuityModal()">Open Acuity Tiles Popup</button>
+        <button type="button" onclick="window.printOncoming && window.printOncoming.clearAllText && window.printOncoming.clearAllText()">
+          Clear All Text
+        </button>
         <button type="button" onclick="window.printOncoming && window.printOncoming.openHighRiskOnly && window.printOncoming.openHighRiskOnly()">
           Print High-Risk Hand-Off
         </button>
@@ -555,12 +578,9 @@
 
       <div class="actions-row">
         <button onclick="window.populateLiveAssignment(false)">Populate Live Assignment</button>
-        <button type="button" onclick="window.printLive && window.printLive.open && window.printLive.open()">
-          Print Live Assignment
-        </button>
 
-        <button type="button" onclick="window.openImportAssignmentScan && window.openImportAssignmentScan()">
-          Import Assignment to LIVE (Photo)
+        <button type="button" class="header-action-btn" onclick="window.openImportAssignmentCsv && window.openImportAssignmentCsv()">
+          Import Current Assignment
         </button>
       </div>
 
@@ -602,16 +622,7 @@
           </button>
         </div>
 
-        <div style="margin-left:auto;">
-          <button id="btnPrintHandoffPacket" type="button"
-                  onclick="window.printOncoming && window.printOncoming.openPacket && window.printOncoming.openPacket()">
-            Print Hand-Off Packet
-          </button>
-          <button id="btnPrintOncoming" type="button"
-                  onclick="window.printOncoming && window.printOncoming.open()">
-            Print Oncoming (1-page)
-          </button>
-        </div>
+        <div style="margin-left:auto;"></div>
       </div>
 
       <div class="staff-card" style="margin-top: 12px;">
@@ -738,7 +749,7 @@
             <label><input type="checkbox" id="profLateDcPca" /> Late DC</label>
             <label><input type="checkbox" id="profChg" /> CHG</label>
             <label><input type="checkbox" id="profFoley" /> Foley</label>
-            <label><input type="checkbox" id="profQ2" /> Q2 Turns</label>
+            <label><input type="checkbox" id="profQ2" /> Totals</label>
             <label><input type="checkbox" id="profHeavy" /> Strict I/O</label>
             <label><input type="checkbox" id="profFeeder" /> Feeder</label>
           </div>
@@ -842,7 +853,7 @@
             <h3>PCA Pre-Admit Tags</h3>
             <label><input type="checkbox" id="adChg" /> CHG</label>
             <label><input type="checkbox" id="adFoley" /> Foley</label>
-            <label><input type="checkbox" id="adQ2" /> Q2 Turns</label>
+            <label><input type="checkbox" id="adQ2" /> Totals</label>
             <label><input type="checkbox" id="adHeavy" /> Strict I/O</label>
             <label><input type="checkbox" id="adFeeder" /> Feeder</label>
           </div>
@@ -886,7 +897,7 @@
     <script src="app/app.authGate.js?v=18"></script>
     <script src="app/app.authUI.js?v=19"></script>
 
-    <script src="app/app.state.js?v=1"></script>
+    <script src="app/app.state.js?v=2"></script>
     <script src="app/app.guardrails.js?v=1"></script>
     <script src="app/app.init.js?v=1"></script>
 
@@ -901,7 +912,7 @@
     <script src="app/app.assignmentRules.js?v=4"></script>
 
     <script src="app/app.liveAssignments.js?v=97"></script>
-    <script src="app/app.assignmentsrender.js?v=4"></script>
+    <script src="app/app.assignmentsrender.js?v=5"></script>
     <script src="app/app.assignmentsDrag.js?v=2"></script>
 
     <script src="app/app.modals.js?v=1"></script>
@@ -912,8 +923,8 @@
     <script src="app/app.unitMetrics.js?v=1"></script>
     <script src="app/app.unitPulse.js?v=5"></script>
 
-    <script src="app/app.printOncoming.js?v=11"></script>
-    <script src="app/app.printLive.js?v=9"></script>
+    <script src="app/app.printOncoming.js?v=16"></script>
+    <script src="app/app.printLive.js?v=10"></script>
 
     <script src="https://unpkg.com/tesseract.js@5/dist/tesseract.min.js"></script>
 

@@ -203,7 +203,7 @@
     const map = [
       ["tele","Tele"],["drip","Drip"],["nih","NIH"],["bg","BG"],["tf","TF"],["ciwa","CIWA/COWS"],
       ["restraint","Restraint"],["sitter","Sitter"],["vpo","VPO"],["isolation","ISO"],["admit","Admit"],["lateDc","Late DC"],
-      ["chg","CHG"],["foley","Foley"],["q2turns","Q2"],["strictIo","Strict I/O"],["feeder","Feeder"]
+      ["chg","CHG"],["foley","Foley"],["q2turns","Totals"],["strictIo","Strict I/O"],["feeder","Feeder"]
     ];
     map.forEach(([k,label]) => { if (draft[k]) out.push(label); });
     return out.join(", ");
@@ -687,7 +687,7 @@
               ${tagItem("__padLateDcPca", "Late DC", !!d.lateDc)}
               ${tagItem("__padChg", "CHG", !!d.chg)}
               ${tagItem("__padFoley", "Foley", !!d.foley)}
-              ${tagItem("__padQ2", "Q2 Turns", !!d.q2turns)}
+              ${tagItem("__padQ2", "Totals", !!d.q2turns)}
               ${tagItem("__padHeavy", "Strict I/O", !!(d.strictIo || d.heavy))}
               ${tagItem("__padFeeder", "Feeder", !!d.feeder)}
             </div>
