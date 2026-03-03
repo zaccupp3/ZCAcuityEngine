@@ -227,24 +227,52 @@ if (window.__assignmentsRenderLoaded) {
     const owners = Array.isArray(pcas) ? pcas : [];
     const pts = Array.isArray(activePatients) ? activePatients : [];
     const pinned = new Set();
+    const claimedPairs = new Set();
+    const claimedPatientIds = new Set();
 
     owners.forEach((pca) => {
       const pair = String(pca?.sitterRoomPair || "").trim();
       const isSitterPca = !!pca?.isSitter && !!pair;
       if (!isSitterPca) return;
+      if (claimedPairs.has(pair)) {
+        pca.patients = [];
+        pca.maxPatients = 2;
+        return;
+      }
 
       const hits = pts
         .filter((p) => p && !p.isEmpty && !!p.sitter && __sitterRoomGroupKey(p) === pair)
         .sort(safeSortPatientsForDisplay)
         .slice(0, 2)
         .map((p) => Number(p.id))
-        .filter(Number.isFinite);
+        .filter((id) => Number.isFinite(id) && !claimedPatientIds.has(id));
 
       pca.patients = Array.from(new Set(hits));
       pca.maxPatients = 2;
-      pca.patients.forEach((id) => pinned.add(id));
+      claimedPairs.add(pair);
+      pca.patients.forEach((id) => {
+        pinned.add(id);
+        claimedPatientIds.add(id);
+      });
     });
 
+    return pinned;
+  }
+
+  function __enforceSitterAssignmentsExclusive(pcas, activePatients) {
+    const owners = Array.isArray(pcas) ? pcas : [];
+    const pts = Array.isArray(activePatients) ? activePatients : [];
+    const pinned = __applyPcaSitterDesignations(owners, pts);
+    if (!pinned.size) return pinned;
+
+    owners.forEach((pca) => {
+      const isSitterPca = !!pca?.isSitter && !!String(pca?.sitterRoomPair || "").trim();
+      if (isSitterPca) return;
+      const raw = Array.isArray(pca?.patients) ? pca.patients : [];
+      pca.patients = raw
+        .map((id) => Number(id))
+        .filter((id) => Number.isFinite(id) && !pinned.has(id));
+    });
     return pinned;
   }
 
@@ -276,6 +304,13 @@ if (window.__assignmentsRenderLoaded) {
     if (!p) return false;
     const meta = getPatientLockMeta(p);
     return !!meta.enabled && meta.rnId === Number(incomingRnId);
+  }
+
+  function isPatientPinnedToAnyIncomingRn(patientId) {
+    const p = (typeof window.getPatientById === "function") ? window.getPatientById(patientId) : null;
+    if (!p) return false;
+    const meta = getPatientLockMeta(p);
+    return !!meta.enabled && Number.isFinite(meta.rnId);
   }
 
   function toggleIncomingRnPin(patientId, incomingRnId) {
@@ -364,7 +399,7 @@ if (window.__assignmentsRenderLoaded) {
   function getMovablePatientIdsFromOwner(owner, role) {
     const ids = Array.isArray(owner?.patients) ? owner.patients.slice() : [];
     if (role !== "nurse") return ids;
-    return ids.filter(pid => !isPatientPinnedToIncomingRn(pid, owner.id));
+    return ids.filter(pid => !isPatientPinnedToAnyIncomingRn(pid));
   }
 
   function tryMovePatient(owners, role, fromOwner, toOwner, patientId) {
@@ -375,7 +410,7 @@ if (window.__assignmentsRenderLoaded) {
     const idx = fromOwner.patients.indexOf(patientId);
     if (idx === -1) return false;
 
-    if (role === "nurse" && isPatientPinnedToIncomingRn(patientId, fromOwner.id)) return false;
+    if (role === "nurse" && isPatientPinnedToAnyIncomingRn(patientId)) return false;
 
     fromOwner.patients.splice(idx, 1);
     if (!toOwner.patients.includes(patientId)) toOwner.patients.push(patientId);
@@ -544,6 +579,14 @@ if (window.__assignmentsRenderLoaded) {
       .replace(/'/g, "&#039;");
   }
 
+  function firstNameOnly(name) {
+    const raw = String(name || "").trim();
+    if (!raw) return "";
+    const noId = raw.replace(/#?\d{4,}/g, "").trim();
+    const first = noId.split(/\s+/).filter(Boolean)[0] || "";
+    return first || raw;
+  }
+
   // Keep this API (even though we removed 💡 buttons)
   window.__openOwnerExplain = function (btnEl) {
     try {
@@ -667,6 +710,53 @@ if (window.__assignmentsRenderLoaded) {
     __setBanner("pcaAssignmentOutput", "oncomingStatusPca", "", "");
   }
 
+  function __showOncomingRebalanceToast(kind, msg) {
+    let el = document.getElementById("oncomingRebalanceToast");
+    if (!el) {
+      el = document.createElement("div");
+      el.id = "oncomingRebalanceToast";
+      el.style.cssText = [
+        "display:none",
+        "max-width:100%",
+        "padding:10px 12px",
+        "border-radius:10px",
+        "font-size:12px",
+        "line-height:1.3",
+        "box-shadow:0 8px 20px rgba(0,0,0,0.12)"
+      ].join(";");
+      const host = document.getElementById("globalAssignmentPrintActions");
+      if (host) host.appendChild(el);
+      else document.body.appendChild(el);
+    }
+    const safe = escapeHtml(msg || "");
+    if (!safe) {
+      el.style.display = "none";
+      el.textContent = "";
+      return;
+    }
+
+    if (kind === "ok") {
+      el.style.background = "rgba(16,185,129,0.95)";
+      el.style.color = "#052e1c";
+      el.style.border = "1px solid rgba(16,185,129,0.95)";
+    } else if (kind === "warn") {
+      el.style.background = "rgba(245,158,11,0.95)";
+      el.style.color = "#2b1300";
+      el.style.border = "1px solid rgba(245,158,11,0.95)";
+    } else {
+      el.style.background = "rgba(15,23,42,0.95)";
+      el.style.color = "#fff";
+      el.style.border = "1px solid rgba(15,23,42,0.95)";
+    }
+
+    el.innerHTML = safe;
+    el.style.display = "block";
+    clearTimeout(window.__oncomingRebalanceToastTimer);
+    window.__oncomingRebalanceToastTimer = setTimeout(() => {
+      if (el) el.style.display = "none";
+    }, 4200);
+  }
+
   function __setOncomingPopulateStatus(state, metaText) {
     const pill = document.getElementById("oncomingPopulateStatus");
     if (!pill) return;
@@ -705,6 +795,23 @@ if (window.__assignmentsRenderLoaded) {
 
     const allPopulated = total === 0 ? true : populatedCount === total;
     __setOncomingPopulateStatus(allPopulated ? "complete" : "populating", `${populatedCount}/${total}`);
+
+    const canAutoPopulate = !!(__getIncomingNurses().length && __getIncomingPcas().length && total > 0);
+    if (canAutoPopulate && !allPopulated && !window.__oncomingPopulateInFlight && !window.__oncomingRebalanceBothInFlight) {
+      const now = Date.now();
+      const last = Number(window.__oncomingAutoPopulateTs || 0);
+      if (now - last > 1500) {
+        window.__oncomingAutoPopulateTs = now;
+        clearTimeout(window.__oncomingAutoPopulateTimer);
+        window.__oncomingAutoPopulateTimer = setTimeout(() => {
+          try {
+            if (!window.__oncomingPopulateInFlight && !window.__oncomingRebalanceBothInFlight) {
+              populateOncomingAssignment(false);
+            }
+          } catch (_) {}
+        }, 180);
+      }
+    }
   }
 
   // =========================================================
@@ -883,7 +990,7 @@ if (window.__assignmentsRenderLoaded) {
       }
 
       pts.forEach(p => {
-        const prevName = prevRnByPid.get(Number(p.id)) || "";
+        const prevName = firstNameOnly(prevRnByPid.get(Number(p.id)) || "");
         const bedLabel = getBedLabel(p);
 
         const pinned = isPatientPinnedToIncomingRn(p.id, nurse.id);
@@ -1029,7 +1136,7 @@ if (window.__assignmentsRenderLoaded) {
       }
 
       pts.forEach(p => {
-        const prevName = prevPcaByPid.get(Number(p.id)) || "";
+        const prevName = firstNameOnly(prevPcaByPid.get(Number(p.id)) || "");
         const bedLabel = getBedLabel(p);
 
         html += `
@@ -1128,7 +1235,7 @@ if (window.__assignmentsRenderLoaded) {
 
       if (typeof window.distributePatientsEvenly === "function") {
         window.distributePatientsEvenly(nurses, unlockedPool, { randomize, role: "nurse", preserveExisting: true });
-        const pinnedToSitterPcas = __applyPcaSitterDesignations(pcas, list);
+        const pinnedToSitterPcas = __enforceSitterAssignmentsExclusive(pcas, list);
         const pcaPool = list.filter((p) => !pinnedToSitterPcas.has(Number(p?.id)));
         const openPcas = pcas.filter((p) => !(p?.isSitter && String(p?.sitterRoomPair || "").trim()));
         if (openPcas.length) {
@@ -1142,12 +1249,14 @@ if (window.__assignmentsRenderLoaded) {
 
       // keep these passes reasonable to avoid UI lag
       balanceCountsWithoutCreatingNewAvoidableViolations(nurses, "nurse", { maxPasses: 50 });
-      balanceCountsWithoutCreatingNewAvoidableViolations(pcas, "pca", { maxPasses: 50 });
+      const openPcasForBalance = pcas.filter((p) => !(p?.isSitter && String(p?.sitterRoomPair || "").trim()));
+      balanceCountsWithoutCreatingNewAvoidableViolations(openPcasForBalance, "pca", { maxPasses: 50 });
 
       if (typeof window.repairAssignmentsInPlace === "function") {
         window.repairAssignmentsInPlace(nurses, "nurse", null, { maxIters: 35 });
-        window.repairAssignmentsInPlace(pcas, "pca", null, { maxIters: 35 });
+        window.repairAssignmentsInPlace(openPcasForBalance, "pca", null, { maxIters: 35 });
       }
+      __enforceSitterAssignmentsExclusive(pcas, list);
 
       // ✅ batched render
       renderOncomingAll();
@@ -1206,43 +1315,57 @@ if (window.__assignmentsRenderLoaded) {
         console.warn("[rebalance BOTH] pin placement pre-pass failed", e);
       }
 
+      const openPcas = pcas.filter((p) => !(p?.isSitter && String(p?.sitterRoomPair || "").trim()));
       const rnRes = __runSafeRebalance(nurses, "nurse");
-      const pcaRes = __runSafeRebalance(pcas, "pca");
+      const pcaRes = __runSafeRebalance(openPcas, "pca");
+      const rnCountFallback = balanceCountsWithoutCreatingNewAvoidableViolations(nurses, "nurse", { maxPasses: 80 });
+      const pcaCountFallback = balanceCountsWithoutCreatingNewAvoidableViolations(openPcas, "pca", { maxPasses: 80 });
+      __enforceSitterAssignmentsExclusive(pcas, ptsAll.filter((p) => p && !p.isEmpty));
 
       const afterStatsRn = __reportStatsForOwners(nurses, "nurse", prevRnByPid);
       const afterStatsPca = __reportStatsForOwners(pcas, "pca", prevPcaByPid);
 
       const movesRn = __countMovesFromSnapshots(beforeSnapRn, nurses);
       const movesPca = __countMovesFromSnapshots(beforeSnapPca, pcas);
+      const rnApplied = !!(rnRes.applied || rnCountFallback?.changed || movesRn > 0);
+      const pcaApplied = !!(pcaRes.applied || pcaCountFallback?.changed || movesPca > 0);
 
       const msgOkRn = [
         `Applied ${movesRn} move${movesRn === 1 ? "" : "s"}.`,
+        (rnCountFallback?.changed && !rnRes.applied) ? "Count-priority balancing applied." : "",
         __formatDeltaLine("Max report sources", beforeStatsRn.maxReport, afterStatsRn.maxReport),
         __formatDeltaLine("Report-source total", beforeStatsRn.sumReport, afterStatsRn.sumReport),
         __formatDeltaLine("Avoidable violations", beforeStatsRn.avoid, afterStatsRn.avoid),
         __formatDeltaLine("Count spread", `${beforeStatsRn.minCount}-${beforeStatsRn.maxCount}`, `${afterStatsRn.minCount}-${afterStatsRn.maxCount}`)
-      ].join(" ");
+      ].filter(Boolean).join(" ");
 
       const msgOkPca = [
         `Applied ${movesPca} move${movesPca === 1 ? "" : "s"}.`,
+        (pcaCountFallback?.changed && !pcaRes.applied) ? "Count-priority balancing applied." : "",
         __formatDeltaLine("Max report sources", beforeStatsPca.maxReport, afterStatsPca.maxReport),
         __formatDeltaLine("Report-source total", beforeStatsPca.sumReport, afterStatsPca.sumReport),
         __formatDeltaLine("Avoidable violations", beforeStatsPca.avoid, afterStatsPca.avoid),
         __formatDeltaLine("Count spread", `${beforeStatsPca.minCount}-${beforeStatsPca.maxCount}`, `${afterStatsPca.minCount}-${afterStatsPca.maxCount}`)
-      ].join(" ");
+      ].filter(Boolean).join(" ");
 
       __setBanner(
         "assignmentOutput",
         "oncomingStatusRn",
-        rnRes.applied ? "ok" : "warn",
-        rnRes.applied ? msgOkRn : (rnRes.reason || "Unable to rebalance safely.")
+        rnApplied ? "ok" : "warn",
+        rnApplied ? msgOkRn : (rnRes.reason || "Unable to rebalance safely.")
       );
 
       __setBanner(
         "pcaAssignmentOutput",
         "oncomingStatusPca",
-        pcaRes.applied ? "ok" : "warn",
-        pcaRes.applied ? msgOkPca : (pcaRes.reason || "Unable to rebalance safely.")
+        pcaApplied ? "ok" : "warn",
+        pcaApplied ? msgOkPca : (pcaRes.reason || "Unable to rebalance safely.")
+      );
+      __showOncomingRebalanceToast(
+        (rnApplied || pcaApplied) ? "ok" : "warn",
+        (rnApplied || pcaApplied)
+          ? `Rebalance complete. RN moves: ${movesRn}. PCA moves: ${movesPca}.`
+          : "No safe rebalance improvement found."
       );
 
       // ✅ batched render
@@ -1253,6 +1376,29 @@ if (window.__assignmentsRenderLoaded) {
     } finally {
       window.__oncomingRebalanceBothInFlight = false;
     }
+  }
+
+  function __hookOncomingAutoPopulateSignals() {
+    if (window.__oncomingAutoPopulateSignalsHooked) return;
+    window.__oncomingAutoPopulateSignalsHooked = true;
+
+    ["renderPatientList", "updateDischargeCount", "updateAcuityTiles"].forEach((fnName) => {
+      const original = window[fnName];
+      if (typeof original !== "function" || original.__oncomingWrapped) return;
+      const wrapped = function () {
+        const out = original.apply(this, arguments);
+        try { __refreshOncomingPopulateStatus(); } catch (_) {}
+        return out;
+      };
+      wrapped.__oncomingWrapped = true;
+      window[fnName] = wrapped;
+    });
+  }
+  __hookOncomingAutoPopulateSignals();
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", __hookOncomingAutoPopulateSignals);
+  } else {
+    setTimeout(__hookOncomingAutoPopulateSignals, 0);
   }
 
   // Expose globally (CRITICAL for index.html onclick)

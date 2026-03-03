@@ -1,0 +1,214 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Charge Nurse Platform - Rebalancing Rules (Current State)</title>
+  <style>
+    @page { size: Letter; margin: 0.6in; }
+    body {
+      font-family: "Segoe UI", Arial, sans-serif;
+      color: #0f172a;
+      line-height: 1.35;
+      font-size: 11pt;
+      margin: 0;
+    }
+    h1, h2, h3 { margin: 0 0 8px 0; line-height: 1.2; }
+    h1 { font-size: 22pt; }
+    h2 { font-size: 14pt; margin-top: 16px; border-bottom: 1px solid #cbd5e1; padding-bottom: 3px; }
+    h3 { font-size: 12pt; margin-top: 10px; }
+    p { margin: 5px 0; }
+    ul { margin: 4px 0 8px 20px; }
+    li { margin: 2px 0; }
+    .muted { color: #475569; font-size: 9.5pt; }
+    .box {
+      border: 1px solid #cbd5e1;
+      border-radius: 8px;
+      padding: 10px 12px;
+      margin: 8px 0;
+      background: #f8fafc;
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+    .pill {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 999px;
+      font-size: 9.5pt;
+      font-weight: 700;
+      border: 1px solid #cbd5e1;
+      background: #fff;
+      margin-right: 6px;
+    }
+    .ok { background: #ecfdf5; border-color: #86efac; }
+    .warn { background: #fffbeb; border-color: #fcd34d; }
+    .bad { background: #fef2f2; border-color: #fca5a5; }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 6px;
+      font-size: 10.5pt;
+    }
+    th, td {
+      border: 1px solid #cbd5e1;
+      padding: 6px 7px;
+      vertical-align: top;
+      text-align: left;
+    }
+    th { background: #f1f5f9; font-weight: 700; }
+    .small { font-size: 9.8pt; }
+    .mono { font-family: Consolas, "Courier New", monospace; font-size: 9.6pt; }
+    .page-break { break-before: page; page-break-before: always; }
+  </style>
+</head>
+<body>
+  <h1>Rebalancing + Assignment Rules</h1>
+  <p><strong>Audience:</strong> Leaders explaining platform behavior to staff unfamiliar with charge nursing assignment software.</p>
+  <p class="muted">Current state summary generated from active app logic in <span class="mono">app/app.assignmentsrender.js</span>, <span class="mono">app/app.assignmentRules.js</span>, and <span class="mono">app/app.assignmentsDrag.js</span>.</p>
+
+  <h2>1) What the system is trying to optimize</h2>
+  <div class="box">
+    <p><strong>Primary goal:</strong> safe and fair assignments, not just equal patient counts.</p>
+    <ul>
+      <li>Reduce avoidable hard-rule violations first.</li>
+      <li>Then reduce report-source fragmentation (continuity/handoff burden).</li>
+      <li>Then tighten count spread where safe (example: 5/3 to 4/4 when legal).</li>
+      <li>Never override explicit lock/pin constraints.</li>
+    </ul>
+  </div>
+
+  <h2>2) Key concepts in plain language</h2>
+  <div class="grid">
+    <div class="box">
+      <h3>Hard-rule violations</h3>
+      <p>Assignments that break role rules/restrictions (RN or PCA restrictions, sitter constraints, etc.).</p>
+      <p><span class="pill bad">Highest priority to avoid</span></p>
+    </div>
+    <div class="box">
+      <h3>Report-source spread</h3>
+      <p>How many previous owners a staff member inherits patients from. Fewer sources means cleaner handoff.</p>
+      <p><span class="pill warn">Continuity priority</span></p>
+    </div>
+    <div class="box">
+      <h3>Count spread</h3>
+      <p>Difference between highest and lowest patient counts in same role group.</p>
+      <p><span class="pill ok">Fairness priority (when safe)</span></p>
+    </div>
+    <div class="box">
+      <h3>Pinned RN patient</h3>
+      <p>A patient locked to a specific oncoming RN. Rebalance cannot move pinned patients unless manually unpinned first.</p>
+      <p><span class="pill bad">Hard lock</span></p>
+    </div>
+  </div>
+
+  <h2>3) Populate flow (Oncoming)</h2>
+  <table>
+    <tr><th>Step</th><th>What happens</th><th>Why</th></tr>
+    <tr>
+      <td>1. Reset and validate</td>
+      <td>Clears RN/PCA assignment arrays and confirms active patients/staff exist.</td>
+      <td>Avoid stale assignment carryover.</td>
+    </tr>
+    <tr>
+      <td>2. Apply RN pins first</td>
+      <td>Pinned patients are placed directly onto locked RN; those patients are removed from RN distribution pool.</td>
+      <td>RN continuity is explicit and honored before balancing logic.</td>
+    </tr>
+    <tr>
+      <td>3. Enforce sitter designations</td>
+      <td>Sitter-designated PCA with room pair (e.g., 213) receives only sitter-tagged patients from that pair (max 2). Those patients are removed from non-sitter PCA pool.</td>
+      <td>Protect sitter role boundaries and room-pair intent.</td>
+    </tr>
+    <tr>
+      <td>4. Distribute remaining patients</td>
+      <td>Uses rule-aware distribute engine for RN/PCA.</td>
+      <td>Balanced + rules-aware initial assignment.</td>
+    </tr>
+    <tr>
+      <td>5. Post-balance/repair passes</td>
+      <td>Runs count-leveling and repair passes, then re-enforces sitter exclusivity.</td>
+      <td>Clean up unevenness while preserving rules.</td>
+    </tr>
+  </table>
+
+  <h2>4) Rebalance (Both) flow - current priority order</h2>
+  <div class="box">
+    <p><strong>RN and PCA rebalance are run independently</strong> (PCA rebalance excludes sitter-designated PCAs, then sitter exclusivity is re-applied).</p>
+  </div>
+  <table>
+    <tr><th>Priority</th><th>Engine behavior</th><th>Notes</th></tr>
+    <tr>
+      <td>1</td>
+      <td><strong>Safe rebalance gate:</strong> proposed changes must not produce avoidable violations and must improve optimization tuple.</td>
+      <td>Implemented through <span class="mono">rebalanceOwnersSafely()</span>.</td>
+    </tr>
+    <tr>
+      <td>2</td>
+      <td><strong>Count-priority fallback:</strong> if safe engine does not change enough, count-leveling pass attempts legal moves to reduce spread.</td>
+      <td>Recent update to reduce false “no safe move” outcomes on full units.</td>
+    </tr>
+    <tr>
+      <td>3</td>
+      <td><strong>Re-apply sitter exclusivity:</strong> sitter-pair patients remain assigned only to their designated sitter PCA.</td>
+      <td>Prevents drift after balancing passes.</td>
+    </tr>
+    <tr>
+      <td>Always</td>
+      <td><strong>RN pin lock:</strong> pinned RN patients are non-movable in rebalance.</td>
+      <td>User must unpin manually before rebalance can relocate that patient.</td>
+    </tr>
+  </table>
+
+  <h2>5) “No safe rebalance improvement found” means</h2>
+  <ul>
+    <li>No legal move exists that improves objective(s) without violating hard gates.</li>
+    <li>Candidate moves may be blocked by RN pin locks, sitter constraints, or role restrictions.</li>
+    <li>With current updates, this should be less likely when a simple safe census move is available.</li>
+  </ul>
+
+  <div class="page-break"></div>
+
+  <h2>6) Sitter rules (important operational guardrails)</h2>
+  <table>
+    <tr><th>Rule</th><th>Current behavior</th></tr>
+    <tr><td>Sitter PCA assignment scope</td><td>Only sitter-tagged patients from selected room pair (e.g., 213A/213B).</td></tr>
+    <tr><td>Max sitter load</td><td>2 patients max.</td></tr>
+    <tr><td>Non-sitter assignment</td><td>Non-sitter PCA cannot keep patients claimed by configured sitter pairs.</td></tr>
+    <tr><td>Manual drag/drop</td><td>Drop is blocked if user tries to move designated sitter-pair patient to wrong PCA.</td></tr>
+    <tr><td>Duplicate pair designations</td><td>First sitter PCA claiming pair is honored; duplicate pair owners are zeroed for that pair.</td></tr>
+  </table>
+
+  <h2>7) RN pin/lock rules</h2>
+  <table>
+    <tr><th>Scenario</th><th>System behavior</th></tr>
+    <tr><td>Patient pinned to RN A</td><td>Populate assigns to RN A first.</td></tr>
+    <tr><td>Rebalance attempts to move pinned patient</td><td>Blocked (patient considered non-movable).</td></tr>
+    <tr><td>User drag to different RN</td><td>User is prompted to unlock first (then move allowed).</td></tr>
+    <tr><td>Pinned RN no longer exists in roster</td><td>Pin is cleaned/removed during roster cleanup.</td></tr>
+  </table>
+
+  <h2>8) Practical interpretation for non-technical staff</h2>
+  <div class="box">
+    <p>If a team asks, “Why didn’t rebalance move this patient?” the common reasons are:</p>
+    <ul>
+      <li>Patient is RN-pinned and cannot move until unlocked.</li>
+      <li>Patient is sitter-designated and tied to specific sitter room-pair owner.</li>
+      <li>Move would create a hard-rule break (restriction mismatch or unsafe pattern).</li>
+      <li>Move worsens continuity/report-source burden with no compensating safety gain.</li>
+    </ul>
+    <p><strong>Operational message:</strong> Rebalance is “safe optimization,” not “force equal counts at any cost.”</p>
+  </div>
+
+  <h2>9) Known current tuning direction</h2>
+  <ul>
+    <li>Continue reducing false negatives where obvious count-equalizing moves are legal.</li>
+    <li>Keep RN pin and sitter constraints strict to preserve clinical intent.</li>
+    <li>Show clearer user feedback about what changed and why.</li>
+  </ul>
+
+  <p class="muted">Prepared for handoff/training discussions. Date: 2026-03-03.</p>
+</body>
+</html>

@@ -259,6 +259,12 @@ button:active{
   padding: 20px;
 }
 
+#liveAssignmentTab,
+#oncomingAssignmentTab{
+  padding-top: 8px;
+  padding-right: 252px;
+}
+
 /* =========================
    AUTH DROPDOWN (header)
 ========================= */
@@ -1997,7 +2003,21 @@ button[onclick*="populateLiveAssignment"]{
 
 /* Force Discharge Bin to live in normal flow inside globalTopRightTools */
 #globalTopRightTools {
-  position: relative !important;
+  position: fixed !important;
+  top: 84px !important;
+  right: 18px !important;
+  width: 220px !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  justify-content: flex-end !important;
+  z-index: 930 !important;
+  pointer-events: none !important;
+}
+
+#globalTopRightStack{
+  width: 220px !important;
+  gap: 8px !important;
+  padding-bottom: 10px !important;
 }
 
 #globalDischargeBinHost {
@@ -2036,16 +2056,9 @@ button[onclick*="populateLiveAssignment"]{
   border-color:#000 !important;
 }
 
-.header-pill-divider{
-  width:14px;
-  height:26px;
-  border-radius:999px;
-  background:rgba(148,163,184,0.55);
-  margin:0 6px;
-}
-
 .global-tab-print-btn{
   width:100%;
+  max-width:100%;
   background:#111;
   color:#fff;
   border:1px solid #111;
@@ -2056,6 +2069,21 @@ button[onclick*="populateLiveAssignment"]{
   font-weight:900;
   cursor:pointer;
   text-align:center;
+}
+
+@media (max-width: 1100px){
+  #liveAssignmentTab,
+  #oncomingAssignmentTab{
+    padding-right: 20px;
+  }
+  #globalTopRightTools{
+    width: 200px !important;
+    right: 10px !important;
+    top: 78px !important;
+  }
+  #globalTopRightStack{
+    width: 200px !important;
+  }
 }
 .global-tab-print-btn:hover{
   background:#000;

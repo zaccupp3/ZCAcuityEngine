@@ -165,6 +165,201 @@
       .totals-three-sections { grid-template-columns: 1fr; }
       .totals-three-sections .totals-status { justify-content: flex-start; }
     }
+
+    /* Temporary Help Bubble (Q) + PDF modal */
+    .q-help-bubble {
+      position: fixed;
+      left: 14px;
+      bottom: 14px;
+      width: 42px;
+      height: 42px;
+      border: 1px solid rgba(15, 23, 42, 0.2);
+      border-radius: 999px;
+      background: #111827;
+      color: #ffffff;
+      font-size: 20px;
+      font-weight: 800;
+      line-height: 1;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      box-shadow: 0 10px 24px rgba(0, 0, 0, 0.2);
+      z-index: 1400;
+    }
+    .q-help-modal {
+      position: fixed;
+      inset: 0;
+      background: rgba(2, 6, 23, 0.48);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 1450;
+      padding: 14px;
+      box-sizing: border-box;
+    }
+    .q-help-card {
+      width: min(1100px, 96vw);
+      height: min(760px, 94vh);
+      background: #ffffff;
+      border: 1px solid rgba(15, 23, 42, 0.15);
+      border-radius: 14px;
+      box-shadow: 0 24px 50px rgba(2, 6, 23, 0.28);
+      display: grid;
+      grid-template-rows: auto 1fr;
+      overflow: hidden;
+    }
+    .q-help-topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 10px 12px;
+      border-bottom: 1px solid rgba(15, 23, 42, 0.1);
+      background: #f8fafc;
+    }
+    .q-help-title {
+      font-size: 14px;
+      font-weight: 800;
+      color: #0f172a;
+    }
+    .q-help-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .q-help-link {
+      font-size: 12px;
+      font-weight: 700;
+      color: #0f172a;
+      text-decoration: underline;
+    }
+    .q-help-close {
+      border: 1px solid rgba(15, 23, 42, 0.2);
+      border-radius: 9px;
+      background: #fff;
+      color: #0f172a;
+      font-size: 12px;
+      font-weight: 700;
+      padding: 6px 10px;
+      cursor: pointer;
+    }
+    .q-help-frame-wrap {
+      position: relative;
+      min-height: 0;
+      background: #ffffff;
+    }
+    .q-help-frame {
+      width: 100%;
+      height: 100%;
+      border: 0;
+      background: #ffffff;
+    }
+    .q-help-fallback {
+      position: absolute;
+      inset: 0;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      padding: 20px;
+      background: #ffffff;
+      color: #0f172a;
+      font-size: 14px;
+      line-height: 1.4;
+    }
+
+    /* Per-tab info bubble + modal */
+    .tab-title-row {
+      display: flex;
+      align-items: center;
+      justify-content: flex-start;
+      gap: 8px;
+      margin-bottom: 2px;
+    }
+    .tab-title-row h1 {
+      margin: 0;
+    }
+    .tab-info-btn {
+      width: 24px;
+      height: 24px;
+      border-radius: 999px;
+      border: 1px solid rgba(15, 23, 42, 0.22);
+      background: #ffffff;
+      color: #0f172a;
+      font-size: 13px;
+      font-weight: 800;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      box-shadow: 0 4px 12px rgba(2, 6, 23, 0.1);
+    }
+    .tab-help-modal {
+      position: fixed;
+      inset: 0;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 1460;
+      background: rgba(2, 6, 23, 0.48);
+      padding: 14px;
+      box-sizing: border-box;
+    }
+    .tab-help-card {
+      width: min(760px, 96vw);
+      max-height: min(760px, 92vh);
+      background: #ffffff;
+      border-radius: 14px;
+      border: 1px solid rgba(15, 23, 42, 0.16);
+      box-shadow: 0 24px 50px rgba(2, 6, 23, 0.28);
+      display: grid;
+      grid-template-rows: auto 1fr;
+      overflow: hidden;
+    }
+    .tab-help-topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 10px 12px;
+      border-bottom: 1px solid rgba(15, 23, 42, 0.1);
+      background: #f8fafc;
+    }
+    .tab-help-title {
+      font-size: 14px;
+      font-weight: 900;
+      color: #0f172a;
+    }
+    .tab-help-close {
+      border: 1px solid rgba(15, 23, 42, 0.22);
+      border-radius: 9px;
+      background: #fff;
+      color: #0f172a;
+      padding: 6px 10px;
+      font-size: 12px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+    .tab-help-body {
+      overflow: auto;
+      padding: 12px 14px;
+      font-size: 14px;
+      line-height: 1.45;
+      color: #1e293b;
+    }
+    .tab-help-body h4 {
+      margin: 0 0 8px;
+      font-size: 16px;
+      color: #0f172a;
+    }
+    .tab-help-body ul {
+      margin: 0 0 10px 18px;
+      padding: 0;
+    }
+    .tab-help-body li {
+      margin: 4px 0;
+    }
   </style>
 </head>
 <body>
@@ -277,7 +472,6 @@
               onclick="window.printOncoming && window.printOncoming.openPacket && window.printOncoming.openPacket()">
         Print Hand-Off Packet
       </button>
-      <span id="headerPacketUnitDivider" class="header-pill-divider" style="display:none;" aria-hidden="true"></span>
 
       <div class="unit-switcher" style="display:flex; align-items:center; gap:8px; margin-right:10px;">
         <span style="font-size:12px; opacity:0.75;">Unit</span>
@@ -386,7 +580,10 @@
 
     <!-- STAFFING TAB -->
     <section id="staffingTab" class="tab-section" style="display: block;">
-      <h1>Staffing Details</h1>
+      <div class="tab-title-row">
+        <h1>Staffing Details</h1>
+        <button type="button" class="tab-info-btn" data-tab-help="staffing">i</button>
+      </div>
 
       <!-- ✅ Staffing Details v2 -->
       <div class="staffing-two-column" data-staffing-layout="v2">
@@ -536,7 +733,10 @@
 
     <!-- PATIENT DETAILS TAB -->
     <section id="patientDetailsTab" class="tab-section" style="display: none;">
-      <h1>Patient Details</h1>
+      <div class="tab-title-row">
+        <h1>Patient Details</h1>
+        <button type="button" class="tab-info-btn" data-tab-help="patientDetails">i</button>
+      </div>
       <p>
         This grid shows all 32 rooms. Use the controls to set acuity tags
         for each patient. These tags feed both the LIVE and Oncoming Assignment engines.
@@ -553,7 +753,10 @@
 
     <!-- HIGH RISK TAB -->
     <section id="highRiskTab" class="tab-section" style="display: none;">
-      <h1>High Risk Report</h1>
+      <div class="tab-title-row">
+        <h1>High Risk Report</h1>
+        <button type="button" class="tab-info-btn" data-tab-help="highRisk">i</button>
+      </div>
       <p>
         Summary of key acuity tags across all active patients. Use this for quick
         situational awareness and handoff.
@@ -574,7 +777,10 @@
 
     <!-- LIVE ASSIGNMENT TAB -->
     <section id="liveAssignmentTab" class="tab-section" style="display: none;">
-      <h1>Live Assignment</h1>
+      <div class="tab-title-row">
+        <h1>Live Assignment</h1>
+        <button type="button" class="tab-info-btn" data-tab-help="liveAssignment">i</button>
+      </div>
 
       <div class="actions-row">
         <button onclick="window.populateLiveAssignment(false)">Populate Live Assignment</button>
@@ -604,7 +810,10 @@
 
     <!-- ONCOMING ASSIGNMENT TAB -->
     <section id="oncomingAssignmentTab" class="tab-section" style="display: none;">
-      <h1>Oncoming Assignment (Incoming Staff)</h1>
+      <div class="tab-title-row">
+        <h1>Oncoming Assignment (Incoming Staff)</h1>
+        <button type="button" class="tab-info-btn" data-tab-help="oncomingAssignment">i</button>
+      </div>
 
       <div class="actions-row" style="display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap;">
         <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
@@ -659,7 +868,10 @@
 
     <!-- ✅ UNIT PULSE TAB -->
     <section id="unitPulseTab" class="tab-section" style="display: none;">
-      <h1>Unit Pulse</h1>
+      <div class="tab-title-row">
+        <h1>Unit Pulse</h1>
+        <button type="button" class="tab-info-btn" data-tab-help="unitPulse">i</button>
+      </div>
       <p>
         Live, shift-specific workload pulse (time-windowed). Staff list is driven by current RN/PCA assignments.
       </p>
@@ -669,7 +881,10 @@
 
     <!-- ✅ UNIT METRICS TAB -->
     <section id="unitMetricsTab" class="tab-section" style="display: none;">
-      <h1>Unit Metrics</h1>
+      <div class="tab-title-row">
+        <h1>Unit Metrics</h1>
+        <button type="button" class="tab-info-btn" data-tab-help="unitMetrics">i</button>
+      </div>
       <p>
         Pulls unit-scoped shift metrics from Supabase and displays trends (historic).
       </p>
@@ -886,6 +1101,40 @@
     </div>
   </div>
 
+  <!-- Temporary Help Bubble + PDF Modal -->
+  <button id="qHelpBubble" type="button" class="q-help-bubble" title="Rebalance Help">Q</button>
+  <div id="qHelpModal" class="q-help-modal" aria-hidden="true">
+    <div class="q-help-card" role="dialog" aria-modal="true" aria-label="Rebalance rules guide">
+      <div class="q-help-topbar">
+        <div class="q-help-title">Rebalance Rules Guide</div>
+        <div class="q-help-actions">
+          <a id="qHelpOpenNewTab" class="q-help-link" href="/docs/Rebalance_Algorithm_Current_State.pdf" target="_blank" rel="noopener noreferrer">Open PDF in new tab</a>
+          <button id="qHelpCloseBtn" type="button" class="q-help-close">Close</button>
+        </div>
+      </div>
+      <div class="q-help-frame-wrap">
+        <iframe id="qHelpFrame" class="q-help-frame" title="Rebalance rules PDF"></iframe>
+        <div id="qHelpFallback" class="q-help-fallback">
+          <div>
+            <div style="font-weight:800; margin-bottom:6px;">PDF preview could not load in this browser view.</div>
+            <div style="margin-bottom:10px;">Use <strong>Open PDF in new tab</strong> above.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Per-tab instructions modal -->
+  <div id="tabHelpModal" class="tab-help-modal" aria-hidden="true">
+    <div class="tab-help-card" role="dialog" aria-modal="true" aria-label="Tab instructions">
+      <div class="tab-help-topbar">
+        <div id="tabHelpTitle" class="tab-help-title">How to use this page</div>
+        <button id="tabHelpCloseBtn" type="button" class="tab-help-close">Close</button>
+      </div>
+      <div id="tabHelpBody" class="tab-help-body"></div>
+    </div>
+  </div>
+
     <!-- =====================================================
          ✅ SCRIPT ORDER FIX (cache-busters updated)
     ===================================================== -->
@@ -947,5 +1196,195 @@
     <script src="app/app.importScan.js?v=100"></script>
 
     <script src="script.js?v=2"></script>
+    <script>
+      (function () {
+        const bubble = document.getElementById("qHelpBubble");
+        const modal = document.getElementById("qHelpModal");
+        const closeBtn = document.getElementById("qHelpCloseBtn");
+        const frame = document.getElementById("qHelpFrame");
+        const fallback = document.getElementById("qHelpFallback");
+        if (!bubble || !modal || !closeBtn || !frame || !fallback) return;
+
+        const pdfUrl = "/docs/Rebalance_Algorithm_Current_State.pdf";
+        let loadTimer = null;
+
+        function openHelp() {
+          modal.style.display = "flex";
+          modal.setAttribute("aria-hidden", "false");
+          fallback.style.display = "none";
+          frame.removeAttribute("src");
+          frame.src = pdfUrl;
+          clearTimeout(loadTimer);
+          loadTimer = setTimeout(() => {
+            fallback.style.display = "flex";
+          }, 1700);
+        }
+
+        function closeHelp() {
+          modal.style.display = "none";
+          modal.setAttribute("aria-hidden", "true");
+          clearTimeout(loadTimer);
+        }
+
+        bubble.addEventListener("click", openHelp);
+        closeBtn.addEventListener("click", closeHelp);
+        modal.addEventListener("click", function (e) {
+          if (e.target === modal) closeHelp();
+        });
+        document.addEventListener("keydown", function (e) {
+          if (e.key === "Escape" && modal.style.display === "flex") closeHelp();
+        });
+        frame.addEventListener("load", function () {
+          clearTimeout(loadTimer);
+          fallback.style.display = "none";
+        });
+      })();
+    </script>
+    <script>
+      (function () {
+        const modal = document.getElementById("tabHelpModal");
+        const titleEl = document.getElementById("tabHelpTitle");
+        const bodyEl = document.getElementById("tabHelpBody");
+        const closeBtn = document.getElementById("tabHelpCloseBtn");
+        if (!modal || !titleEl || !bodyEl || !closeBtn) return;
+
+        const helpByTab = {
+          staffing: {
+            title: "Staffing Details - How To Use",
+            html: `
+              <h4>Purpose</h4>
+              <ul>
+                <li>Set your current and oncoming staffing rosters before assignments run.</li>
+                <li>Define leadership names, RN/PCA counts, and sitter designations for PCA staff.</li>
+              </ul>
+              <h4>Best Workflow</h4>
+              <ul>
+                <li>Confirm RN and PCA totals first.</li>
+                <li>Enter/verify names.</li>
+                <li>For sitter coverage, enable <strong>Sitter Assignment</strong> and select room pair.</li>
+              </ul>
+            `
+          },
+          patientDetails: {
+            title: "Patient Details - How To Use",
+            html: `
+              <h4>Purpose</h4>
+              <ul>
+                <li>Maintain room occupancy and acuity tags that feed assignment and high-risk logic.</li>
+              </ul>
+              <h4>Best Workflow</h4>
+              <ul>
+                <li>Update occupied/empty rooms first.</li>
+                <li>Apply only active RN/PCA tags for current patient status.</li>
+                <li>Use <strong>Clear All Tags</strong> when resetting acuity without changing occupancy.</li>
+              </ul>
+            `
+          },
+          highRisk: {
+            title: "High Risk Report - How To Use",
+            html: `
+              <h4>Purpose</h4>
+              <ul>
+                <li>Generate a structured hand-off summary from active tags and editable details.</li>
+              </ul>
+              <h4>Best Workflow</h4>
+              <ul>
+                <li>Review auto-populated rooms per acuity category.</li>
+                <li>Add details in room-level text fields as needed.</li>
+                <li>Use <strong>Print High-Risk Hand-Off</strong> for standalone report output.</li>
+              </ul>
+            `
+          },
+          liveAssignment: {
+            title: "Live Assignment - How To Use",
+            html: `
+              <h4>Purpose</h4>
+              <ul>
+                <li>Manage active shift RN/PCA assignments in real time.</li>
+              </ul>
+              <h4>Best Workflow</h4>
+              <ul>
+                <li>Use <strong>Populate Live Assignment</strong> for baseline placement.</li>
+                <li>Drag/drop for operational adjustments.</li>
+                <li>Use <strong>Import Current Assignment</strong> when applying CSV updates from Excel.</li>
+                <li>Use the discharge bin to remove active patients from assignment safely.</li>
+              </ul>
+            `
+          },
+          oncomingAssignment: {
+            title: "Oncoming Assignment - How To Use",
+            html: `
+              <h4>Purpose</h4>
+              <ul>
+                <li>Build and rebalance incoming shift assignments before final submit.</li>
+              </ul>
+              <h4>Best Workflow</h4>
+              <ul>
+                <li>Run <strong>Populate</strong> first.</li>
+                <li>Use <strong>Rebalance (Both)</strong> to improve fairness/continuity while preserving locks/rules.</li>
+                <li>Confirm date/shift in <strong>Finalize Details</strong>.</li>
+                <li>Run <strong>Finalize / Submit Shift Change</strong> when ready to publish.</li>
+              </ul>
+            `
+          },
+          unitPulse: {
+            title: "Unit Pulse - How To Use",
+            html: `
+              <h4>Purpose</h4>
+              <ul>
+                <li>See real-time workload pulse signals for current shift operations.</li>
+              </ul>
+              <h4>Tip</h4>
+              <ul>
+                <li>Use this view for quick operational surveillance, not full historical analysis.</li>
+              </ul>
+            `
+          },
+          unitMetrics: {
+            title: "Unit Metrics - How To Use",
+            html: `
+              <h4>Purpose</h4>
+              <ul>
+                <li>Query historical metrics trends from Supabase by date and shift.</li>
+              </ul>
+              <h4>Best Workflow</h4>
+              <ul>
+                <li>Set date range and optional shift filter.</li>
+                <li>Click <strong>Load Metrics</strong>.</li>
+                <li>Use summary + table for review and comparison.</li>
+              </ul>
+            `
+          }
+        };
+
+        function openHelp(tabKey) {
+          const cfg = helpByTab[String(tabKey || "")];
+          if (!cfg) return;
+          titleEl.textContent = cfg.title;
+          bodyEl.innerHTML = cfg.html;
+          modal.style.display = "flex";
+          modal.setAttribute("aria-hidden", "false");
+        }
+
+        function closeHelp() {
+          modal.style.display = "none";
+          modal.setAttribute("aria-hidden", "true");
+        }
+
+        document.querySelectorAll(".tab-info-btn[data-tab-help]").forEach((btn) => {
+          btn.addEventListener("click", function () {
+            openHelp(btn.getAttribute("data-tab-help"));
+          });
+        });
+
+        closeBtn.addEventListener("click", closeHelp);
+        modal.addEventListener("click", function (e) {
+          if (e.target === modal) closeHelp();
+        });
+        document.addEventListener("keydown", function (e) {
+          if (e.key === "Escape" && modal.style.display === "flex") closeHelp();
+        });
+      })();
+    </script>
   </body>
   </html>

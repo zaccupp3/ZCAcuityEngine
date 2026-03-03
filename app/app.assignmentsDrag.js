@@ -99,6 +99,19 @@ function roomPairKeyFromOwnerSitter(owner) {
   return String(owner?.sitterRoomPair || "").trim();
 }
 
+function findDesignatedSitterPcaForPatient(context, patient) {
+  if (!patient || !patient.sitter) return null;
+  const pair = roomPairKeyFromPatient(patient);
+  if (!pair) return null;
+  const pcas = getStaffArray(context, "pca") || [];
+  return (
+    pcas.find((owner) =>
+      !!owner?.isSitter &&
+      String(owner?.sitterRoomPair || "").trim() === pair
+    ) || null
+  );
+}
+
 // Prefer stable staff_id if present; fall back to local numeric id.
 function stableStaffId(owner) {
   if (!owner) return null;
@@ -342,6 +355,21 @@ function onRowDrop(event, context, role, newOwnerId) {
     }
     if (currentCountExcludingThis >= 2) {
       alert("Sitter assignment is capped at 2 patients.");
+      dragCtx = null;
+      return;
+    }
+  }
+
+  // If a patient maps to a configured sitter PCA room pair, only that sitter PCA can own it.
+  if (role === "pca") {
+    const p = (typeof window.getPatientById === "function") ? window.getPatientById(pid) : null;
+    const designatedSitter = findDesignatedSitterPcaForPatient(context, p);
+    if (designatedSitter && Number(designatedSitter.id) !== Number(toOwner?.id)) {
+      const pair = roomPairKeyFromPatient(p);
+      const sitterName = String(designatedSitter.name || `PCA ${designatedSitter.id}`);
+      alert(
+        `This patient is designated to sitter pair ${pair}A/${pair}B and can only be assigned to ${sitterName}.`
+      );
       dragCtx = null;
       return;
     }

@@ -266,6 +266,9 @@
   function renderHighRiskStructuredEditor() {
     const root = document.getElementById("highRiskStructuredEditor");
     if (!root) return;
+    root.style.maxWidth = "none";
+    root.style.margin = "0 0 12px 0";
+    root.style.padding = "2px 6px";
     const draft = refreshHighRiskDraftFromPatients();
     const sectionById = Object.fromEntries(EDITABLE_SECTIONS.map((s) => [s.id, s]));
     const autoLines = Object.fromEntries(AUTOFILL_SECTIONS.map((s) => [s.autoKey, roomsLine(s.autoKey)]));
@@ -283,12 +286,12 @@
       if (!rooms.length) return `<div style="font-size:13px; color:#64748b;">None</div>`;
       const rows = rooms.map((room) => `
         <div style="display:grid; grid-template-columns:auto minmax(0,1fr); gap:8px; align-items:start; margin-bottom:6px;">
-          <div style="display:inline-flex; align-items:center; justify-content:center; width:fit-content; padding:6px 10px; border:1px solid rgba(15,23,42,0.16); border-radius:10px; font-size:14px; line-height:1.1; background:#f8fafc; font-weight:800; color:#0f172a;">${escapeHtml(room)}</div>
-          <textarea data-hr-detail-room="${escapeHtml(s.id)}" data-room="${escapeHtml(room)}" rows="1" data-hr-autosize="1" placeholder="None" style="width:100%; resize:none; min-height:30px; padding:6px 10px; border:1px solid rgba(15,23,42,0.2); border-radius:10px; font-size:14px; line-height:1.25; color:#0f172a; overflow:hidden;">${escapeHtml(String(roomDetails[room] || ""))}</textarea>
+          <div style="display:inline-flex; align-items:center; justify-content:center; width:fit-content; padding:6px 10px; border:1px solid rgba(15,23,42,0.16); border-radius:10px; font-size:16px; line-height:1.1; background:#f8fafc; font-weight:800; color:#0f172a;">${escapeHtml(room)}</div>
+          <textarea data-hr-detail-room="${escapeHtml(s.id)}" data-room="${escapeHtml(room)}" rows="1" data-hr-autosize="1" placeholder="None" style="width:100%; resize:none; min-height:34px; padding:6px 10px; border:1px solid rgba(15,23,42,0.2); border-radius:10px; font-size:16px; line-height:1.22; color:#0f172a; overflow:hidden;">${escapeHtml(String(roomDetails[room] || ""))}</textarea>
         </div>
       `).join("");
       return `
-        <div style="font-weight:700; font-size:15px; text-decoration:underline; margin-bottom:4px;">${escapeHtml(title)}:</div>
+        <div style="font-weight:700; font-size:17px; text-decoration:underline; margin-bottom:4px;">${escapeHtml(title)}:</div>
         ${rows}
       `;
     }
@@ -298,26 +301,26 @@
       const title = customTitle || s?.label || id;
       const value = String(draft.details?.[id] || "");
       return `
-        <div style="font-weight:700; font-size:15px; text-decoration:underline; margin-bottom:4px;">${escapeHtml(title)}:</div>
-        <textarea data-hr-detail="${escapeHtml(id)}" rows="1" data-hr-autosize="1" placeholder="None" style="width:100%; resize:none; min-height:30px; padding:6px 10px; border:1px solid rgba(15,23,42,0.2); border-radius:10px; font-size:14px; line-height:1.25; color:#0f172a; overflow:hidden;">${escapeHtml(value)}</textarea>
+        <div style="font-weight:700; font-size:17px; text-decoration:underline; margin-bottom:4px;">${escapeHtml(title)}:</div>
+        <textarea data-hr-detail="${escapeHtml(id)}" rows="1" data-hr-autosize="1" placeholder="None" style="width:100%; resize:none; min-height:34px; padding:6px 10px; border:1px solid rgba(15,23,42,0.2); border-radius:10px; font-size:16px; line-height:1.22; color:#0f172a; overflow:hidden;">${escapeHtml(value)}</textarea>
       `;
     }
 
     function renderReadOnlySection(title, text) {
       return `
-        <div style="font-weight:700; font-size:15px; text-decoration:underline; margin-bottom:4px;">${escapeHtml(title)}:</div>
-        <div style="font-size:14px; line-height:1.22; white-space:pre-wrap; min-height:22px;">${escapeHtml(String(text || "None"))}</div>
+        <div style="font-weight:700; font-size:17px; text-decoration:underline; margin-bottom:4px;">${escapeHtml(title)}:</div>
+        <div style="font-size:16px; line-height:1.2; white-space:pre-wrap; min-height:24px;">${escapeHtml(String(text || "None"))}</div>
       `;
     }
 
     root.innerHTML = `
-      <div style="font-weight:900; font-size:28px; line-height:1.05; margin-bottom:8px; letter-spacing:-0.02em; color:#0f172a;">High-Risk Hand-Off Editor</div>
-      <div style="font-size:14px; color:#334155; margin-bottom:10px;">
+      <div style="font-weight:900; font-size:34px; line-height:1.02; margin-bottom:8px; letter-spacing:-0.02em; color:#0f172a;">High-Risk Hand-Off Editor</div>
+      <div style="font-size:16px; color:#334155; margin-bottom:10px;">
         Same structure as printed hand-off. Edit in place and print as shown.
       </div>
       <div style="border:1px solid #222; background:#fff;">
-        <div style="display:grid; grid-template-columns:2.3fr 1fr; border-bottom:1px solid #222;">
-          <div style="padding:6px; border-right:1px solid #222;">
+        <div style="display:grid; grid-template-columns:1.2fr 1fr .9fr 1.4fr; border-bottom:1px solid #222;">
+          <div style="padding:6px; border-right:1px solid #222; grid-column:1 / span 3;">
             ${renderAutoByRoomSection("drips", "GTT")}
             ${renderAutoByRoomSection("tube_feeds", "TF")}
           </div>
@@ -348,8 +351,8 @@
           <div style="padding:6px;">${renderReadOnlySection("Blood Glucose", autoLines.bg)}</div>
         </div>
 
-        <div style="display:grid; grid-template-columns:1.8fr 1fr; border-bottom:1px solid #222;">
-          <div style="padding:6px; border-right:1px solid #222;">${renderAutoByRoomSection("sitters", "Sitters")}</div>
+        <div style="display:grid; grid-template-columns:1.2fr 1fr .9fr 1.4fr; border-bottom:1px solid #222;">
+          <div style="padding:6px; border-right:1px solid #222; grid-column:1 / span 3;">${renderAutoByRoomSection("sitters", "Sitters")}</div>
           <div style="padding:6px;">
             ${renderFreeTextSection("co", "CO")}
             ${renderAutoByRoomSection("restraints", "Restraints")}
@@ -374,7 +377,7 @@
     root.querySelectorAll("textarea[data-hr-autosize]").forEach((el) => {
       const autoSize = () => {
         el.style.height = "0px";
-        el.style.height = `${Math.max(30, el.scrollHeight)}px`;
+        el.style.height = `${Math.max(34, el.scrollHeight)}px`;
       };
       autoSize();
       el.addEventListener("input", autoSize);
@@ -518,18 +521,21 @@
       <style>
         @page { size: 11in 8.5in; margin: 5mm; }
         .handoff-risk-page{ break-before:page; page-break-before:always; padding:2px 1px; font-family:"Times New Roman",serif; color:#000; }
-        .hr-title{ font-size:24px; font-weight:700; text-align:center; margin-bottom:4px; }
-        .hr-sheet{ border:1px solid #222; display:grid; grid-template-rows:1.45fr 1.1fr 1.1fr 1fr .65fr; min-height:7.75in; }
+        .hr-title{ font-size:30px; font-weight:700; text-align:center; margin-bottom:6px; }
+        .hr-sheet{ border:1px solid #222; display:grid; grid-auto-rows:minmax(26px, auto); }
         .hr-row{ display:grid; gap:0; min-height:0; align-items:stretch; }
         .hr-row + .hr-row{ border-top:1px solid #222; }
-        .hr-row-top{ grid-template-columns:2.3fr 1fr; }
+        .hr-row-top{ grid-template-columns:1.2fr 1fr .9fr 1.4fr; }
         .hr-row-mid4{ grid-template-columns:1.2fr 1fr .9fr 1.4fr; }
-        .hr-row-bottom{ grid-template-columns:1.8fr 1fr; }
+        .hr-row-bottom{ grid-template-columns:1.2fr 1fr .9fr 1.4fr; }
         .hr-row-endorse{ grid-template-columns:1fr; }
-        .hr-cell{ padding:3px 6px; min-height:34px; border-left:1px solid #222; display:flex; flex-direction:column; }
+        .hr-row-top .hr-cell:first-child{ grid-column:1 / span 3; }
+        .hr-row-bottom .hr-cell:first-child{ grid-column:1 / span 3; }
+        .hr-cell{ padding:2px 5px; min-height:24px; border-left:1px solid #222; display:flex; flex-direction:column; }
         .hr-cell:first-child{ border-left:none; }
-        .hr-cell-title{ font-weight:700; font-size:14px; text-decoration:underline; margin-bottom:1px; }
-        .hr-cell-value{ font-size:14px; line-height:1.22; white-space:pre-wrap; word-break:break-word; margin-bottom:2px; }
+        .hr-cell-title{ font-weight:700; font-size:15px; text-decoration:underline; margin-bottom:1px; }
+        .hr-cell-value{ font-size:15px; line-height:1.16; white-space:pre-wrap; word-break:break-word; margin-bottom:1px; }
+        .hr-row-endorse .hr-cell{ min-height:28px; }
       </style>
     `;
     if (htmlDoc.includes("</head>")) {
@@ -648,84 +654,49 @@
     `;
   }
 
-  function buildPrintHTMLNew(data) {
-    const now = new Date();
-    const dateMonDay = formatMonDay(now);
-    const shift = getShiftTypeLabel(data.rnCards, data.pcaCards);
-
-    const pcaTight = computePcaTightness(data.pcaCards);
-    const pcaCardsMode = (data.pcaCards || []).length >= 5 ? "5plus" : "lt5";
-
-    const topBar = `
-      <div class="topbar-grid">
-        <div class="topbar-card"><div class="topbar-label">CHG</div><div class="topbar-value">${escapeHtml(data.charge || "-")}</div></div>
-        <div class="topbar-card"><div class="topbar-label">CM</div><div class="topbar-value">${escapeHtml(data.mentor || "-")}</div></div>
-        <div class="topbar-card"><div class="topbar-label">CTA</div><div class="topbar-value">${escapeHtml(data.cta || "-")}</div></div>
-        <div class="topbar-card"><div class="topbar-label">DATE</div><div class="topbar-value">${escapeHtml(dateMonDay)}</div></div>
-        <div class="topbar-card"><div class="topbar-label">SHIFT</div><div class="topbar-value">${escapeHtml(shift)}</div></div>
-      </div>
-    `;
-
-    const rnCards = renderCardsNew(data.rnCards, { section: "Incoming RN Assignments", kind: "RN", headerHtml: topBar });
-    const pcaCards = renderCardsNew(data.pcaCards, { section: "Incoming PCA Assignments", kind: "PCA", headerHtml: topBar });
-
-    return `<!doctype html>
-<html>
-<head>
-<meta charset="utf-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Oncoming Assignments - Print</title>
-<style>
-  :root{ --ink:#0f172a; --panel:#fff; --panel-border:#e2e8f0; --panel-shadow:0 1px 0 rgba(15,23,42,.05); --table-head:#eef5ff; --row-divider:#e5e7eb; }
-  *{ box-sizing:border-box; }
-  html,body{ margin:0; padding:0; color:var(--ink); font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif; background:#fff; }
-  @page { margin:5mm; size:11in 8.5in; }
-  .print-wrap{ width:100%; max-width:10.9in; margin:0 auto; }
-  .topbar-grid{ display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:8px; margin:0 0 8px; }
-  .topbar-card{ background:var(--panel); border:1px solid var(--panel-border); border-radius:10px; padding:7px 10px; box-shadow:var(--panel-shadow); overflow:hidden; text-align:center; }
-  .topbar-label{ font-size:10.5px; font-weight:950; letter-spacing:.08em; text-transform:uppercase; margin-bottom:2px; }
-  .topbar-value{ font-size:12.5px; font-weight:900; line-height:1.1; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-  .section-title{ margin:8px 0 6px; font-size:12px; font-weight:1000; letter-spacing:.08em; text-transform:uppercase; }
-  .print-section.pca-section{ break-before:page; page-break-before:always; }
-  .grid-rn{ display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:8px; }
-  .grid-pca{ display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; }
-  .card{ background:var(--panel); border:1px solid var(--panel-border); border-radius:10px; box-shadow:var(--panel-shadow); overflow:hidden; break-inside:avoid; page-break-inside:avoid; }
-  .card-head{ padding:6px 10px 5px; font-weight:900; font-size:12px; }
-  table{ width:100%; border-collapse:collapse; table-layout:fixed; }
-  thead th{ background:var(--table-head); font-size:11px; font-weight:1000; padding:6px 8px; border-bottom:1px solid var(--row-divider); text-align:center; }
-  tbody td{ padding:6px 8px; border-bottom:1px solid var(--row-divider); font-size:11px; font-weight:800; }
-  tbody tr:last-child td{ border-bottom:none; }
-  .col-room{ width:62px; text-align:center; }
-  .col-level{ width:58px; text-align:center; }
-  .col-notes{ width:60%; text-align:center; }
-  .pca thead th,.pca tbody td{ padding-top:6px; padding-bottom:6px; font-size:11px; line-height:1.15; }
-  body[data-pca-tight="1"] .pca thead th, body[data-pca-tight="1"] .pca tbody td{ padding-top:4px; padding-bottom:4px; font-size:10.3px; line-height:1.12; }
-  body[data-pca-tight="2"] .pca thead th, body[data-pca-tight="2"] .pca tbody td{ padding-top:3px; padding-bottom:3px; font-size:10px; line-height:1.08; }
-  body[data-pca-tight="3"] .pca thead th, body[data-pca-tight="3"] .pca tbody td{ padding-top:2px; padding-bottom:2px; font-size:9.7px; line-height:1.05; }
-  @media screen and (max-width:980px){ .grid-rn{ grid-template-columns:repeat(2,minmax(0,1fr)); } .topbar-grid{ grid-template-columns:1fr; } .grid-pca{ grid-template-columns:1fr; } }
-</style>
-</head>
-<body data-pca-tight="${pcaTight}" data-pca-cards="${pcaCardsMode}">
-  <div class="print-wrap">${rnCards}${pcaCards}</div>
-</body>
-</html>`;
-  }
-
-  function renderTraditionalPcaSummary(pcaCards) {
-    const rows = (pcaCards || []).map((c) => {
+  function renderTraditionalPcaRow(pcaCards) {
+    const cards = (pcaCards || []).map((c) => {
       const rooms = (c.rows || [])
         .map((r) => stripPins(r.room || ""))
         .filter(Boolean)
         .sort((a, b) => roomSortKey(a).localeCompare(roomSortKey(b)));
-      return `<tr><td class="name">${escapeHtml(c.title || "Incoming PCA")}</td><td class="count">${rooms.length}</td><td class="rooms">${escapeHtml(rooms.join(", "))}</td></tr>`;
+
+      return `
+        <div class="trad-pca-card">
+          <div class="trad-pca-head">${escapeHtml(c.title || "Incoming PCA")}</div>
+          <table>
+            <thead><tr><th>PTS</th><th>PATIENT LIST</th></tr></thead>
+            <tbody><tr><td>${rooms.length}</td><td>${escapeHtml(rooms.join(", "))}</td></tr></tbody>
+          </table>
+        </div>
+      `;
     }).join("");
 
-    return `
-      <table class="trad-pca-table">
-        <thead><tr><th>PCA</th><th>PTS</th><th>PATIENT LIST</th></tr></thead>
-        <tbody>${rows || `<tr><td colspan="3">No PCA assignments found.</td></tr>`}</tbody>
-      </table>
-    `;
+    return cards || `<div class="trad-empty">No PCA assignments found.</div>`;
+  }
+
+  function renderModernPcaExpandedRow(pcaCards) {
+    const cards = (pcaCards || []).map((c) => {
+      const rows = (c.rows || []).map((r) => `
+        <tr>
+          <td>${escapeHtml(stripPins(r.room || ""))}</td>
+          <td>${escapeHtml(r.level || "")}</td>
+          <td>${escapeHtml(r.notes || "")}</td>
+        </tr>
+      `).join("");
+
+      return `
+        <div class="trad-pca-card">
+          <div class="trad-pca-head">${escapeHtml(c.title || "Incoming PCA")}</div>
+          <table>
+            <thead><tr><th>BED</th><th>ACTY</th><th>ACUITY NOTES</th></tr></thead>
+            <tbody>${rows}</tbody>
+          </table>
+        </div>
+      `;
+    }).join("");
+
+    return cards || `<div class="trad-empty">No PCA assignments found.</div>`;
   }
 
   function renderTraditionalRnGrid(rnCards) {
@@ -757,6 +728,7 @@
     const shiftDate = getShiftDateLabel();
     const shift = getShiftTypeLabel(data.rnCards, data.pcaCards);
     const openRooms = getOpenRoomLabels();
+    const pcaCols = Math.max(1, Math.min(8, (data.pcaCards || []).length || 1));
 
     return `<!doctype html>
 <html>
@@ -779,11 +751,26 @@
   th,td{ border:1px solid #111; padding:3px 4px; font-size:12px; vertical-align:top; }
   th{ background:#f3f4f6; text-align:center; font-weight:700; }
   .trad-pca-wrap{ margin-top:8px; }
-  .trad-pca-table{ table-layout:auto; }
-  .trad-pca-table th, .trad-pca-table td{ padding:2px 4px; font-size:11px; line-height:1.15; }
-  .trad-pca-table td.name{ width:30%; font-weight:700; white-space:nowrap; }
-  .trad-pca-table th:nth-child(2), .trad-pca-table td.count{ width:40px; text-align:center; white-space:nowrap; }
-  .trad-pca-table td.rooms{ white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .trad-pca-row{
+    display:grid;
+    grid-template-columns:repeat(var(--pca-cols), minmax(0, 1fr));
+    gap:6px;
+  }
+  .trad-pca-card{
+    border:1px solid #111;
+    min-width:0;
+  }
+  .trad-pca-head{
+    border-bottom:1px solid #111;
+    text-align:center;
+    font-weight:700;
+    padding:3px 2px;
+    font-size:12px;
+  }
+  .trad-pca-card table{ table-layout:fixed; }
+  .trad-pca-card th, .trad-pca-card td{ padding:2px 3px; line-height:1.05; font-size:10px; }
+  .trad-pca-card th:nth-child(1), .trad-pca-card td:nth-child(1){ width:22%; text-align:center; font-weight:700; }
+  .trad-pca-card th:nth-child(2), .trad-pca-card td:nth-child(2){ text-align:left; }
   .trad-rn-grid{ display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:8px; }
   .trad-rn-head{ border:1px solid #111; border-bottom:none; text-align:center; font-weight:700; padding:4px 3px; font-size:13px; }
   .trad-rn-card table{ table-layout:fixed; }
@@ -814,49 +801,88 @@
     <div class="trad-rn-grid">${renderTraditionalRnGrid(data.rnCards)}</div>
     <div class="box trad-pca-wrap">
       <div class="title">PCA Assignments</div>
-      ${renderTraditionalPcaSummary(data.pcaCards)}
+      <div class="trad-pca-row" style="--pca-cols:${pcaCols};">
+        ${renderTraditionalPcaRow(data.pcaCards)}
+      </div>
     </div>
   </div>
 </body>
 </html>`;
   }
 
-  function showPrintModeChooser() {
-    return new Promise((resolve) => {
-      const backdrop = document.createElement("div");
-      backdrop.style.cssText = [
-        "position:fixed", "inset:0", "background:rgba(15,23,42,0.45)",
-        "display:flex", "align-items:center", "justify-content:center", "z-index:9999"
-      ].join(";");
+  function buildPrintHTMLNew(data) {
+    const shiftDate = getShiftDateLabel();
+    const shift = getShiftTypeLabel(data.rnCards, data.pcaCards);
+    const openRooms = getOpenRoomLabels();
+    const pcaCols = Math.max(1, Math.min(8, (data.pcaCards || []).length || 1));
 
-      const card = document.createElement("div");
-      card.style.cssText = [
-        "width:min(420px,92vw)", "background:#fff", "border:1px solid rgba(15,23,42,0.2)",
-        "border-radius:12px", "padding:14px", "box-shadow:0 18px 40px rgba(2,6,23,0.25)"
-      ].join(";");
-
-      card.innerHTML = `
-        <div style="font-weight:800; font-size:14px; margin-bottom:10px;">Oncoming Print Format</div>
-        <div style="display:flex; gap:8px; flex-wrap:wrap;">
-          <button id="printOncomingModeNew" type="button" style="padding:8px 12px; font-weight:700;">New / Expanded</button>
-          <button id="printOncomingModeTraditional" type="button" style="padding:8px 12px; font-weight:700;">Traditional</button>
-          <button id="printOncomingModeCancel" type="button" style="padding:8px 12px;">Cancel</button>
-        </div>
-      `;
-
-      backdrop.appendChild(card);
-      document.body.appendChild(backdrop);
-
-      const close = (mode) => {
-        try { backdrop.remove(); } catch (_) {}
-        resolve(mode || null);
-      };
-
-      card.querySelector("#printOncomingModeNew")?.addEventListener("click", () => close("new"));
-      card.querySelector("#printOncomingModeTraditional")?.addEventListener("click", () => close("traditional"));
-      card.querySelector("#printOncomingModeCancel")?.addEventListener("click", () => close(null));
-      backdrop.addEventListener("click", (e) => { if (e.target === backdrop) close(null); });
-    });
+    return `<!doctype html>
+<html>
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Oncoming Assignments - Print (Modern)</title>
+<style>
+  *{ box-sizing:border-box; }
+  html,body{ margin:0; padding:0; background:#fff; color:#111827; font-family:"Times New Roman", serif; }
+  @page { margin:5mm; size:11in 8.5in; }
+  .wrap{ padding:2px; width:100%; max-width:10.9in; margin:0 auto; }
+  .top{ display:grid; grid-template-columns:1.5fr 1.1fr; gap:8px; margin-bottom:8px; align-items:stretch; }
+  .box{ border:1px solid #111; padding:6px 8px; min-height:62px; }
+  .title{ font-weight:700; font-size:13px; text-align:center; margin-bottom:4px; }
+  .center-line{ text-align:center; font-weight:700; margin:4px 0; font-size:12px; line-height:1.2; }
+  .right-top{ text-align:center; font-size:30px; font-weight:700; line-height:1.04; margin-bottom:3px; }
+  .open-rooms{ font-size:11px; line-height:1.22; word-break:break-word; }
+  table{ width:100%; border-collapse:collapse; table-layout:fixed; }
+  th,td{ border:1px solid #111; padding:3px 4px; font-size:12px; vertical-align:top; }
+  th{ background:#f3f4f6; text-align:center; font-weight:700; }
+  .trad-pca-wrap{ margin-top:8px; }
+  .trad-pca-row{ display:grid; grid-template-columns:repeat(var(--pca-cols), minmax(0, 1fr)); gap:6px; }
+  .trad-pca-card{ border:1px solid #111; min-width:0; }
+  .trad-pca-head{ border-bottom:1px solid #111; text-align:center; font-weight:700; padding:3px 2px; font-size:12px; }
+  .trad-pca-card table{ table-layout:fixed; }
+  .trad-pca-card th, .trad-pca-card td{ padding:2px 3px; line-height:1.05; font-size:10px; }
+  .trad-pca-card th:nth-child(1), .trad-pca-card td:nth-child(1){ width:24%; text-align:center; font-weight:700; }
+  .trad-pca-card th:nth-child(2), .trad-pca-card td:nth-child(2){ width:18%; text-align:center; font-weight:700; }
+  .trad-pca-card th:nth-child(3){ text-align:center; }
+  .trad-pca-card td:nth-child(3){ text-align:left; }
+  .trad-rn-grid{ display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:8px; }
+  .trad-rn-head{ border:1px solid #111; border-bottom:none; text-align:center; font-weight:700; padding:4px 3px; font-size:13px; }
+  .trad-rn-card table{ table-layout:fixed; }
+  .trad-rn-card th, .trad-rn-card td{ padding:2px 3px; line-height:1.05; font-size:11px; }
+  .trad-rn-card th:nth-child(1), .trad-rn-card td:nth-child(1){ width:30%; text-align:center; font-weight:700; }
+  .trad-rn-card th:nth-child(2), .trad-rn-card td:nth-child(2){ width:16%; text-align:center; font-weight:700; }
+  .trad-rn-card th:nth-child(3){ text-align:center; }
+  .trad-rn-card td:nth-child(3){ text-align:left; }
+  .trad-empty{ border:1px solid #111; padding:8px; font-size:12px; }
+  @media print { .wrap{ padding:0; } }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="top">
+      <div class="box">
+        <div class="title">Leadership Team</div>
+        <div class="center-line">Charge Nurse: ${escapeHtml(data.charge || "-")}</div>
+        <div class="center-line">Clinical Mentor/Resource: ${escapeHtml(data.mentor || "-")}</div>
+        <div class="center-line">CTA: ${escapeHtml(data.cta || "-")}</div>
+      </div>
+      <div class="box">
+        <div class="right-top">${escapeHtml(shiftDate)} ${escapeHtml(shift)}</div>
+        <div class="title">Room Availability</div>
+        <div class="open-rooms">${escapeHtml(openRooms.join(", ") || "None")}</div>
+      </div>
+    </div>
+    <div class="trad-rn-grid">${renderTraditionalRnGrid(data.rnCards)}</div>
+    <div class="box trad-pca-wrap">
+      <div class="title">PCA Assignments</div>
+      <div class="trad-pca-row" style="--pca-cols:${pcaCols};">
+        ${renderModernPcaExpandedRow(data.pcaCards)}
+      </div>
+    </div>
+  </div>
+</body>
+</html>`;
   }
 
   function getOrCreatePreviewOverlay() {
@@ -880,7 +906,11 @@
       <div style="width:min(1200px,98vw); height:min(92vh,980px); background:#fff; border-radius:12px; overflow:hidden; border:1px solid rgba(15,23,42,0.18); box-shadow:0 18px 45px rgba(2,6,23,0.35); display:flex; flex-direction:column;">
         <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; padding:10px 12px; border-bottom:1px solid rgba(15,23,42,0.12); background:#f8fafc;">
           <div id="printPreviewOncomingTitle" style="font-weight:800; font-size:13px; color:#0f172a;">Oncoming Print Preview</div>
-          <div style="display:flex; gap:8px;">
+          <div id="printPreviewOncomingModeSwitch" style="display:flex; gap:6px;">
+            <button id="printPreviewModeNew" type="button" style="padding:6px 10px; font-weight:700;">New / Expanded</button>
+            <button id="printPreviewModeTraditional" type="button" style="padding:6px 10px; font-weight:700;">Traditional</button>
+          </div>
+          <div style="display:flex; gap:8px; margin-left:auto;">
             <button id="printPreviewOncomingDoPrint" type="button" style="padding:6px 12px; font-weight:700;">Print / Save PDF</button>
             <button id="printPreviewOncomingClose" type="button" style="padding:6px 10px;">Close</button>
           </div>
@@ -893,16 +923,25 @@
     return overlay;
   }
 
-  function openInAppPrintPreview(html, modeLabel) {
+  function openInAppPrintPreview(html, modeLabel, opts = {}) {
     const overlay = getOrCreatePreviewOverlay();
     const frame = overlay.querySelector("#printPreviewOncomingFrame");
     const title = overlay.querySelector("#printPreviewOncomingTitle");
     const btnPrint = overlay.querySelector("#printPreviewOncomingDoPrint");
     const btnClose = overlay.querySelector("#printPreviewOncomingClose");
+    const modeWrap = overlay.querySelector("#printPreviewOncomingModeSwitch");
+    const btnModeNew = overlay.querySelector("#printPreviewModeNew");
+    const btnModeTraditional = overlay.querySelector("#printPreviewModeTraditional");
 
     if (!frame || !btnPrint || !btnClose) return;
 
     if (title) title.textContent = `Oncoming Print Preview (${modeLabel})`;
+    const activeMode = String(opts.mode || "new").toLowerCase();
+    const allowSwitch = !!opts.allowModeSwitch;
+    if (modeWrap) modeWrap.style.display = allowSwitch ? "flex" : "none";
+    if (btnModeNew) btnModeNew.style.opacity = activeMode === "new" ? "1" : "0.65";
+    if (btnModeTraditional) btnModeTraditional.style.opacity = activeMode === "traditional" ? "1" : "0.65";
+
     frame.srcdoc = html;
     overlay.style.display = "flex";
 
@@ -913,6 +952,16 @@
 
     btnClose.onclick = close;
     overlay.onclick = (e) => { if (e.target === overlay) close(); };
+    if (btnModeNew) {
+      btnModeNew.onclick = () => {
+        if (typeof window.__oncomingPreviewRerender === "function") window.__oncomingPreviewRerender("new");
+      };
+    }
+    if (btnModeTraditional) {
+      btnModeTraditional.onclick = () => {
+        if (typeof window.__oncomingPreviewRerender === "function") window.__oncomingPreviewRerender("traditional");
+      };
+    }
     btnPrint.onclick = () => {
       try {
         frame.contentWindow?.focus();
@@ -943,28 +992,43 @@
     return html;
   }
 
+  function collectOncomingPrintData() {
+    return {
+      charge: getValueById("incomingChargeName"),
+      mentor: getValueById("incomingMentorName"),
+      cta: getValueById("incomingCtaName"),
+      rnCards: extractCardsFrom("assignmentOutput", "RN"),
+      pcaCards: extractCardsFrom("pcaAssignmentOutput", "PCA"),
+    };
+  }
+
+  function buildOncomingPreviewDoc(mode, includePacket) {
+    const selectedMode = String(mode || "new").toLowerCase() === "traditional" ? "traditional" : "new";
+    const data = collectOncomingPrintData();
+    const assignmentHtml = selectedMode === "traditional"
+      ? buildPrintHTMLTraditional(data)
+      : buildPrintHTMLNew(data);
+    if (!includePacket) return assignmentHtml;
+    refreshHighRiskDraftFromPatients();
+    const handoffInput = collectHighRiskDraftFromUi();
+    return appendHighRiskSectionToDocument(
+      assignmentHtml,
+      buildHighRiskHandoffSection(handoffInput)
+    );
+  }
+
   async function openPrintPreview(mode) {
     try {
-      let selectedMode = String(mode || "").toLowerCase();
-      if (selectedMode !== "new" && selectedMode !== "traditional") {
-        selectedMode = (await showPrintModeChooser()) || "";
-        if (!selectedMode) return;
-      }
-
-      const data = {
-        charge: getValueById("incomingChargeName"),
-        mentor: getValueById("incomingMentorName"),
-        cta: getValueById("incomingCtaName"),
-        rnCards: extractCardsFrom("assignmentOutput", "RN"),
-        pcaCards: extractCardsFrom("pcaAssignmentOutput", "PCA"),
+      const selectedMode = String(mode || "new").toLowerCase() === "traditional" ? "traditional" : "new";
+      window.__oncomingPreviewRerender = (nextMode) => {
+        const m = String(nextMode || "new").toLowerCase() === "traditional" ? "traditional" : "new";
+        const doc = buildOncomingPreviewDoc(m, false);
+        const lbl = m === "traditional" ? "Traditional" : "New / Expanded";
+        openInAppPrintPreview(doc, lbl, { mode: m, allowModeSwitch: true });
       };
-
-      const html = selectedMode === "traditional"
-        ? buildPrintHTMLTraditional(data)
-        : buildPrintHTMLNew(data);
-
+      const html = buildOncomingPreviewDoc(selectedMode, false);
       const modeLabel = selectedMode === "traditional" ? "Traditional" : "New / Expanded";
-      openInAppPrintPreview(html, modeLabel);
+      openInAppPrintPreview(html, modeLabel, { mode: selectedMode, allowModeSwitch: true });
     } catch (e) {
       console.error("[printOncoming] open() error:", e);
       alert("Print failed. See console for details.");
@@ -973,33 +1037,16 @@
 
   async function openPacketPreview(mode) {
     try {
-      let selectedMode = String(mode || "").toLowerCase();
-      if (selectedMode !== "new" && selectedMode !== "traditional") {
-        selectedMode = (await showPrintModeChooser()) || "";
-        if (!selectedMode) return;
-      }
-
-      refreshHighRiskDraftFromPatients();
-      const handoffInput = collectHighRiskDraftFromUi();
-
-      const data = {
-        charge: getValueById("incomingChargeName"),
-        mentor: getValueById("incomingMentorName"),
-        cta: getValueById("incomingCtaName"),
-        rnCards: extractCardsFrom("assignmentOutput", "RN"),
-        pcaCards: extractCardsFrom("pcaAssignmentOutput", "PCA"),
+      const selectedMode = String(mode || "new").toLowerCase() === "traditional" ? "traditional" : "new";
+      window.__oncomingPreviewRerender = (nextMode) => {
+        const m = String(nextMode || "new").toLowerCase() === "traditional" ? "traditional" : "new";
+        const doc = buildOncomingPreviewDoc(m, true);
+        const lbl = `Hand-Off Packet • ${m === "traditional" ? "Traditional" : "New / Expanded"}`;
+        openInAppPrintPreview(doc, lbl, { mode: m, allowModeSwitch: true });
       };
-
-      const assignmentHtml = selectedMode === "traditional"
-        ? buildPrintHTMLTraditional(data)
-        : buildPrintHTMLNew(data);
-      const packetHtml = appendHighRiskSectionToDocument(
-        assignmentHtml,
-        buildHighRiskHandoffSection(handoffInput)
-      );
-
+      const packetHtml = buildOncomingPreviewDoc(selectedMode, true);
       const modeLabel = `Hand-Off Packet • ${selectedMode === "traditional" ? "Traditional" : "New / Expanded"}`;
-      openInAppPrintPreview(packetHtml, modeLabel);
+      openInAppPrintPreview(packetHtml, modeLabel, { mode: selectedMode, allowModeSwitch: true });
     } catch (e) {
       console.error("[printOncoming] openPacketPreview() error:", e);
       alert("Packet preview failed. See console for details.");
@@ -1011,7 +1058,8 @@
       refreshHighRiskDraftFromPatients();
       const handoffInput = collectHighRiskDraftFromUi();
       const html = buildHighRiskOnlyDocument(handoffInput);
-      openInAppPrintPreview(html, "High-Risk Hand-Off");
+      window.__oncomingPreviewRerender = null;
+      openInAppPrintPreview(html, "High-Risk Hand-Off", { allowModeSwitch: false });
     } catch (e) {
       console.error("[printOncoming] openHighRiskOnlyPreview() error:", e);
       alert("High-Risk preview failed. See console for details.");

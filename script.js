@@ -69,9 +69,7 @@
 
     // Header print action (tab-contextual)
     const packetBtn = document.getElementById("topPrintPacketBtn");
-    if (packetBtn) packetBtn.style.display = sectionId === "oncomingAssignmentTab" ? "" : "none";
-    const headerDivider = document.getElementById("headerPacketUnitDivider");
-    if (headerDivider) headerDivider.style.display = sectionId === "oncomingAssignmentTab" ? "" : "none";
+    if (packetBtn) packetBtn.style.display = "";
 
     // Under-discharge-bin print actions (tab-contextual)
     const globalLivePrintBtn = document.getElementById("globalPrintLiveBtn");
