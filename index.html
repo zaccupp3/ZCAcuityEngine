@@ -360,6 +360,85 @@
     .tab-help-body li {
       margin: 4px 0;
     }
+
+    /* Brand-value modal (hidden behind logo dot click) */
+    .brand-value-modal {
+      position: fixed;
+      inset: 0;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 1470;
+      background: rgba(2, 6, 23, 0.52);
+      padding: 14px;
+      box-sizing: border-box;
+    }
+    .brand-value-card {
+      width: min(880px, 96vw);
+      max-height: min(780px, 94vh);
+      background: #fff;
+      border: 1px solid rgba(15, 23, 42, 0.16);
+      border-radius: 14px;
+      box-shadow: 0 26px 55px rgba(2, 6, 23, 0.3);
+      display: grid;
+      grid-template-rows: auto 1fr;
+      overflow: hidden;
+    }
+    .brand-value-topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 10px 12px;
+      border-bottom: 1px solid rgba(15, 23, 42, 0.1);
+      background: #f8fafc;
+    }
+    .brand-value-title {
+      font-size: 14px;
+      font-weight: 900;
+      color: #0f172a;
+    }
+    .brand-value-close {
+      border: 1px solid rgba(15, 23, 42, 0.22);
+      border-radius: 9px;
+      background: #fff;
+      color: #0f172a;
+      padding: 6px 10px;
+      font-size: 12px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+    .brand-value-body {
+      overflow: auto;
+      padding: 12px 14px;
+      color: #1e293b;
+      font-size: 14px;
+      line-height: 1.45;
+    }
+    .brand-value-body h4 {
+      margin: 0 0 8px;
+      font-size: 16px;
+      color: #0f172a;
+    }
+    .brand-value-body ul {
+      margin: 0 0 10px 18px;
+      padding: 0;
+    }
+    .brand-value-body li {
+      margin: 4px 0;
+    }
+    .brand-value-note {
+      margin-top: 10px;
+      padding: 8px 10px;
+      border: 1px solid rgba(15, 23, 42, 0.12);
+      border-radius: 10px;
+      background: #f8fafc;
+      font-size: 12px;
+      color: #334155;
+    }
+    .brand-dot {
+      cursor: pointer;
+    }
   </style>
 </head>
 <body>
@@ -1135,6 +1214,56 @@
     </div>
   </div>
 
+  <!-- Hidden value/evidence modal (trigger: brand color square) -->
+  <div id="brandValueModal" class="brand-value-modal" aria-hidden="true">
+    <div class="brand-value-card" role="dialog" aria-modal="true" aria-label="Why this platform matters">
+      <div class="brand-value-topbar">
+        <div class="brand-value-title">Why This Platform Is Needed (Objective Summary)</div>
+        <button id="brandValueCloseBtn" type="button" class="brand-value-close">Close</button>
+      </div>
+      <div class="brand-value-body">
+        <h4>What this replaces in manual process</h4>
+        <ul>
+          <li>Manual balancing by memory, whiteboard, and verbal handoff only.</li>
+          <li>High variation in assignment fairness and continuity depending on who is building the grid.</li>
+          <li>Higher chance of omissions when tracking restrictions, sitter pairing, and acuity handoff details.</li>
+        </ul>
+
+        <h4>Evidence-based context (published external data)</h4>
+        <ul>
+          <li><strong>Communication/handoff quality matters:</strong> structured handoff bundles (I-PASS) were associated with a <strong>23% reduction in medical errors</strong> and <strong>30% reduction in preventable adverse events</strong>, without increasing handoff time in a multicenter study.</li>
+          <li><strong>Staffing burden matters:</strong> in a major hospital staffing study, each additional patient per RN was associated with a <strong>7% increase in mortality odds</strong> and <strong>7% increase in failure-to-rescue odds</strong>; burnout and job dissatisfaction also increased.</li>
+          <li><strong>HAI burden remains significant:</strong> CDC reports about <strong>1 in 31</strong> hospitalized patients has at least one healthcare-associated infection on any given day.</li>
+        </ul>
+
+        <h4>Estimated local operational impact of this platform (modeled, not yet outcome-validated)</h4>
+        <ul>
+          <li><strong>Assignment build speed:</strong> typically projected at <strong>40-75% less manual effort</strong> vs. fully manual room-by-room balancing once tags are current.</li>
+          <li><strong>Rebalance cycles:</strong> projected <strong>60-85% faster</strong> than manual reshuffling, with immediate audit of constraints (pins, sitter pairing, restrictions).</li>
+          <li><strong>Manual assignment errors/omissions:</strong> projected <strong>20-50% fewer</strong> preventable handoff omissions through standardized fields, auto-populated high-risk sections, and explicit lock logic.</li>
+          <li><strong>Downstream workforce effect:</strong> improved spread and continuity should reduce avoidable high-burden outliers and potentially lower burnout pressure over time.</li>
+          <li><strong>Patient safety downstream:</strong> by reducing communication and assignment variability, platform use is expected to support lower risk of preventable harm, including events linked to missed surveillance and delayed escalation.</li>
+        </ul>
+
+        <h4>Why this matters at leadership level</h4>
+        <ul>
+          <li>Creates repeatable, transparent assignment logic rather than person-dependent methods.</li>
+          <li>Provides a defensible process for fairness, continuity, and compliance constraints.</li>
+          <li>Builds a dataset for future Unit Metrics reporting and quality-improvement projects.</li>
+        </ul>
+
+        <div class="brand-value-note">
+          <strong>Important:</strong> “Estimated local impact” values are operational projections based on current workflow structure and published literature context, not yet a formal outcome study of this specific deployment.
+          <br /><br />
+          <strong>Evidence links:</strong>
+          <br />1) NEJM I-PASS (2014): https://pubmed.ncbi.nlm.nih.gov/25372088/
+          <br />2) JAMA nurse staffing (2002): https://doi.org/10.1001/jama.288.16.1987
+          <br />3) CDC HAI data: https://www.cdc.gov/healthcare-associated-infections/php/data/
+        </div>
+      </div>
+    </div>
+  </div>
+
     <!-- =====================================================
          ✅ SCRIPT ORDER FIX (cache-busters updated)
     ===================================================== -->
@@ -1383,6 +1512,33 @@
         });
         document.addEventListener("keydown", function (e) {
           if (e.key === "Escape" && modal.style.display === "flex") closeHelp();
+        });
+      })();
+    </script>
+    <script>
+      (function () {
+        const trigger = document.querySelector(".brand-dot");
+        const modal = document.getElementById("brandValueModal");
+        const closeBtn = document.getElementById("brandValueCloseBtn");
+        if (!trigger || !modal || !closeBtn) return;
+
+        function openModal() {
+          modal.style.display = "flex";
+          modal.setAttribute("aria-hidden", "false");
+        }
+        function closeModal() {
+          modal.style.display = "none";
+          modal.setAttribute("aria-hidden", "true");
+        }
+
+        trigger.setAttribute("title", "About platform impact");
+        trigger.addEventListener("click", openModal);
+        closeBtn.addEventListener("click", closeModal);
+        modal.addEventListener("click", function (e) {
+          if (e.target === modal) closeModal();
+        });
+        document.addEventListener("keydown", function (e) {
+          if (e.key === "Escape" && modal.style.display === "flex") closeModal();
         });
       })();
     </script>
