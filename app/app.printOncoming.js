@@ -520,9 +520,24 @@
     const style = `
       <style>
         @page { size: 11in 8.5in; margin: 5mm; }
-        .handoff-risk-page{ break-before:page; page-break-before:always; padding:2px 1px; font-family:"Times New Roman",serif; color:#000; }
-        .hr-title{ font-size:30px; font-weight:700; text-align:center; margin-bottom:6px; }
-        .hr-sheet{ border:1px solid #222; display:grid; grid-auto-rows:minmax(26px, auto); }
+        .handoff-risk-page{
+          break-before:page;
+          page-break-before:always;
+          padding:2px 1px;
+          font-family:"Times New Roman",serif;
+          color:#000;
+          min-height:7.9in;
+          display:flex;
+          flex-direction:column;
+        }
+        .hr-title{ font-size:31px; font-weight:700; text-align:center; margin-bottom:6px; }
+        .hr-sheet{
+          border:1px solid #222;
+          display:grid;
+          grid-template-rows:1.25fr 1fr 1fr 1fr .6fr;
+          min-height:7.35in;
+          flex:1;
+        }
         .hr-row{ display:grid; gap:0; min-height:0; align-items:stretch; }
         .hr-row + .hr-row{ border-top:1px solid #222; }
         .hr-row-top{ grid-template-columns:1.2fr 1fr .9fr 1.4fr; }
@@ -533,8 +548,8 @@
         .hr-row-bottom .hr-cell:first-child{ grid-column:1 / span 3; }
         .hr-cell{ padding:2px 5px; min-height:24px; border-left:1px solid #222; display:flex; flex-direction:column; }
         .hr-cell:first-child{ border-left:none; }
-        .hr-cell-title{ font-weight:700; font-size:15px; text-decoration:underline; margin-bottom:1px; }
-        .hr-cell-value{ font-size:15px; line-height:1.16; white-space:pre-wrap; word-break:break-word; margin-bottom:1px; }
+        .hr-cell-title{ font-weight:700; font-size:16px; text-decoration:underline; margin-bottom:1px; }
+        .hr-cell-value{ font-size:15.5px; line-height:1.16; white-space:pre-wrap; word-break:break-word; margin-bottom:1px; }
         .hr-row-endorse .hr-cell{ min-height:28px; }
       </style>
     `;
@@ -723,12 +738,139 @@
     return cards || `<div class="trad-empty">No RN assignments found.</div>`;
   }
 
+  function renderLegacyWorksheetPcaRows(pcaCards, fallbackName) {
+    const rows = (pcaCards || [])
+      .filter((c) => !isHoldOwnerTitle(c?.title) && !isSitterOwnerTitle(c?.title))
+      .map((c) => {
+      const rooms = (c.rows || [])
+        .map((r) => stripPins(r.room || ""))
+        .filter(Boolean)
+        .sort((a, b) => roomSortKey(a).localeCompare(roomSortKey(b)));
+      const title = String(c.title || fallbackName || "PCA").trim();
+      return `<tr><td class="pca-name">${escapeHtml(title)}</td><td class="num">${rooms.length}</td><td class="pca-rooms">${escapeHtml(rooms.join(", ")) || "-"}</td></tr>`;
+    }).join("");
+    return rows || `<tr><td colspan="3">None</td></tr>`;
+  }
+
+  function isHoldOwnerTitle(title) {
+    const t = String(title || "").toLowerCase();
+    return t.includes("needs to be assigned") || t.includes("(hold)") || t.includes("hold");
+  }
+
+  function isSitterOwnerTitle(title) {
+    const t = String(title || "").toLowerCase();
+    return /\bsitter\b/.test(t);
+  }
+
+  function collectHoldRoomsFromCards(cards) {
+    const out = [];
+    (Array.isArray(cards) ? cards : []).forEach((c) => {
+      if (!isHoldOwnerTitle(c?.title)) return;
+      (Array.isArray(c.rows) ? c.rows : []).forEach((r) => {
+        const room = stripPins(r?.room || "");
+        if (room) out.push(room);
+      });
+    });
+    return Array.from(new Set(out)).sort((a, b) => roomSortKey(a).localeCompare(roomSortKey(b)));
+  }
+
+  function renderLegacyWorksheetSpecialRows(pcaCards) {
+    const cards = Array.isArray(pcaCards) ? pcaCards : [];
+    const sitter = [];
+    const vpo = [];
+    cards.forEach((c) => {
+      const title = String(c.title || "PCA").trim();
+      const rows = Array.isArray(c.rows) ? c.rows : [];
+      const rooms = rows.map((r) => stripPins(r.room || "")).filter(Boolean);
+      const hasSitter = isSitterOwnerTitle(title) || rows.some((r) => /sitter/i.test(String(r.notes || "")));
+      const hasVpo = rows.some((r) => /vpo/i.test(String(r.notes || "")));
+      if (hasSitter) sitter.push({ title, rooms: Array.from(new Set(rooms)).sort((a, b) => roomSortKey(a).localeCompare(roomSortKey(b))) });
+      if (hasVpo) vpo.push({
+        title,
+        rooms: rows
+          .filter((r) => /vpo/i.test(String(r.notes || "")))
+          .map((r) => stripPins(r.room || ""))
+          .filter(Boolean)
+      });
+    });
+
+    const sitterLines = sitter
+      .map((s) => {
+        const room = (s.rooms && s.rooms[0]) ? s.rooms[0] : "-";
+        return `Sitter designation: ${room} - ${s.title}`;
+      })
+      .sort((a, b) => roomSortKey(a).localeCompare(roomSortKey(b)));
+
+    const vpoLines = vpo
+      .flatMap((s) => (s.rooms || []).map((room) => ({ room, title: s.title })))
+      .sort((a, b) => roomSortKey(a.room).localeCompare(roomSortKey(b.room)))
+      .map((x) => `${x.room} - ${x.title}`);
+
+    return {
+      sitterHtml: sitterLines.length ? sitterLines.map((x) => `<div>${escapeHtml(x)}</div>`).join("") : "",
+      vpoHtml: vpoLines.length ? vpoLines.map((x) => `<div>${escapeHtml(x)}</div>`).join("") : ""
+    };
+  }
+
+  function renderLegacyWorksheetRnGrid(rnCards, fallbackName) {
+    const cardList = (rnCards || []).filter((c) => !isHoldOwnerTitle(c?.title));
+    const cards = cardList.map((c) => {
+      const rows = (c.rows || []).map((r) => ({
+        room: stripPins(r.room || ""),
+        level: String(r.level || ""),
+        notes: String(r.notes || "")
+      }));
+      const displayRows = rows.length ? rows.slice() : [{ room: "", level: "", notes: "" }];
+      while (displayRows.length < 4) displayRows.push({ room: "", level: "", notes: "" });
+      const title = String(c.title || fallbackName || "RN").trim();
+
+      const bodyRows = displayRows.map((r, idx) => `
+        <tr>
+          ${idx === 0 ? `<td class="rn-name" rowspan="${displayRows.length}">${escapeHtml(title).replace(/\s+/g, " ")}</td>` : ""}
+          <td class="room">${escapeHtml(r.room)}</td>
+          <td class="acty">${escapeHtml(r.level)}</td>
+          <td class="notes">${escapeHtml(r.notes)}</td>
+        </tr>
+      `).join("");
+
+      return `
+        <table class="ws-rn-card">
+          <thead>
+            <tr><th>RN</th><th>ROOM #</th><th>ACTY</th><th>NOTES</th></tr>
+          </thead>
+          <tbody>${bodyRows}</tbody>
+        </table>
+      `;
+    });
+
+    while (cards.length % 3 !== 0) {
+      cards.push(`
+        <table class="ws-rn-card ws-rn-card-empty">
+          <thead><tr><th>RN</th><th>ROOM #</th><th>ACTY</th><th>NOTES</th></tr></thead>
+          <tbody>
+            <tr><td class="rn-name" rowspan="4"></td><td class="room"></td><td class="acty"></td><td class="notes"></td></tr>
+            <tr><td class="room"></td><td class="acty"></td><td class="notes"></td></tr>
+            <tr><td class="room"></td><td class="acty"></td><td class="notes"></td></tr>
+            <tr><td class="room"></td><td class="acty"></td><td class="notes"></td></tr>
+          </tbody>
+        </table>
+      `);
+    }
+
+    return cards.join("") || `<table class="ws-rn-card"><thead><tr><th>RN</th><th>ROOM #</th><th>ACTY</th><th>NOTES</th></tr></thead><tbody><tr><td class="rn-name" rowspan="4">${escapeHtml(fallbackName || "RN")}</td><td class="room"></td><td class="acty"></td><td class="notes"></td></tr><tr><td class="room"></td><td class="acty"></td><td class="notes"></td></tr><tr><td class="room"></td><td class="acty"></td><td class="notes"></td></tr><tr><td class="room"></td><td class="acty"></td><td class="notes"></td></tr></tbody></table>`;
+  }
+
 
   function buildPrintHTMLTraditional(data) {
     const shiftDate = getShiftDateLabel();
     const shift = getShiftTypeLabel(data.rnCards, data.pcaCards);
     const openRooms = getOpenRoomLabels();
-    const pcaCols = Math.max(1, Math.min(8, (data.pcaCards || []).length || 1));
+    const holdRooms = collectHoldRoomsFromCards(data.pcaCards).concat(collectHoldRoomsFromCards(data.rnCards || []));
+    const availabilityRooms = Array.from(new Set([...(openRooms || []), ...holdRooms]))
+      .sort((a, b) => roomSortKey(a).localeCompare(roomSortKey(b)));
+    const pcaRows = renderLegacyWorksheetPcaRows(data.pcaCards, "Incoming PCA");
+    const rnGrid = renderLegacyWorksheetRnGrid(data.rnCards, "Incoming RN");
+    const specials = renderLegacyWorksheetSpecialRows(data.pcaCards);
 
     return `<!doctype html>
 <html>
@@ -740,71 +882,88 @@
   *{ box-sizing:border-box; }
   html,body{ margin:0; padding:0; background:#fff; color:#111827; font-family:"Times New Roman", serif; }
   @page { margin:5mm; size:11in 8.5in; }
-  .wrap{ padding:2px; width:100%; max-width:10.9in; margin:0 auto; }
-  .top{ display:grid; grid-template-columns:1.5fr 1.1fr; gap:8px; margin-bottom:8px; align-items:stretch; }
-  .box{ border:1px solid #111; padding:6px 8px; min-height:62px; }
-  .title{ font-weight:700; font-size:13px; text-align:center; margin-bottom:4px; }
-  .center-line{ text-align:center; font-weight:700; margin:4px 0; font-size:12px; line-height:1.2; }
-  .right-top{ text-align:center; font-size:30px; font-weight:700; line-height:1.04; margin-bottom:3px; }
-  .open-rooms{ font-size:11px; line-height:1.22; word-break:break-word; }
-  table{ width:100%; border-collapse:collapse; table-layout:fixed; }
-  th,td{ border:1px solid #111; padding:3px 4px; font-size:12px; vertical-align:top; }
-  th{ background:#f3f4f6; text-align:center; font-weight:700; }
-  .trad-pca-wrap{ margin-top:8px; }
-  .trad-pca-row{
-    display:grid;
-    grid-template-columns:repeat(var(--pca-cols), minmax(0, 1fr));
-    gap:6px;
-  }
-  .trad-pca-card{
-    border:1px solid #111;
-    min-width:0;
-  }
-  .trad-pca-head{
-    border-bottom:1px solid #111;
+  .wrap{ padding:2px; width:100%; max-width:10.9in; margin:0 auto; min-height:7.9in; }
+  .ws-table{ width:100%; border-collapse:collapse; table-layout:fixed; }
+  .ws-table th,.ws-table td{ border:1px solid #111; padding:2px 4px; font-size:11px; line-height:1.12; vertical-align:top; }
+  .ws-pca-table{ table-layout:auto; }
+  .ws-pca-table td.pca-name{ white-space:nowrap; width:1%; }
+  .ws-pca-table td.pca-rooms{ white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .ws-head{ font-weight:700; text-align:center; }
+  .ws-top-grid{ display:grid; grid-template-columns:2fr 1fr; gap:0; border:1px solid #111; border-bottom:none; }
+  .ws-top-grid > div{ border-right:1px solid #111; }
+  .ws-top-grid > div:last-child{ border-right:none; }
+  .ws-date{ text-align:center; font-size:44px; font-weight:700; line-height:1.04; margin-top:4px; }
+  .ws-msg{ text-align:center; font-size:21px; font-weight:700; margin-top:4px; }
+  .ws-mid{ display:grid; grid-template-columns:1fr 1fr 1fr; border:1px solid #111; border-top:none; }
+  .ws-mid > div{ border-right:1px solid #111; min-height:120px; }
+  .ws-mid > div:last-child{ border-right:none; }
+  .ws-box-title{ font-size:12px; font-weight:700; text-align:center; margin:2px 0; }
+  .ws-line{ border-top:1px solid #111; min-height:20px; padding:2px 4px; font-size:11px; }
+  .ws-list{ padding:2px 4px; font-size:10px; line-height:1.2; }
+  .ws-leadership-box{
+    min-height:120px;
+    display:flex;
+    flex-direction:column;
+    justify-content:space-evenly;
+    align-items:center;
     text-align:center;
+    padding:4px 6px;
+    font-size:19px;
     font-weight:700;
-    padding:3px 2px;
-    font-size:12px;
   }
-  .trad-pca-card table{ table-layout:fixed; }
-  .trad-pca-card th, .trad-pca-card td{ padding:2px 3px; line-height:1.05; font-size:10px; }
-  .trad-pca-card th:nth-child(1), .trad-pca-card td:nth-child(1){ width:22%; text-align:center; font-weight:700; }
-  .trad-pca-card th:nth-child(2), .trad-pca-card td:nth-child(2){ text-align:left; }
-  .trad-rn-grid{ display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:8px; }
-  .trad-rn-head{ border:1px solid #111; border-bottom:none; text-align:center; font-weight:700; padding:4px 3px; font-size:13px; }
-  .trad-rn-card table{ table-layout:fixed; }
-  .trad-rn-card th, .trad-rn-card td{ padding:2px 3px; line-height:1.05; font-size:11px; }
-  .trad-rn-card th:nth-child(1), .trad-rn-card td:nth-child(1){ width:30%; text-align:center; font-weight:700; }
-  .trad-rn-card th:nth-child(2), .trad-rn-card td:nth-child(2){ width:16%; text-align:center; font-weight:700; }
-  .trad-rn-card th:nth-child(3){ text-align:center; }
-  .trad-rn-card td:nth-child(3){ text-align:left; }
-  .trad-empty{ border:1px solid #111; padding:8px; font-size:12px; }
+  .ws-rn-grid{ display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:0; border-left:1px solid #111; border-right:1px solid #111; border-bottom:1px solid #111; }
+  .ws-rn-card{ width:100%; border-collapse:collapse; table-layout:fixed; }
+  .ws-rn-card th,.ws-rn-card td{ padding:2px 3px; font-size:11px; line-height:1.05; vertical-align:top; border-left:1px solid #111; border-right:1px solid #111; }
+  .ws-rn-card thead th{ text-align:center; font-weight:700; border-top:1px solid #111; border-bottom:1px solid #111; }
+  .ws-rn-card tbody td{ border-top:none; border-bottom:none; }
+  .ws-rn-card tbody tr:last-child td{ border-bottom:1px solid #111; }
+  .ws-rn-card td.room,.ws-rn-card td.acty{ text-align:center; width:14%; }
+  .ws-rn-card td.notes{ font-size:9px; }
+  .ws-rn-card td.rn-name{ width:28%; text-align:center; font-weight:700; vertical-align:middle; }
+  .num{ width:60px; text-align:center; font-weight:700; }
+  .availability-room{ font-size:11px; line-height:1.2; padding:4px; }
   @media print { .wrap{ padding:0; } }
 </style>
 </head>
 <body>
   <div class="wrap">
-    <div class="top">
-      <div class="box">
-        <div class="title">Leadership Team</div>
-        <div class="center-line">Charge Nurse: ${escapeHtml(data.charge || "-")}</div>
-        <div class="center-line">Clinical Mentor/Resource: ${escapeHtml(data.mentor || "-")}</div>
-        <div class="center-line">CTA: ${escapeHtml(data.cta || "-")}</div>
+    <div class="ws-top-grid">
+      <div>
+        <table class="ws-table ws-pca-table">
+          <tbody>
+            ${pcaRows}
+          </tbody>
+        </table>
       </div>
-      <div class="box">
-        <div class="right-top">${escapeHtml(shiftDate)} ${escapeHtml(shift)}</div>
-        <div class="title">Room Availability</div>
-        <div class="open-rooms">${escapeHtml(openRooms.join(", ") || "None")}</div>
-      </div>
-    </div>
-    <div class="trad-rn-grid">${renderTraditionalRnGrid(data.rnCards)}</div>
-    <div class="box trad-pca-wrap">
-      <div class="title">PCA Assignments</div>
-      <div class="trad-pca-row" style="--pca-cols:${pcaCols};">
-        ${renderTraditionalPcaRow(data.pcaCards)}
+      <div>
+        <div class="ws-date">${escapeHtml(shiftDate)} ${escapeHtml(shift)}</div>
+        <div class="ws-msg">Have a great shift! :)</div>
       </div>
     </div>
+
+    <div class="ws-mid">
+      <div>
+        <div class="ws-line"><strong>Flex</strong></div>
+        <div class="ws-line"><strong>Float</strong></div>
+        <div class="ws-line"><strong>Sitters</strong><div class="ws-list">${specials.sitterHtml || ""}</div></div>
+        <div class="ws-line"><strong>VPO</strong><div class="ws-list">${specials.vpoHtml || ""}</div></div>
+      </div>
+      <div>
+        <div class="ws-leadership-box">
+          <div>Charge Nurse: ${escapeHtml(data.charge || "-")}</div>
+          <div>Clinical Mentor: ${escapeHtml(data.mentor || "-")}</div>
+          <div>CTA: ${escapeHtml(data.cta || "-")}</div>
+        </div>
+      </div>
+      <div>
+        <div class="ws-box-title">Room Availability</div>
+        <table class="ws-table">
+          <tbody><tr><td class="availability-room">${escapeHtml(availabilityRooms.join(", ") || "None")}</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="ws-rn-grid">${rnGrid}</div>
   </div>
 </body>
 </html>`;
@@ -826,34 +985,34 @@
   *{ box-sizing:border-box; }
   html,body{ margin:0; padding:0; background:#fff; color:#111827; font-family:"Times New Roman", serif; }
   @page { margin:5mm; size:11in 8.5in; }
-  .wrap{ padding:2px; width:100%; max-width:10.9in; margin:0 auto; }
-  .top{ display:grid; grid-template-columns:1.5fr 1.1fr; gap:8px; margin-bottom:8px; align-items:stretch; }
-  .box{ border:1px solid #111; padding:6px 8px; min-height:62px; }
+  .wrap{ padding:2px; width:100%; max-width:100%; margin:0 auto; overflow:hidden; }
+  .top{ display:grid; grid-template-columns:1.5fr 1.1fr; gap:6px; margin-bottom:4px; align-items:stretch; width:100%; max-width:100%; }
+  .box{ border:1px solid #111; padding:5px 7px; min-height:54px; }
   .title{ font-weight:700; font-size:13px; text-align:center; margin-bottom:4px; }
   .center-line{ text-align:center; font-weight:700; margin:4px 0; font-size:12px; line-height:1.2; }
   .right-top{ text-align:center; font-size:30px; font-weight:700; line-height:1.04; margin-bottom:3px; }
   .open-rooms{ font-size:11px; line-height:1.22; word-break:break-word; }
-  table{ width:100%; border-collapse:collapse; table-layout:fixed; }
-  th,td{ border:1px solid #111; padding:3px 4px; font-size:12px; vertical-align:top; }
+  table{ width:100%; border-collapse:collapse; table-layout:fixed; max-width:100%; }
+  th,td{ border:1px solid #111; padding:2px 3px; font-size:11px; vertical-align:top; overflow-wrap:anywhere; word-break:break-word; }
   th{ background:#f3f4f6; text-align:center; font-weight:700; }
-  .trad-pca-wrap{ margin-top:8px; }
+  .trad-pca-wrap{ margin-top:6px; }
   .trad-pca-row{ display:grid; grid-template-columns:repeat(var(--pca-cols), minmax(0, 1fr)); gap:6px; }
   .trad-pca-card{ border:1px solid #111; min-width:0; }
-  .trad-pca-head{ border-bottom:1px solid #111; text-align:center; font-weight:700; padding:3px 2px; font-size:12px; }
+  .trad-pca-head{ border-bottom:1px solid #111; text-align:center; font-weight:700; padding:2px 2px; font-size:11px; }
   .trad-pca-card table{ table-layout:fixed; }
-  .trad-pca-card th, .trad-pca-card td{ padding:2px 3px; line-height:1.05; font-size:10px; }
+  .trad-pca-card th, .trad-pca-card td{ padding:1px 2px; line-height:1.02; font-size:9px; }
   .trad-pca-card th:nth-child(1), .trad-pca-card td:nth-child(1){ width:24%; text-align:center; font-weight:700; }
   .trad-pca-card th:nth-child(2), .trad-pca-card td:nth-child(2){ width:18%; text-align:center; font-weight:700; }
   .trad-pca-card th:nth-child(3){ text-align:center; }
   .trad-pca-card td:nth-child(3){ text-align:left; }
-  .trad-rn-grid{ display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:8px; }
+  .trad-rn-grid{ display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:6px; width:100%; max-width:100%; }
   .trad-rn-head{ border:1px solid #111; border-bottom:none; text-align:center; font-weight:700; padding:4px 3px; font-size:13px; }
   .trad-rn-card table{ table-layout:fixed; }
-  .trad-rn-card th, .trad-rn-card td{ padding:2px 3px; line-height:1.05; font-size:11px; }
-  .trad-rn-card th:nth-child(1), .trad-rn-card td:nth-child(1){ width:30%; text-align:center; font-weight:700; }
-  .trad-rn-card th:nth-child(2), .trad-rn-card td:nth-child(2){ width:16%; text-align:center; font-weight:700; }
+  .trad-rn-card th, .trad-rn-card td{ padding:2px 2px; line-height:1.04; font-size:10px; }
+  .trad-rn-card th:nth-child(1), .trad-rn-card td:nth-child(1){ width:20%; text-align:center; font-weight:700; }
+  .trad-rn-card th:nth-child(2), .trad-rn-card td:nth-child(2){ width:13%; text-align:center; font-weight:700; }
   .trad-rn-card th:nth-child(3){ text-align:center; }
-  .trad-rn-card td:nth-child(3){ text-align:left; }
+  .trad-rn-card td:nth-child(3){ text-align:left; font-size:8.9px; }
   .trad-empty{ border:1px solid #111; padding:8px; font-size:12px; }
   @media print { .wrap{ padding:0; } }
 </style>

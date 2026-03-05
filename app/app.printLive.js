@@ -228,9 +228,10 @@
   thead th{ background:var(--table-head); font-size:11px; font-weight:1000; padding:6px 8px; border-bottom:1px solid var(--row-divider); text-align:center; }
   tbody td{ padding:6px 8px; border-bottom:1px solid var(--row-divider); font-size:11px; font-weight:800; }
   tbody tr:last-child td{ border-bottom:none; }
-  .col-room{ width:62px; text-align:center; }
-  .col-level{ width:58px; text-align:center; }
-  .col-notes{ width:60%; text-align:center; }
+  .col-room{ width:52px; text-align:center; }
+  .col-level{ width:52px; text-align:center; }
+  .col-notes{ width:44%; text-align:center; }
+  tbody td.col-notes{ font-size:9.5px; line-height:1.05; }
   .pca thead th,.pca tbody td{ padding-top:6px; padding-bottom:6px; font-size:11px; line-height:1.15; }
   body[data-pca-tight="1"] .pca thead th, body[data-pca-tight="1"] .pca tbody td{ padding-top:4px; padding-bottom:4px; font-size:10.3px; line-height:1.12; }
   body[data-pca-tight="2"] .pca thead th, body[data-pca-tight="2"] .pca tbody td{ padding-top:3px; padding-bottom:3px; font-size:10px; line-height:1.08; }
@@ -285,12 +286,138 @@
     return cards || `<div class="trad-empty">No RN assignments found.</div>`;
   }
 
+  function renderLegacyWorksheetPcaRows(pcaCards, fallbackName) {
+    const rows = (pcaCards || []).filter((c) => !isHoldOwnerTitle(c?.title) && !isSitterOwnerTitle(c?.title)).map((c) => {
+      const rooms = (c.rows || [])
+        .map((r) => stripPins(r.room || ""))
+        .filter(Boolean)
+        .sort((a, b) => roomSortKey(a).localeCompare(roomSortKey(b)));
+      const title = String(c.title || fallbackName || "PCA").trim();
+      return `<tr><td class="pca-name">${escapeHtml(title)}</td><td class="num">${rooms.length}</td><td class="pca-rooms">${escapeHtml(rooms.join(", ")) || "-"}</td></tr>`;
+    }).join("");
+    return rows || `<tr><td colspan="3">None</td></tr>`;
+  }
+
+  function isHoldOwnerTitle(title) {
+    const t = String(title || "").toLowerCase();
+    return t.includes("needs to be assigned") || t.includes("(hold)") || t.includes("hold");
+  }
+
+  function isSitterOwnerTitle(title) {
+    const t = String(title || "").toLowerCase();
+    return /\bsitter\b/.test(t);
+  }
+
+  function collectHoldRoomsFromCards(cards) {
+    const out = [];
+    (Array.isArray(cards) ? cards : []).forEach((c) => {
+      if (!isHoldOwnerTitle(c?.title)) return;
+      (Array.isArray(c.rows) ? c.rows : []).forEach((r) => {
+        const room = stripPins(r?.room || "");
+        if (room) out.push(room);
+      });
+    });
+    return Array.from(new Set(out)).sort((a, b) => roomSortKey(a).localeCompare(roomSortKey(b)));
+  }
+
+  function renderLegacyWorksheetSpecialRows(pcaCards) {
+    const cards = Array.isArray(pcaCards) ? pcaCards : [];
+    const sitter = [];
+    const vpo = [];
+    cards.forEach((c) => {
+      const title = String(c.title || "PCA").trim();
+      const rows = Array.isArray(c.rows) ? c.rows : [];
+      const rooms = rows.map((r) => stripPins(r.room || "")).filter(Boolean);
+      const hasSitter = isSitterOwnerTitle(title) || rows.some((r) => /sitter/i.test(String(r.notes || "")));
+      const hasVpo = rows.some((r) => /vpo/i.test(String(r.notes || "")));
+      if (hasSitter) sitter.push({ title, rooms: Array.from(new Set(rooms)).sort((a, b) => roomSortKey(a).localeCompare(roomSortKey(b))) });
+      if (hasVpo) vpo.push({
+        title,
+        rooms: rows
+          .filter((r) => /vpo/i.test(String(r.notes || "")))
+          .map((r) => stripPins(r.room || ""))
+          .filter(Boolean)
+      });
+    });
+
+    const sitterLines = sitter
+      .map((s) => {
+        const room = (s.rooms && s.rooms[0]) ? s.rooms[0] : "-";
+        return `Sitter designation: ${room} - ${s.title}`;
+      })
+      .sort((a, b) => roomSortKey(a).localeCompare(roomSortKey(b)));
+
+    const vpoLines = vpo
+      .flatMap((s) => (s.rooms || []).map((room) => ({ room, title: s.title })))
+      .sort((a, b) => roomSortKey(a.room).localeCompare(roomSortKey(b.room)))
+      .map((x) => `${x.room} - ${x.title}`);
+
+    return {
+      sitterHtml: sitterLines.length ? sitterLines.map((x) => `<div>${escapeHtml(x)}</div>`).join("") : "",
+      vpoHtml: vpoLines.length ? vpoLines.map((x) => `<div>${escapeHtml(x)}</div>`).join("") : ""
+    };
+  }
+
+  function renderLegacyWorksheetRnGrid(rnCards, fallbackName) {
+    const cardList = (rnCards || []).filter((c) => !isHoldOwnerTitle(c?.title));
+    const cards = cardList.map((c) => {
+      const rows = (c.rows || []).map((r) => ({
+        room: stripPins(r.room || ""),
+        level: String(r.level || ""),
+        notes: String(r.notes || "")
+      }));
+      const displayRows = rows.length ? rows.slice() : [{ room: "", level: "", notes: "" }];
+      while (displayRows.length < 4) displayRows.push({ room: "", level: "", notes: "" });
+      const title = String(c.title || fallbackName || "RN").trim();
+
+      const bodyRows = displayRows.map((r, idx) => `
+        <tr>
+          ${idx === 0 ? `<td class="rn-name" rowspan="${displayRows.length}">${escapeHtml(title).replace(/\s+/g, " ")}</td>` : ""}
+          <td class="room">${escapeHtml(r.room)}</td>
+          <td class="acty">${escapeHtml(r.level)}</td>
+          <td class="notes">${escapeHtml(r.notes)}</td>
+        </tr>
+      `).join("");
+
+      return `
+        <table class="ws-rn-card">
+          <thead>
+            <tr><th>RN</th><th>ROOM #</th><th>ACTY</th><th>NOTES</th></tr>
+          </thead>
+          <tbody>${bodyRows}</tbody>
+        </table>
+      `;
+    });
+
+    while (cards.length % 3 !== 0) {
+      cards.push(`
+        <table class="ws-rn-card ws-rn-card-empty">
+          <thead><tr><th>RN</th><th>ROOM #</th><th>ACTY</th><th>NOTES</th></tr></thead>
+          <tbody>
+            <tr><td class="rn-name" rowspan="4"></td><td class="room"></td><td class="acty"></td><td class="notes"></td></tr>
+            <tr><td class="room"></td><td class="acty"></td><td class="notes"></td></tr>
+            <tr><td class="room"></td><td class="acty"></td><td class="notes"></td></tr>
+            <tr><td class="room"></td><td class="acty"></td><td class="notes"></td></tr>
+          </tbody>
+        </table>
+      `);
+    }
+
+    return cards.join("") || `<table class="ws-rn-card"><thead><tr><th>RN</th><th>ROOM #</th><th>ACTY</th><th>NOTES</th></tr></thead><tbody><tr><td class="rn-name" rowspan="4">${escapeHtml(fallbackName || "RN")}</td><td class="room"></td><td class="acty"></td><td class="notes"></td></tr><tr><td class="room"></td><td class="acty"></td><td class="notes"></td></tr><tr><td class="room"></td><td class="acty"></td><td class="notes"></td></tr><tr><td class="room"></td><td class="acty"></td><td class="notes"></td></tr></tbody></table>`;
+  }
+
 
   function buildPrintHTMLTraditional(data, orientation) {
     const pageSize = "size: 11in 8.5in;";
     const shiftDate = `${new Date().getMonth() + 1}/${new Date().getDate()}/${String(new Date().getFullYear()).slice(-2)}`;
     const shift = data.shift || detectShift();
     const openRooms = getOpenRoomLabels();
+    const holdRooms = collectHoldRoomsFromCards(data.pcaCards).concat(collectHoldRoomsFromCards(data.rnCards || []));
+    const availabilityRooms = Array.from(new Set([...(openRooms || []), ...holdRooms]))
+      .sort((a, b) => roomSortKey(a).localeCompare(roomSortKey(b)));
+    const pcaRows = renderLegacyWorksheetPcaRows(data.pcaCards, "Current PCA");
+    const rnGrid = renderLegacyWorksheetRnGrid(data.rnCards, "Current RN");
+    const specials = renderLegacyWorksheetSpecialRows(data.pcaCards);
 
     return `<!doctype html>
 <html>
@@ -302,54 +429,88 @@
   *{ box-sizing:border-box; }
   html,body{ margin:0; padding:0; background:#fff; color:#111827; font-family:"Times New Roman", serif; }
   @page { margin:5mm; ${pageSize} }
-  .wrap{ padding:2px; width:100%; max-width:10.9in; margin:0 auto; }
-  .top{ display:grid; grid-template-columns:1.5fr 1.1fr; gap:8px; margin-bottom:8px; align-items:stretch; }
-  .box{ border:1px solid #111; padding:6px 8px; min-height:62px; }
-  .title{ font-weight:700; font-size:13px; text-align:center; margin-bottom:4px; }
-  .center-line{ text-align:center; font-weight:700; margin:4px 0; font-size:12px; line-height:1.2; }
-  .right-top{ text-align:center; font-size:30px; font-weight:700; line-height:1.04; margin-bottom:3px; }
-  .open-rooms{ font-size:11px; line-height:1.22; word-break:break-word; }
-  table{ width:100%; border-collapse:collapse; table-layout:fixed; }
-  th,td{ border:1px solid #111; padding:3px 4px; font-size:12px; vertical-align:top; }
-  th{ background:#f3f4f6; text-align:center; font-weight:700; }
-  .trad-pca-wrap{ margin-top:8px; }
-  .trad-pca-table{ table-layout:auto; }
-  .trad-pca-table th,.trad-pca-table td{ padding:2px 4px; font-size:11px; line-height:1.15; }
-  .trad-pca-table td.name{ width:30%; font-weight:700; white-space:nowrap; }
-  .trad-pca-table th:nth-child(2), .trad-pca-table td.count{ width:40px; text-align:center; white-space:nowrap; }
-  .trad-pca-table td.rooms{ white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-  .trad-rn-grid{ display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:8px; }
-  .trad-rn-head{ border:1px solid #111; border-bottom:none; text-align:center; font-weight:700; padding:4px 3px; font-size:13px; }
-  .trad-rn-card table{ table-layout:fixed; }
-  .trad-rn-card th, .trad-rn-card td{ padding:2px 3px; line-height:1.05; font-size:11px; }
-  .trad-rn-card th:nth-child(1), .trad-rn-card td:nth-child(1){ width:30%; text-align:center; font-weight:700; }
-  .trad-rn-card th:nth-child(2), .trad-rn-card td:nth-child(2){ width:16%; text-align:center; font-weight:700; }
-  .trad-rn-card th:nth-child(3){ text-align:center; }
-  .trad-rn-card td:nth-child(3){ text-align:left; }
-  .trad-empty{ border:1px solid #111; padding:8px; font-size:12px; }
+  .wrap{ padding:2px; width:100%; max-width:10.9in; margin:0 auto; min-height:7.9in; }
+  .ws-table{ width:100%; border-collapse:collapse; table-layout:fixed; }
+  .ws-table th,.ws-table td{ border:1px solid #111; padding:2px 4px; font-size:11px; line-height:1.12; vertical-align:top; }
+  .ws-pca-table{ table-layout:auto; }
+  .ws-pca-table td.pca-name{ white-space:nowrap; width:1%; }
+  .ws-pca-table td.pca-rooms{ white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .ws-head{ font-weight:700; text-align:center; }
+  .ws-top-grid{ display:grid; grid-template-columns:2fr 1fr; gap:0; border:1px solid #111; border-bottom:none; }
+  .ws-top-grid > div{ border-right:1px solid #111; }
+  .ws-top-grid > div:last-child{ border-right:none; }
+  .ws-date{ text-align:center; font-size:44px; font-weight:700; line-height:1.04; margin-top:4px; }
+  .ws-msg{ text-align:center; font-size:21px; font-weight:700; margin-top:4px; }
+  .ws-mid{ display:grid; grid-template-columns:1fr 1fr 1fr; border:1px solid #111; border-top:none; }
+  .ws-mid > div{ border-right:1px solid #111; min-height:120px; }
+  .ws-mid > div:last-child{ border-right:none; }
+  .ws-box-title{ font-size:12px; font-weight:700; text-align:center; margin:2px 0; }
+  .ws-line{ border-top:1px solid #111; min-height:20px; padding:2px 4px; font-size:11px; }
+  .ws-list{ padding:2px 4px; font-size:10px; line-height:1.2; }
+  .ws-leadership-box{
+    min-height:120px;
+    display:flex;
+    flex-direction:column;
+    justify-content:space-evenly;
+    align-items:center;
+    text-align:center;
+    padding:4px 6px;
+    font-size:19px;
+    font-weight:700;
+  }
+  .ws-rn-grid{ display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:0; border-left:1px solid #111; border-right:1px solid #111; border-bottom:1px solid #111; }
+  .ws-rn-card{ width:100%; border-collapse:collapse; table-layout:fixed; }
+  .ws-rn-card th,.ws-rn-card td{ padding:2px 3px; font-size:11px; line-height:1.05; vertical-align:top; border-left:1px solid #111; border-right:1px solid #111; }
+  .ws-rn-card thead th{ text-align:center; font-weight:700; border-top:1px solid #111; border-bottom:1px solid #111; }
+  .ws-rn-card tbody td{ border-top:none; border-bottom:none; }
+  .ws-rn-card tbody tr:last-child td{ border-bottom:1px solid #111; }
+  .ws-rn-card td.room,.ws-rn-card td.acty{ text-align:center; width:14%; }
+  .ws-rn-card td.notes{ font-size:9px; }
+  .ws-rn-card td.rn-name{ width:28%; text-align:center; font-weight:700; vertical-align:middle; }
+  .num{ width:60px; text-align:center; font-weight:700; }
+  .availability-room{ font-size:11px; line-height:1.2; padding:4px; }
   @media print { .wrap{ padding:0; } }
 </style>
 </head>
 <body>
   <div class="wrap">
-    <div class="top">
-      <div class="box">
-        <div class="title">Leadership Team</div>
-        <div class="center-line">Charge Nurse: ${escapeHtml(data.charge || "-")}</div>
-        <div class="center-line">Clinical Mentor/Resource: ${escapeHtml(data.mentor || "-")}</div>
-        <div class="center-line">CTA: ${escapeHtml(data.cta || "-")}</div>
+    <div class="ws-top-grid">
+      <div>
+        <table class="ws-table ws-pca-table">
+          <tbody>
+            ${pcaRows}
+          </tbody>
+        </table>
       </div>
-      <div class="box">
-        <div class="right-top">${escapeHtml(shiftDate)} ${escapeHtml(shift)}</div>
-        <div class="title">Room Availability</div>
-        <div class="open-rooms">${escapeHtml(openRooms.join(", ") || "None")}</div>
+      <div>
+        <div class="ws-date">${escapeHtml(shiftDate)} ${escapeHtml(shift)}</div>
+        <div class="ws-msg">Have a great shift! :)</div>
       </div>
     </div>
-    <div class="trad-rn-grid">${renderTraditionalRnGrid(data.rnCards)}</div>
-    <div class="box trad-pca-wrap">
-      <div class="title">PCA Assignments</div>
-      ${renderTraditionalPcaSummary(data.pcaCards)}
+
+    <div class="ws-mid">
+      <div>
+        <div class="ws-line"><strong>Flex</strong></div>
+        <div class="ws-line"><strong>Float</strong></div>
+        <div class="ws-line"><strong>Sitters</strong><div class="ws-list">${specials.sitterHtml || ""}</div></div>
+        <div class="ws-line"><strong>VPO</strong><div class="ws-list">${specials.vpoHtml || ""}</div></div>
+      </div>
+      <div>
+        <div class="ws-leadership-box">
+          <div>Charge Nurse: ${escapeHtml(data.charge || "-")}</div>
+          <div>Clinical Mentor: ${escapeHtml(data.mentor || "-")}</div>
+          <div>CTA: ${escapeHtml(data.cta || "-")}</div>
+        </div>
+      </div>
+      <div>
+        <div class="ws-box-title">Room Availability</div>
+        <table class="ws-table">
+          <tbody><tr><td class="availability-room">${escapeHtml(availabilityRooms.join(", ") || "None")}</td></tr></tbody>
+        </table>
+      </div>
     </div>
+
+    <div class="ws-rn-grid">${rnGrid}</div>
   </div>
 </body>
 </html>`;
