@@ -118,7 +118,7 @@
       vpo: false, isolation: false, admit: false, lateDc: false,
 
       chg: false, foley: false, q2turns: false, strictIo: false, heavy: false, feeder: false,
-
+      expectedDischarge: false,
       isEmpty: true,
       recentlyDischarged: false,
       reviewed: false
@@ -145,6 +145,7 @@
         if (!p.room) p.room = String(i);
         if (typeof p.isEmpty !== "boolean") p.isEmpty = false;
         if (typeof p.recentlyDischarged !== "boolean") p.recentlyDischarged = false;
+        if (typeof p.expectedDischarge !== "boolean") p.expectedDischarge = false;
         next.push(p);
       } else {
         next.push(makeEmptyPatient(i, i));

@@ -4,7 +4,7 @@
 <head>
   <meta charset="UTF-8" />
   <title>Charge Nurse Platform</title>
-  <link rel="stylesheet" href="style.css" />
+  <link rel="stylesheet" href="style.css?v=2" />
 
   <!-- ✅ Staffing Details v2 layout helpers (safe, scoped) -->
   <style>
@@ -143,6 +143,7 @@
       font-size: 12px;
       color: #0f172a;
       user-select: none;
+      position: relative;
     }
 
     .staffing-status-dot {
@@ -153,6 +154,29 @@
       flex-shrink: 0;
     }
 
+    .staffing-status-pill[data-state="rebalancing"] {
+      border-color: rgba(37, 99, 235, 0.26);
+      background: rgba(239, 246, 255, 0.95);
+    }
+
+    .staffing-status-pill[data-state="rebalancing"] .staffing-status-dot {
+      width: 18px;
+      height: 18px;
+      background:
+        conic-gradient(from 0deg, #2563eb 0deg 250deg, rgba(37, 99, 235, 0.16) 250deg 360deg);
+      box-shadow: inset 0 0 0 3px rgba(255, 255, 255, 0.95);
+      animation: staffing-ring-spin 0.9s linear infinite;
+    }
+
+    .staffing-status-pill[data-state="rebalancing"] .staffing-status-text {
+      color: #1d4ed8;
+    }
+
+    .staffing-status-pill[data-state="rebalancing"] .staffing-status-meta {
+      color: #1e3a8a;
+      opacity: 0.9;
+    }
+
     .staffing-status-text {
       font-weight: 700;
     }
@@ -161,112 +185,14 @@
       opacity: 0.75;
     }
 
+    @keyframes staffing-ring-spin {
+      from { transform: rotate(0deg); }
+      to { transform: rotate(360deg); }
+    }
+
     @media (max-width: 980px) {
       .totals-three-sections { grid-template-columns: 1fr; }
       .totals-three-sections .totals-status { justify-content: flex-start; }
-    }
-
-    /* Temporary Help Bubble (Q) + PDF modal */
-    .q-help-bubble {
-      position: fixed;
-      left: 14px;
-      bottom: 14px;
-      width: 42px;
-      height: 42px;
-      border: 1px solid rgba(15, 23, 42, 0.2);
-      border-radius: 999px;
-      background: #111827;
-      color: #ffffff;
-      font-size: 20px;
-      font-weight: 800;
-      line-height: 1;
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      cursor: pointer;
-      box-shadow: 0 10px 24px rgba(0, 0, 0, 0.2);
-      z-index: 1400;
-    }
-    .q-help-modal {
-      position: fixed;
-      inset: 0;
-      background: rgba(2, 6, 23, 0.48);
-      display: none;
-      align-items: center;
-      justify-content: center;
-      z-index: 1450;
-      padding: 14px;
-      box-sizing: border-box;
-    }
-    .q-help-card {
-      width: min(1100px, 96vw);
-      height: min(760px, 94vh);
-      background: #ffffff;
-      border: 1px solid rgba(15, 23, 42, 0.15);
-      border-radius: 14px;
-      box-shadow: 0 24px 50px rgba(2, 6, 23, 0.28);
-      display: grid;
-      grid-template-rows: auto 1fr;
-      overflow: hidden;
-    }
-    .q-help-topbar {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 10px;
-      padding: 10px 12px;
-      border-bottom: 1px solid rgba(15, 23, 42, 0.1);
-      background: #f8fafc;
-    }
-    .q-help-title {
-      font-size: 14px;
-      font-weight: 800;
-      color: #0f172a;
-    }
-    .q-help-actions {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-    }
-    .q-help-link {
-      font-size: 12px;
-      font-weight: 700;
-      color: #0f172a;
-      text-decoration: underline;
-    }
-    .q-help-close {
-      border: 1px solid rgba(15, 23, 42, 0.2);
-      border-radius: 9px;
-      background: #fff;
-      color: #0f172a;
-      font-size: 12px;
-      font-weight: 700;
-      padding: 6px 10px;
-      cursor: pointer;
-    }
-    .q-help-frame-wrap {
-      position: relative;
-      min-height: 0;
-      background: #ffffff;
-    }
-    .q-help-frame {
-      width: 100%;
-      height: 100%;
-      border: 0;
-      background: #ffffff;
-    }
-    .q-help-fallback {
-      position: absolute;
-      inset: 0;
-      display: none;
-      align-items: center;
-      justify-content: center;
-      text-align: center;
-      padding: 20px;
-      background: #ffffff;
-      color: #0f172a;
-      font-size: 14px;
-      line-height: 1.4;
     }
 
     /* Per-tab info bubble + modal */
@@ -650,6 +576,7 @@
                 onclick="window.printOncoming && window.printOncoming.open && window.printOncoming.open()">
           Print Oncoming Assignment
         </button>
+        <div id="oncomingQualityPanel" style="display:none;"></div>
       </div>
     </div>
   </div>
@@ -902,8 +829,11 @@
             <span class="staffing-status-meta"></span>
           </div>
 
-          <button onclick="window.populateOncomingAssignment && window.populateOncomingAssignment(false)">Populate</button>
-          <button onclick="window.rebalanceOncomingAssignment && window.rebalanceOncomingAssignment()">Rebalance (Both)</button>
+          <button id="btnRebalanceOncomingBoth" onclick="window.triggerOncomingRebalance && window.triggerOncomingRebalance()">Rebalance (Both)</button>
+
+          <button id="oncomingDischargeVisualToggle" type="button" class="dc-visual-toggle" onclick="window.toggleOncomingDischargeVisuals && window.toggleOncomingDischargeVisuals()">
+            DCs On
+          </button>
 
           <button id="btnFinalizeShift" type="button" title="Publishes Oncoming snapshot + analytics, then swaps Live ← Oncoming">
             Finalize / Submit Shift Change
@@ -1180,29 +1110,6 @@
     </div>
   </div>
 
-  <!-- Temporary Help Bubble + PDF Modal -->
-  <button id="qHelpBubble" type="button" class="q-help-bubble" title="Rebalance Help">Q</button>
-  <div id="qHelpModal" class="q-help-modal" aria-hidden="true">
-    <div class="q-help-card" role="dialog" aria-modal="true" aria-label="Rebalance rules guide">
-      <div class="q-help-topbar">
-        <div class="q-help-title">Rebalance Rules Guide</div>
-        <div class="q-help-actions">
-          <a id="qHelpOpenNewTab" class="q-help-link" href="/docs/Rebalance_Algorithm_Current_State.pdf" target="_blank" rel="noopener noreferrer">Open PDF in new tab</a>
-          <button id="qHelpCloseBtn" type="button" class="q-help-close">Close</button>
-        </div>
-      </div>
-      <div class="q-help-frame-wrap">
-        <iframe id="qHelpFrame" class="q-help-frame" title="Rebalance rules PDF"></iframe>
-        <div id="qHelpFallback" class="q-help-fallback">
-          <div>
-            <div style="font-weight:800; margin-bottom:6px;">PDF preview could not load in this browser view.</div>
-            <div style="margin-bottom:10px;">Use <strong>Open PDF in new tab</strong> above.</div>
-          </div>
-        </div>
-      </div>
-    </div>
-  </div>
-
   <!-- Per-tab instructions modal -->
   <div id="tabHelpModal" class="tab-help-modal" aria-hidden="true">
     <div class="tab-help-card" role="dialog" aria-modal="true" aria-label="Tab instructions">
@@ -1287,10 +1194,12 @@
     <script src="app/app.staffing.js?v=9"></script>
     <script src="app/app.patientsAcuity.js?v=3"></script>
 
-    <script src="app/app.assignmentRules.js?v=4"></script>
+    <script src="app/app.assignmentRules.js?v=8"></script>
+    <script src="app/app.assignmentEngineV2.js?v=5"></script>
+    <script src="app/app.assignmentEngineV3.js?v=4"></script>
 
     <script src="app/app.liveAssignments.js?v=97"></script>
-    <script src="app/app.assignmentsrender.js?v=5"></script>
+    <script src="app/app.assignmentsrender.js?v=14"></script>
     <script src="app/app.assignmentsDrag.js?v=2"></script>
 
     <script src="app/app.modals.js?v=1"></script>
@@ -1301,8 +1210,8 @@
     <script src="app/app.unitMetrics.js?v=1"></script>
     <script src="app/app.unitPulse.js?v=5"></script>
 
-    <script src="app/app.printOncoming.js?v=16"></script>
-    <script src="app/app.printLive.js?v=10"></script>
+    <script src="app/app.printOncoming.js?v=19"></script>
+    <script src="app/app.printLive.js?v=13"></script>
 
     <script src="https://unpkg.com/tesseract.js@5/dist/tesseract.min.js"></script>
 
@@ -1325,50 +1234,6 @@
     <script src="app/app.importScan.js?v=100"></script>
 
     <script src="script.js?v=2"></script>
-    <script>
-      (function () {
-        const bubble = document.getElementById("qHelpBubble");
-        const modal = document.getElementById("qHelpModal");
-        const closeBtn = document.getElementById("qHelpCloseBtn");
-        const frame = document.getElementById("qHelpFrame");
-        const fallback = document.getElementById("qHelpFallback");
-        if (!bubble || !modal || !closeBtn || !frame || !fallback) return;
-
-        const pdfUrl = "/docs/Rebalance_Algorithm_Current_State.pdf";
-        let loadTimer = null;
-
-        function openHelp() {
-          modal.style.display = "flex";
-          modal.setAttribute("aria-hidden", "false");
-          fallback.style.display = "none";
-          frame.removeAttribute("src");
-          frame.src = pdfUrl;
-          clearTimeout(loadTimer);
-          loadTimer = setTimeout(() => {
-            fallback.style.display = "flex";
-          }, 1700);
-        }
-
-        function closeHelp() {
-          modal.style.display = "none";
-          modal.setAttribute("aria-hidden", "true");
-          clearTimeout(loadTimer);
-        }
-
-        bubble.addEventListener("click", openHelp);
-        closeBtn.addEventListener("click", closeHelp);
-        modal.addEventListener("click", function (e) {
-          if (e.target === modal) closeHelp();
-        });
-        document.addEventListener("keydown", function (e) {
-          if (e.key === "Escape" && modal.style.display === "flex") closeHelp();
-        });
-        frame.addEventListener("load", function () {
-          clearTimeout(loadTimer);
-          fallback.style.display = "none";
-        });
-      })();
-    </script>
     <script>
       (function () {
         const modal = document.getElementById("tabHelpModal");
@@ -1449,7 +1314,7 @@
               </ul>
               <h4>Best Workflow</h4>
               <ul>
-                <li>Run <strong>Populate</strong> first.</li>
+                <li>Assignments auto-populate as staffing and patient details change.</li>
                 <li>Use <strong>Rebalance (Both)</strong> to improve fairness/continuity while preserving locks/rules.</li>
                 <li>Confirm date/shift in <strong>Finalize Details</strong>.</li>
                 <li>Run <strong>Finalize / Submit Shift Change</strong> when ready to publish.</li>

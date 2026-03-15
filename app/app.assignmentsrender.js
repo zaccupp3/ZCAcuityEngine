@@ -44,6 +44,10 @@ if (window.__assignmentsRenderLoaded) {
 } else {
   window.__assignmentsRenderLoaded = true;
 
+  function safeArray(v) {
+    return Array.isArray(v) ? v : [];
+  }
+
   // =========================================================
   // ✅ Canonical state accessors (prevents reference drift)
   // =========================================================
@@ -160,6 +164,11 @@ if (window.__assignmentsRenderLoaded) {
     return (owners || []).reduce((sum, o) => sum + __reportOverflowForOwner(o, prevMap), 0);
   }
 
+  function __reportSourceTotal(owners, prevMap) {
+    if (!prevMap) return 0;
+    return (owners || []).reduce((sum, o) => sum + __reportSourcesForOwner(o, prevMap), 0);
+  }
+
   // Render-cycle cache (RN + PCA share)
   // This prevents RN render + PCA render from recomputing maps back-to-back.
   const __renderCycleCache = {
@@ -208,6 +217,40 @@ if (window.__assignmentsRenderLoaded) {
     if (!p) return "";
     if (typeof window.getRoomLabelForPatient === "function") return window.getRoomLabelForPatient(p);
     return String(p.room || p.id || "");
+  }
+
+  function isExpectedDischarge(p) {
+    return !!(p && !p.isEmpty && p.expectedDischarge);
+  }
+
+  function showOncomingDischargeVisuals() {
+    return window.__oncomingShowDischargeVisuals !== false;
+  }
+
+  function __syncOncomingDischargeVisualToggle() {
+    const btn = document.getElementById("oncomingDischargeVisualToggle");
+    if (!btn) return;
+    const on = showOncomingDischargeVisuals();
+    btn.textContent = on ? "DCs On" : "DCs Off";
+    btn.setAttribute("data-state", on ? "on" : "off");
+    btn.setAttribute("aria-pressed", on ? "true" : "false");
+    btn.title = on ? "Hide expected discharge bed highlights" : "Show expected discharge bed highlights";
+  }
+
+  window.toggleOncomingDischargeVisuals = function toggleOncomingDischargeVisuals() {
+    window.__oncomingShowDischargeVisuals = !showOncomingDischargeVisuals();
+    __syncOncomingDischargeVisualToggle();
+    try { renderOncomingAll(); } catch (_) {}
+  };
+
+  function bedCellHtml(p, extraHtml = "") {
+    const bedLabel = getBedLabel(p);
+    const showDischarge = showOncomingDischargeVisuals() && isExpectedDischarge(p);
+    const dischargeClass = showDischarge ? " discharge-expected" : "";
+    const carBadge = showDischarge
+      ? `<span class="expected-discharge-indicator" title="Expected discharge soon" aria-label="Expected discharge soon">&#128663;</span>`
+      : "";
+    return `<span class="bed-chip${dischargeClass}">${escapeHtml(bedLabel)}${carBadge}${extraHtml}</span>`;
   }
 
   function safeSortPatientsForDisplay(a, b) {
@@ -290,10 +333,17 @@ if (window.__assignmentsRenderLoaded) {
   }
 
   // -----------------------------
-  // RN Continuity Pin helpers
+  // RN / PCA Continuity Pin helpers
   // -----------------------------
-  function getPatientLockMeta(p) {
-    if (!p || typeof p !== "object") return { enabled: false, rnId: null };
+  function getPatientLockMeta(p, role = "nurse") {
+    if (!p || typeof p !== "object") {
+      return role === "pca" ? { enabled: false, pcaId: null } : { enabled: false, rnId: null };
+    }
+    if (role === "pca") {
+      const enabled = !!p.lockPcaEnabled;
+      const pcaId = (p.lockPcaTo !== undefined && p.lockPcaTo !== null) ? Number(p.lockPcaTo) : null;
+      return { enabled, pcaId: Number.isFinite(pcaId) ? pcaId : null };
+    }
     const enabled = !!p.lockRnEnabled;
     const rnId = (p.lockRnTo !== undefined && p.lockRnTo !== null) ? Number(p.lockRnTo) : null;
     return { enabled, rnId: Number.isFinite(rnId) ? rnId : null };
@@ -311,6 +361,20 @@ if (window.__assignmentsRenderLoaded) {
     if (!p) return false;
     const meta = getPatientLockMeta(p);
     return !!meta.enabled && Number.isFinite(meta.rnId);
+  }
+
+  function isPatientPinnedToIncomingPca(patientId, incomingPcaId) {
+    const p = (typeof window.getPatientById === "function") ? window.getPatientById(patientId) : null;
+    if (!p) return false;
+    const meta = getPatientLockMeta(p, "pca");
+    return !!meta.enabled && meta.pcaId === Number(incomingPcaId);
+  }
+
+  function isPatientPinnedToAnyIncomingPca(patientId) {
+    const p = (typeof window.getPatientById === "function") ? window.getPatientById(patientId) : null;
+    if (!p) return false;
+    const meta = getPatientLockMeta(p, "pca");
+    return !!meta.enabled && Number.isFinite(meta.pcaId);
   }
 
   function toggleIncomingRnPin(patientId, incomingRnId) {
@@ -333,6 +397,26 @@ if (window.__assignmentsRenderLoaded) {
   }
   window.toggleIncomingRnPin = toggleIncomingRnPin;
 
+  function toggleIncomingPcaPin(patientId, incomingPcaId) {
+    const p = (typeof window.getPatientById === "function") ? window.getPatientById(patientId) : null;
+    if (!p) return;
+
+    const pcaId = Number(incomingPcaId);
+    const meta = getPatientLockMeta(p, "pca");
+
+    if (meta.enabled && meta.pcaId === pcaId) {
+      p.lockPcaEnabled = false;
+      p.lockPcaTo = null;
+    } else {
+      p.lockPcaEnabled = true;
+      p.lockPcaTo = pcaId;
+    }
+
+    try { if (typeof window.saveState === "function") window.saveState(); } catch {}
+    try { if (typeof window.renderPcaAssignmentOutput === "function") window.renderPcaAssignmentOutput(); } catch {}
+  }
+  window.toggleIncomingPcaPin = toggleIncomingPcaPin;
+
   function cleanupRnPinsAgainstRoster() {
     const roster = __getIncomingNurses();
     const rosterIds = new Set(roster.map(n => Number(n.id)));
@@ -344,6 +428,21 @@ if (window.__assignmentsRenderLoaded) {
       if (!rosterIds.has(meta.rnId)) {
         p.lockRnEnabled = false;
         p.lockRnTo = null;
+      }
+    });
+  }
+
+  function cleanupPcaPinsAgainstRoster() {
+    const roster = __getIncomingPcas().filter((p) => !(p?.isSitter && String(p?.sitterRoomPair || "").trim()));
+    const rosterIds = new Set(roster.map((p) => Number(p.id)));
+
+    const pts = __getPatients();
+    pts.forEach((p) => {
+      const meta = getPatientLockMeta(p, "pca");
+      if (!meta.enabled) return;
+      if (!rosterIds.has(meta.pcaId)) {
+        p.lockPcaEnabled = false;
+        p.lockPcaTo = null;
       }
     });
   }
@@ -362,6 +461,29 @@ if (window.__assignmentsRenderLoaded) {
         const rn = byId.get(meta.rnId);
         rn.patients = Array.isArray(rn.patients) ? rn.patients : [];
         if (!rn.patients.includes(Number(p.id))) rn.patients.push(Number(p.id));
+        pinnedAssigned.push(Number(p.id));
+      } else {
+        unlockedPool.push(p);
+      }
+    });
+
+    return { pinnedAssigned, unlockedPool };
+  }
+
+  function applyPcaPinsBeforeDistribute(activePatients, owners) {
+    const roster = Array.isArray(owners) ? owners : __getIncomingPcas();
+    if (!roster.length) return { pinnedAssigned: [], unlockedPool: activePatients || [] };
+
+    const byId = new Map(roster.map((p) => [Number(p.id), p]));
+    const pinnedAssigned = [];
+    const unlockedPool = [];
+
+    (activePatients || []).forEach((p) => {
+      const meta = getPatientLockMeta(p, "pca");
+      if (meta.enabled && meta.pcaId && byId.has(meta.pcaId)) {
+        const pca = byId.get(meta.pcaId);
+        pca.patients = Array.isArray(pca.patients) ? pca.patients : [];
+        if (!pca.patients.includes(Number(p.id))) pca.patients.push(Number(p.id));
         pinnedAssigned.push(Number(p.id));
       } else {
         unlockedPool.push(p);
@@ -398,8 +520,9 @@ if (window.__assignmentsRenderLoaded) {
 
   function getMovablePatientIdsFromOwner(owner, role) {
     const ids = Array.isArray(owner?.patients) ? owner.patients.slice() : [];
-    if (role !== "nurse") return ids;
-    return ids.filter(pid => !isPatientPinnedToAnyIncomingRn(pid));
+    if (role === "nurse") return ids.filter(pid => !isPatientPinnedToAnyIncomingRn(pid));
+    if (role === "pca") return ids.filter(pid => !isPatientPinnedToAnyIncomingPca(pid));
+    return ids;
   }
 
   function tryMovePatient(owners, role, fromOwner, toOwner, patientId) {
@@ -411,10 +534,719 @@ if (window.__assignmentsRenderLoaded) {
     if (idx === -1) return false;
 
     if (role === "nurse" && isPatientPinnedToAnyIncomingRn(patientId)) return false;
+    if (role === "pca" && isPatientPinnedToAnyIncomingPca(patientId)) return false;
 
     fromOwner.patients.splice(idx, 1);
     if (!toOwner.patients.includes(patientId)) toOwner.patients.push(patientId);
     return true;
+  }
+
+  function isExpectedDischargePatientId(patientId) {
+    try {
+      const p = (typeof window.getPatientById === "function") ? window.getPatientById(patientId) : null;
+      return !!(p && !p.isEmpty && p.expectedDischarge);
+    } catch {
+      return false;
+    }
+  }
+
+  function countExpectedDischargesForOwnerLocal(owner) {
+    return safeArray(owner?.patients).reduce((sum, pid) => sum + (isExpectedDischargePatientId(pid) ? 1 : 0), 0);
+  }
+
+  function expectedDischargeBaseLimitLocal(owner, role) {
+    const count = safeArray(owner?.patients).length;
+    if (role === "pca") return Math.floor(count / 2);
+    return 3;
+  }
+
+  function totalExpectedDischargesLocal(owners) {
+    return safeArray(owners).reduce((sum, owner) => sum + countExpectedDischargesForOwnerLocal(owner), 0);
+  }
+
+  function totalExpectedDischargeCapacityLocal(owners, role) {
+    return safeArray(owners).reduce((sum, owner) => sum + expectedDischargeBaseLimitLocal(owner, role), 0);
+  }
+
+  function getExpectedDischargeOverflowLocal(owner, role) {
+    return Math.max(0, countExpectedDischargesForOwnerLocal(owner) - expectedDischargeBaseLimitLocal(owner, role));
+  }
+
+  function getAvoidableExpectedDischargeOverflowLocal(owners, role) {
+    const totalOverflow = safeArray(owners).reduce((sum, owner) => sum + getExpectedDischargeOverflowLocal(owner, role), 0);
+    const unavoidable = Math.max(0, totalExpectedDischargesLocal(owners) - totalExpectedDischargeCapacityLocal(owners, role));
+    return Math.max(0, totalOverflow - unavoidable);
+  }
+
+  function countSpreadLocal(owners) {
+    const counts = safeArray(owners).map((o) => safeArray(o?.patients).length);
+    if (!counts.length) return 0;
+    return Math.max(...counts) - Math.min(...counts);
+  }
+
+  function roomNumberLocal(patientId) {
+    try {
+      const p = (typeof window.getPatientById === "function") ? window.getPatientById(patientId) : null;
+      if (!p) return null;
+      if (typeof window.getRoomNumber === "function") {
+        const n = window.getRoomNumber(p);
+        return Number.isFinite(n) ? Number(n) : null;
+      }
+      const raw = String(p?.room || p?.roomNumber || "");
+      const m = raw.match(/(\d+)/);
+      return m ? Number(m[1]) : null;
+    } catch {
+      return null;
+    }
+  }
+
+  function roomSpanForOwnerLocal(owner) {
+    const rooms = safeArray(owner?.patients)
+      .map((pid) => roomNumberLocal(pid))
+      .filter((n) => Number.isFinite(n))
+      .sort((a, b) => a - b);
+    if (rooms.length < 2) return 0;
+    return rooms[rooms.length - 1] - rooms[0];
+  }
+
+  function roomSpreadOverflowLocal(owners, role) {
+    const limit = role === "pca" ? 14 : 10;
+    return safeArray(owners).reduce((sum, owner) => {
+      const span = roomSpanForOwnerLocal(owner);
+      return sum + Math.max(0, span - limit);
+    }, 0);
+  }
+
+  function rebalanceExpectedDischarges(owners, role, opts = {}) {
+    const list = Array.isArray(owners) ? owners.filter(Boolean) : [];
+    if (list.length < 2) return { ok: true, changed: false };
+
+    const maxPasses = typeof opts.maxPasses === "number" ? opts.maxPasses : 80;
+    const maps = buildPrevOwnerMaps();
+    const prevMap = role === "nurse" ? maps.prevRnByPid : maps.prevPcaByPid;
+    let changed = false;
+
+    for (let pass = 0; pass < maxPasses; pass++) {
+      const baseAvoid = getAvoidableViolationCount(list, role);
+      const baseDischargeAvoid = getAvoidableExpectedDischargeOverflowLocal(list, role);
+      if (baseDischargeAvoid <= 0) break;
+
+      const baseRoomOverflow = roomSpreadOverflowLocal(list, role);
+      const baseReportOverflow = prevMap ? __reportOverflowTotal(list, prevMap) : 0;
+      const baseReportTotal = prevMap ? __reportSourceTotal(list, prevMap) : 0;
+      const baseSpread = countSpreadLocal(list);
+      const overOwners = list
+        .map((owner) => ({ owner, overflow: getExpectedDischargeOverflowLocal(owner, role), discharges: countExpectedDischargesForOwnerLocal(owner) }))
+        .filter((entry) => entry.overflow > 0)
+        .sort((a, b) => b.overflow - a.overflow || b.discharges - a.discharges);
+
+      let best = null;
+
+      for (const sourceEntry of overOwners) {
+        const fromOwner = sourceEntry.owner;
+        const movableDischarges = getMovablePatientIdsFromOwner(fromOwner, role).filter((pid) => isExpectedDischargePatientId(pid));
+        if (!movableDischarges.length) continue;
+
+        const targetOwners = list
+          .filter((owner) => owner !== fromOwner)
+          .sort((a, b) => {
+            const overflowDiff = getExpectedDischargeOverflowLocal(a, role) - getExpectedDischargeOverflowLocal(b, role);
+            if (overflowDiff !== 0) return overflowDiff;
+            return safeArray(a?.patients).length - safeArray(b?.patients).length;
+          });
+
+        for (const patientId of movableDischarges) {
+          for (const toOwner of targetOwners) {
+            const fromOrig = safeArray(fromOwner.patients).slice();
+            const toOrig = safeArray(toOwner.patients).slice();
+            const did = tryMovePatient(list, role, fromOwner, toOwner, patientId);
+            if (!did) continue;
+
+            const nextAvoid = getAvoidableViolationCount(list, role);
+            const nextDischargeAvoid = getAvoidableExpectedDischargeOverflowLocal(list, role);
+            const nextRoomOverflow = roomSpreadOverflowLocal(list, role);
+            const nextReportOverflow = prevMap ? __reportOverflowTotal(list, prevMap) : 0;
+            const nextReportTotal = prevMap ? __reportSourceTotal(list, prevMap) : 0;
+            const nextSpread = countSpreadLocal(list);
+
+            fromOwner.patients = fromOrig;
+            toOwner.patients = toOrig;
+
+            const improvesDischarge = nextDischargeAvoid < baseDischargeAvoid;
+            const avoidsWorseningRules = nextAvoid <= baseAvoid;
+            if (!improvesDischarge || !avoidsWorseningRules) continue;
+
+            const candidate = {
+              fromOwner,
+              toOwner,
+              patientId,
+              nextAvoid,
+              nextDischargeAvoid,
+              nextRoomOverflow,
+              nextReportTotal,
+              nextReportOverflow,
+              nextSpread
+            };
+
+            if (!best) {
+              best = candidate;
+              continue;
+            }
+
+            if (candidate.nextAvoid !== best.nextAvoid) {
+              if (candidate.nextAvoid < best.nextAvoid) best = candidate;
+              continue;
+            }
+            if (candidate.nextDischargeAvoid !== best.nextDischargeAvoid) {
+              if (candidate.nextDischargeAvoid < best.nextDischargeAvoid) best = candidate;
+              continue;
+            }
+            if (candidate.nextRoomOverflow !== best.nextRoomOverflow) {
+              if (candidate.nextRoomOverflow < best.nextRoomOverflow) best = candidate;
+              continue;
+            }
+            if (candidate.nextReportTotal !== best.nextReportTotal) {
+              if (candidate.nextReportTotal < best.nextReportTotal) best = candidate;
+              continue;
+            }
+            if (candidate.nextReportOverflow !== best.nextReportOverflow) {
+              if (candidate.nextReportOverflow < best.nextReportOverflow) best = candidate;
+              continue;
+            }
+            if (candidate.nextSpread < best.nextSpread) best = candidate;
+          }
+        }
+      }
+
+      if (!best) break;
+      const applied = tryMovePatient(list, role, best.fromOwner, best.toOwner, best.patientId);
+      if (!applied) break;
+      changed = true;
+    }
+
+    return { ok: true, changed };
+  }
+
+  function rebalanceSingleMovesStrict(owners, role, opts = {}) {
+    const list = Array.isArray(owners) ? owners.filter(Boolean) : [];
+    if (list.length < 2) return { ok: true, changed: false };
+
+    const maxPasses = typeof opts.maxPasses === "number" ? opts.maxPasses : 80;
+    const maps = buildPrevOwnerMaps();
+    const prevMap = role === "nurse" ? maps.prevRnByPid : maps.prevPcaByPid;
+    let changed = false;
+
+    for (let pass = 0; pass < maxPasses; pass++) {
+      const baseAvoid = getAvoidableViolationCount(list, role);
+      const baseDischargeAvoid = getAvoidableExpectedDischargeOverflowLocal(list, role);
+      const baseSpread = countSpreadLocal(list);
+      const baseRoomOverflow = roomSpreadOverflowLocal(list, role);
+      const baseReportOverflow = prevMap ? __reportOverflowTotal(list, prevMap) : 0;
+      const baseReportTotal = prevMap ? __reportSourceTotal(list, prevMap) : 0;
+      let best = null;
+
+      for (const fromOwner of list) {
+        const movable = getMovablePatientIdsFromOwner(fromOwner, role);
+        if (!movable.length) continue;
+
+        for (const patientId of movable) {
+          for (const toOwner of list) {
+            if (!toOwner || toOwner === fromOwner) continue;
+
+            const fromOrig = safeArray(fromOwner.patients).slice();
+            const toOrig = safeArray(toOwner.patients).slice();
+            const did = tryMovePatient(list, role, fromOwner, toOwner, patientId);
+            if (!did) continue;
+
+            const nextAvoid = getAvoidableViolationCount(list, role);
+            const nextDischargeAvoid = getAvoidableExpectedDischargeOverflowLocal(list, role);
+            const nextSpread = countSpreadLocal(list);
+            const nextRoomOverflow = roomSpreadOverflowLocal(list, role);
+            const nextReportOverflow = prevMap ? __reportOverflowTotal(list, prevMap) : 0;
+            const nextReportTotal = prevMap ? __reportSourceTotal(list, prevMap) : 0;
+
+            fromOwner.patients = fromOrig;
+            toOwner.patients = toOrig;
+
+            const improves =
+              nextAvoid < baseAvoid ||
+              (nextAvoid === baseAvoid && nextDischargeAvoid < baseDischargeAvoid) ||
+              (nextAvoid === baseAvoid && nextDischargeAvoid === baseDischargeAvoid && nextSpread < baseSpread) ||
+              (nextAvoid === baseAvoid && nextDischargeAvoid === baseDischargeAvoid && nextSpread === baseSpread && nextRoomOverflow < baseRoomOverflow) ||
+              (nextAvoid === baseAvoid && nextDischargeAvoid === baseDischargeAvoid && nextSpread === baseSpread && nextRoomOverflow === baseRoomOverflow && nextReportOverflow < baseReportOverflow) ||
+              (nextAvoid === baseAvoid && nextDischargeAvoid === baseDischargeAvoid && nextSpread === baseSpread && nextRoomOverflow === baseRoomOverflow && nextReportOverflow === baseReportOverflow && nextReportTotal < baseReportTotal);
+
+            if (!improves) continue;
+
+            const candidate = {
+              fromOwner,
+              toOwner,
+              patientId,
+              nextAvoid,
+              nextDischargeAvoid,
+              nextSpread,
+              nextRoomOverflow,
+              nextReportTotal,
+              nextReportOverflow
+            };
+
+            if (!best) {
+              best = candidate;
+            } else if (candidate.nextAvoid < best.nextAvoid) {
+              best = candidate;
+            } else if (candidate.nextAvoid === best.nextAvoid && candidate.nextDischargeAvoid < best.nextDischargeAvoid) {
+              best = candidate;
+            } else if (candidate.nextAvoid === best.nextAvoid && candidate.nextDischargeAvoid === best.nextDischargeAvoid && candidate.nextSpread < best.nextSpread) {
+              best = candidate;
+            } else if (candidate.nextAvoid === best.nextAvoid && candidate.nextDischargeAvoid === best.nextDischargeAvoid && candidate.nextSpread === best.nextSpread && candidate.nextRoomOverflow < best.nextRoomOverflow) {
+              best = candidate;
+            } else if (candidate.nextAvoid === best.nextAvoid && candidate.nextDischargeAvoid === best.nextDischargeAvoid && candidate.nextSpread === best.nextSpread && candidate.nextRoomOverflow === best.nextRoomOverflow && candidate.nextReportOverflow < best.nextReportOverflow) {
+              best = candidate;
+            } else if (candidate.nextAvoid === best.nextAvoid && candidate.nextDischargeAvoid === best.nextDischargeAvoid && candidate.nextSpread === best.nextSpread && candidate.nextRoomOverflow === best.nextRoomOverflow && candidate.nextReportOverflow === best.nextReportOverflow && candidate.nextReportTotal < best.nextReportTotal) {
+              best = candidate;
+            }
+
+            if (best && best.nextAvoid <= 0 && best.nextDischargeAvoid <= 0 && best.nextSpread <= 1) break;
+          }
+          if (best && best.nextAvoid <= 0 && best.nextDischargeAvoid <= 0 && best.nextSpread <= 1) break;
+        }
+        if (best && best.nextAvoid <= 0 && best.nextDischargeAvoid <= 0 && best.nextSpread <= 1) break;
+      }
+
+      if (!best) break;
+      const applied = tryMovePatient(list, role, best.fromOwner, best.toOwner, best.patientId);
+      if (!applied) break;
+      changed = true;
+
+      if (best.nextAvoid <= 0 && best.nextDischargeAvoid <= 0 && best.nextSpread <= 1) {
+        const checkAvoid = getAvoidableViolationCount(list, role);
+        const checkDischargeAvoid = getAvoidableExpectedDischargeOverflowLocal(list, role);
+        const checkSpread = countSpreadLocal(list);
+        if (checkAvoid <= 0 && checkDischargeAvoid <= 0 && checkSpread <= 1) break;
+      }
+    }
+
+    return { ok: true, changed };
+  }
+
+  function __snapshotSingleOwnerArrays(owners) {
+    return safeArray(owners).map((owner) => safeArray(owner?.patients).slice());
+  }
+
+  function __debugOwnerSummary(owners) {
+    return safeArray(owners).map((owner) => ({
+      id: Number(owner?.id),
+      name: String(owner?.name || ""),
+      count: safeArray(owner?.patients).length,
+      patients: safeArray(owner?.patients).slice()
+    }));
+  }
+
+  function __formatOwnerCounts(summary) {
+    return safeArray(summary)
+      .map((owner) => `${owner?.name || "Owner"}:${Number(owner?.count) || 0}`)
+      .join(" | ");
+  }
+
+  function __formatEngineReason(result, fallbackText) {
+    if (result?.reason) return String(result.reason);
+    if (result?.summary && typeof result.summary === "object") {
+      const s = result.summary;
+      return [
+        typeof s.hardViolations === "number" ? `hard violations ${s.hardViolations}` : "",
+        typeof s.countSpread === "number" ? `count spread ${s.countSpread}` : "",
+        typeof s.loadSpread === "number" ? `load spread ${s.loadSpread}` : "",
+        typeof s.reportOverflow === "number" ? `report overflow ${s.reportOverflow}` : ""
+      ].filter(Boolean).join(", ");
+    }
+    return fallbackText || "No better candidate was accepted.";
+  }
+
+  function __nonIdealScore(owners, role, prevMap) {
+    const list = Array.isArray(owners) ? owners.filter(Boolean) : [];
+    const loads = list.map((owner) => {
+      const ids = safeArray(owner?.patients);
+      return ids.reduce((sum, pid) => {
+        const patient = (typeof window.getPatientById === "function") ? window.getPatientById(pid) : null;
+        if (!patient || patient.isEmpty) return sum;
+        if (role === "pca") {
+          let score = 0;
+          if (patient.isolation) score += 3;
+          if (patient.admit || patient.admitPca) score += 3;
+          if (patient.lateDc || patient.lateDcPca) score += 2;
+          if (patient.chg) score += 3;
+          if (patient.foley) score += 3;
+          if (patient.q2turns || patient.q2Turns) score += 4;
+          if (patient.feeder) score += 3;
+          return sum + score;
+        }
+        let score = 0;
+        if (patient.tele) score += 1;
+        if (patient.nih) score += 4;
+        if (patient.drip || patient.drips) score += 5;
+        if (patient.bg || patient.bgChecks) score += 2;
+        if (patient.ciwa || patient.cows || patient.ciwaCows) score += 4;
+        if (patient.sitter) score += 4;
+        if (patient.isolation || patient.iso) score += 2;
+        if (patient.admit) score += 4;
+        if (patient.lateDc) score += 2;
+        return sum + score;
+      }, 0);
+    });
+    const loadSpread = loads.length ? (Math.max(...loads) - Math.min(...loads)) : 0;
+    return {
+      violations: getAvoidableViolationCount(list, role),
+      dischargeOverflow: getAvoidableExpectedDischargeOverflowLocal(list, role),
+      countSpread: countSpreadLocal(list),
+      loadSpread,
+      roomOverflow: roomSpreadOverflowLocal(list, role),
+      reportTotal: prevMap ? __reportSourceTotal(list, prevMap) : 0,
+      reportOverflow: prevMap ? __reportOverflowTotal(list, prevMap) : 0
+    };
+  }
+
+  function __formatNonIdealScore(score) {
+    if (!score || typeof score !== "object") return "";
+    return `violations ${Number(score.violations) || 0}, discharge ${Number(score.dischargeOverflow) || 0}, spread ${Number(score.countSpread) || 0}, load ${Number(score.loadSpread) || 0}, report ${Number(score.reportOverflow) || 0}, sources ${Number(score.reportTotal) || 0}, room ${Number(score.roomOverflow) || 0}`;
+  }
+
+  function __compareNonIdealScore(a, b) {
+    const left = [
+      Number(a?.violations) || 0,
+      Number(a?.dischargeOverflow) || 0,
+      Number(a?.countSpread) || 0,
+      Number(a?.loadSpread) || 0,
+      Number(a?.reportOverflow) || 0,
+      Number(a?.reportTotal) || 0,
+      Number(a?.roomOverflow) || 0
+    ];
+    const right = [
+      Number(b?.violations) || 0,
+      Number(b?.dischargeOverflow) || 0,
+      Number(b?.countSpread) || 0,
+      Number(b?.loadSpread) || 0,
+      Number(b?.reportOverflow) || 0,
+      Number(b?.reportTotal) || 0,
+      Number(b?.roomOverflow) || 0
+    ];
+    for (let i = 0; i < left.length; i++) {
+      if (left[i] !== right[i]) return left[i] - right[i];
+    }
+    return 0;
+  }
+
+  function __sumNonIdealScores(a, b) {
+    return {
+      violations: (Number(a?.violations) || 0) + (Number(b?.violations) || 0),
+      dischargeOverflow: (Number(a?.dischargeOverflow) || 0) + (Number(b?.dischargeOverflow) || 0),
+      countSpread: (Number(a?.countSpread) || 0) + (Number(b?.countSpread) || 0),
+      loadSpread: (Number(a?.loadSpread) || 0) + (Number(b?.loadSpread) || 0),
+      reportTotal: (Number(a?.reportTotal) || 0) + (Number(b?.reportTotal) || 0),
+      reportOverflow: (Number(a?.reportOverflow) || 0) + (Number(b?.reportOverflow) || 0),
+      roomOverflow: (Number(a?.roomOverflow) || 0) + (Number(b?.roomOverflow) || 0)
+    };
+  }
+
+  function __boardQualitySummary(score, role) {
+    const items = [];
+    if ((Number(score?.violations) || 0) <= 0) items.push(`${role} rules clean`);
+    if ((Number(score?.dischargeOverflow) || 0) <= 0) items.push(`${role} discharges clean`);
+    if ((Number(score?.countSpread) || 0) <= 0) items.push(`${role} counts balanced`);
+    return items.length ? items.join(" | ") : `${role} needs cleanup`;
+  }
+
+  function __boardQualityNeeds(score, role) {
+    const items = [];
+    if ((Number(score?.countSpread) || 0) > 0) items.push("count balance");
+    if ((Number(score?.loadSpread) || 0) > (role === "RN" ? 6 : 8)) items.push("fairer acuity/load");
+    if ((Number(score?.reportOverflow) || 0) > 0 || (role === "RN" && (Number(score?.reportTotal) || 0) > 24)) items.push("fewer report sources");
+    if ((Number(score?.roomOverflow) || 0) > 0) items.push("tighter room clusters");
+    if ((Number(score?.violations) || 0) > 0) items.push("rule cleanup");
+    return items.slice(0, 2).join(" | ") || "hold this layout";
+  }
+
+  function __isOncomingTabVisible() {
+    const oncomingTab = document.getElementById("oncomingAssignmentTab");
+    return !!(oncomingTab && oncomingTab.style.display !== "none");
+  }
+
+  function __syncOncomingQualityPanelVisibility() {
+    const panel = document.getElementById("oncomingQualityPanel");
+    if (!panel) return;
+    if (!__isOncomingTabVisible()) {
+      panel.style.display = "none";
+      panel.innerHTML = "";
+      return;
+    }
+    if (!panel.innerHTML.trim()) return;
+    panel.style.display = "block";
+  }
+
+  function __renderOncomingQualityPanel() {
+    const host = document.getElementById("globalAssignmentPrintActions");
+    let panel = document.getElementById("oncomingQualityPanel");
+    if (!panel && host) {
+      panel = document.createElement("div");
+      panel.id = "oncomingQualityPanel";
+      host.appendChild(panel);
+    }
+    if (!panel) return;
+
+    if (!__isOncomingTabVisible()) {
+      panel.style.display = "none";
+      panel.innerHTML = "";
+      return;
+    }
+
+    const prevMaps = __getPrevMapsForCycle();
+    const { prevRnByPid, prevPcaByPid } = prevMaps || buildPrevOwnerMaps();
+    const nurses = __getIncomingNurses();
+    const openPcas = __getIncomingPcas().filter((p) => !(p?.isSitter && String(p?.sitterRoomPair || "").trim()));
+    const rnScore = __nonIdealScore(nurses, "nurse", prevRnByPid);
+    const pcaScore = __nonIdealScore(openPcas, "pca", prevPcaByPid);
+    const lastDebug = window.__lastOncomingRebalanceDebug || {};
+    const lastAfter = lastDebug.after || {};
+    const lastV2 = lastDebug.v2 || {};
+    const lastRnV2 = lastV2.rn || null;
+    const lastPcaV2 = lastV2.pca || null;
+    const lastRnAfterCounts = __formatOwnerCounts(lastAfter.rn);
+    const lastPcaAfterCounts = __formatOwnerCounts(lastAfter.pca);
+    const lastRnReason = __formatEngineReason(lastRnV2, "No RN candidate accepted.");
+    const lastPcaReason = __formatEngineReason(lastPcaV2, "No PCA candidate accepted.");
+    const lastRnEngine = String(lastRnV2?.engine || "Engine");
+    const lastPcaEngine = String(lastPcaV2?.engine || "Engine");
+    const lastClick = lastDebug.clickReceivedAt || lastDebug.startedAt || "";
+    const rnSummary = __boardQualitySummary(rnScore, "RN");
+    const pcaSummary = __boardQualitySummary(pcaScore, "PCA");
+    const rnNeeds = __boardQualityNeeds(rnScore, "RN");
+    const pcaNeeds = __boardQualityNeeds(pcaScore, "PCA");
+    const collapsed = window.__oncomingQualityPanelCollapsed !== false;
+    const detailStyle = collapsed ? "display:none;" : "display:block;";
+    const caret = collapsed ? "▸" : "▾";
+    const rnCounts = rnNeeds;
+    const pcaCounts = pcaNeeds;
+
+    panel.style.display = "block";
+    panel.style.width = "100%";
+    panel.innerHTML = `
+      <div class="oncoming-quality-card" style="display:block; width:100%; box-sizing:border-box; background:#fff; border:1px solid #d7dde8; border-radius:12px; padding:10px 12px; box-shadow:0 8px 18px rgba(15,23,42,0.08);">
+        <button type="button" class="oncoming-quality-toggle" aria-expanded="${collapsed ? "false" : "true"}" onclick="window.toggleOncomingQualityPanel && window.toggleOncomingQualityPanel()">
+          <span>${caret}</span>
+          <span>Board Quality</span>
+        </button>
+        <div style="${detailStyle}">
+        <div class="oncoming-quality-line"><strong>RN:</strong> ${escapeHtml(rnSummary)}</div>
+        <div class="oncoming-quality-meta">Focus: ${escapeHtml(rnNeeds)}</div>
+        <div class="oncoming-quality-line"><strong>PCA:</strong> ${escapeHtml(pcaSummary)}</div>
+        <div class="oncoming-quality-meta">RN counts: ${escapeHtml(rnCounts || "—")}</div>
+        <div class="oncoming-quality-meta">PCA counts: ${escapeHtml(pcaCounts || "—")}</div>
+        <div class="oncoming-quality-meta">Last path: ${escapeHtml(String(lastDebug.path || "none"))}</div>
+        <div class="oncoming-quality-meta">Last click: ${escapeHtml(String(lastClick || "none"))}</div>
+        <div class="oncoming-quality-meta">Last RN after: ${escapeHtml(lastRnAfterCounts || "none")}</div>
+        <div class="oncoming-quality-meta">Last PCA after: ${escapeHtml(lastPcaAfterCounts || "none")}</div>
+        <div class="oncoming-quality-meta">Last RN engine: ${escapeHtml(`${lastRnEngine}: ${String(lastRnReason || "none")}`)}</div>
+        <div class="oncoming-quality-meta">Last PCA engine: ${escapeHtml(`${lastPcaEngine}: ${String(lastPcaReason || "none")}`)}</div>
+      </div>
+    `;
+  }
+
+  function __restoreSingleOwnerArrays(owners, snapshot) {
+    safeArray(owners).forEach((owner, idx) => {
+      if (!owner) return;
+      owner.patients = safeArray(snapshot?.[idx]).slice();
+    });
+  }
+
+  function __fullRebuildOwnersForRole(owners, role, activePatients) {
+    const list = Array.isArray(owners) ? owners.filter(Boolean) : [];
+    const pts = Array.isArray(activePatients) ? activePatients.filter((p) => p && !p.isEmpty) : [];
+    if (!list.length || !pts.length) return { changed: false, avoidable: getAvoidableViolationCount(list, role) };
+
+    const before = __snapshotSingleOwnerArrays(list);
+    list.forEach((owner) => { owner.patients = []; });
+
+    try {
+      if (role === "pca") {
+        const { unlockedPool } = applyPcaPinsBeforeDistribute(pts, list);
+        if (typeof window.distributePatientsEvenly === "function") {
+          window.distributePatientsEvenly(list, unlockedPool, { randomize: false, role: "pca", preserveExisting: true });
+        }
+      } else {
+        const { unlockedPool } = applyRnPinsBeforeDistribute(pts);
+        if (typeof window.distributePatientsEvenly === "function") {
+          window.distributePatientsEvenly(list, unlockedPool, { randomize: false, role: "nurse", preserveExisting: true });
+        }
+      }
+
+      rebalanceExpectedDischarges(list, role, { maxPasses: role === "nurse" ? 180 : 120 });
+      balanceCountsWithoutCreatingNewAvoidableViolations(list, role, { maxPasses: 80 });
+      rebalanceExpectedDischarges(list, role, { maxPasses: role === "nurse" ? 180 : 120 });
+      if (typeof window.repairAssignmentsInPlace === "function") {
+        window.repairAssignmentsInPlace(list, role, null, { maxIters: role === "nurse" ? 50 : 35 });
+      }
+      rebalanceExpectedDischarges(list, role, { maxPasses: role === "nurse" ? 180 : 120 });
+
+      const afterAvoidable = getAvoidableViolationCount(list, role);
+      const beforeAvoidable = getAvoidableViolationCount(before.map((patients) => ({ patients })), role);
+      const changed = JSON.stringify(before) !== JSON.stringify(__snapshotSingleOwnerArrays(list));
+      return { changed, avoidable: afterAvoidable, improved: afterAvoidable < beforeAvoidable };
+    } catch (e) {
+      console.warn("[oncoming rebuild] role rebuild failed", role, e);
+      __restoreSingleOwnerArrays(list, before);
+      return { changed: false, avoidable: getAvoidableViolationCount(list, role), error: e };
+    }
+  }
+
+  function __prevMapToObject(prevMap) {
+    const out = {};
+    if (!(prevMap instanceof Map)) return out;
+    prevMap.forEach((value, key) => {
+      out[Number(key)] = String(value || "");
+    });
+    return out;
+  }
+
+  function __getPreferredAssignmentEngine() {
+    if (window.assignmentEngineV3 && typeof window.assignmentEngineV3.solve === "function") {
+      return { label: "Engine V3", solver: window.assignmentEngineV3.solve };
+    }
+    if (window.assignmentEngineV2 && typeof window.assignmentEngineV2.solve === "function") {
+      return { label: "Engine V2", solver: window.assignmentEngineV2.solve };
+    }
+    return null;
+  }
+
+  function __applyEngineV2Solution(owners, patients, role, prevMap, opts = {}) {
+    const engine = __getPreferredAssignmentEngine();
+    if (!engine) {
+      return { applied: false, reason: "No assignment engine loaded." };
+    }
+
+    const list = Array.isArray(owners) ? owners.filter(Boolean) : [];
+    const pts = Array.isArray(patients) ? patients.filter((p) => p && !p.isEmpty) : [];
+    if (!list.length || !pts.length) return { applied: false, reason: "No owners or patients available." };
+
+    const before = __snapshotSingleOwnerArrays(list);
+    const beforeAvoid = getAvoidableViolationCount(list, role);
+    const beforeDischarge = getAvoidableExpectedDischargeOverflowLocal(list, role);
+    const beforeSpread = countSpreadLocal(list);
+    const beforeRoomOverflow = roomSpreadOverflowLocal(list, role);
+    const beforeReport = prevMap ? __reportOverflowTotal(list, prevMap) : 0;
+
+    try {
+      const seedOwners = !!opts.reseedOwners
+        ? list.map((owner) => ({
+            id: owner.id,
+            name: owner.name,
+            patients: [],
+            isSitter: !!owner?.isSitter,
+            sitterRoomPair: owner?.sitterRoomPair || ""
+          }))
+        : list.map((owner) => ({
+            id: owner.id,
+            name: owner.name,
+            patients: safeArray(owner?.patients).slice(),
+            isSitter: !!owner?.isSitter,
+            sitterRoomPair: owner?.sitterRoomPair || ""
+          }));
+
+      const result = engine.solver({
+        role,
+        owners: seedOwners,
+        patients: pts.map((p) => ({ ...p })),
+        prevOwnerByPid: __prevMapToObject(prevMap),
+        maxPasses: typeof opts.maxPasses === "number" ? opts.maxPasses : 120
+      });
+
+      const solvedOwners = safeArray(result?.owners);
+      if (!solvedOwners.length) {
+        __restoreSingleOwnerArrays(list, before);
+        return { applied: false, reason: `${engine.label} returned no solution.`, engine: engine.label };
+      }
+
+      const byId = new Map(solvedOwners.map((owner) => [Number(owner.id), safeArray(owner?.patients).slice()]));
+      list.forEach((owner) => {
+        owner.patients = byId.has(Number(owner.id)) ? byId.get(Number(owner.id)).slice() : [];
+      });
+
+      const afterAvoid = getAvoidableViolationCount(list, role);
+      const afterDischarge = getAvoidableExpectedDischargeOverflowLocal(list, role);
+      const afterSpread = countSpreadLocal(list);
+      const afterRoomOverflow = roomSpreadOverflowLocal(list, role);
+      const afterReport = prevMap ? __reportOverflowTotal(list, prevMap) : 0;
+      const changed = JSON.stringify(before) !== JSON.stringify(__snapshotSingleOwnerArrays(list));
+      const improved =
+        afterAvoid < beforeAvoid ||
+        (afterAvoid === beforeAvoid && afterDischarge < beforeDischarge) ||
+        (afterAvoid === beforeAvoid && afterDischarge === beforeDischarge && afterSpread < beforeSpread) ||
+        (afterAvoid === beforeAvoid && afterDischarge === beforeDischarge && afterSpread === beforeSpread && afterRoomOverflow < beforeRoomOverflow) ||
+        (afterAvoid === beforeAvoid && afterDischarge === beforeDischarge && afterSpread === beforeSpread && afterRoomOverflow === beforeRoomOverflow && afterReport < beforeReport);
+
+      const cleanEnough = afterAvoid <= 0 && afterDischarge <= 0 && afterSpread <= 1 && afterRoomOverflow <= 0;
+      const acceptableByForce =
+        !!opts.forceApply &&
+        changed &&
+        (
+          improved ||
+          cleanEnough ||
+          afterSpread < beforeSpread ||
+          afterAvoid < beforeAvoid ||
+          afterDischarge < beforeDischarge ||
+          afterRoomOverflow < beforeRoomOverflow
+        );
+
+      if (!changed || (!improved && !cleanEnough && !acceptableByForce)) {
+        __restoreSingleOwnerArrays(list, before);
+        return {
+          applied: false,
+          reason: `${engine.label} did not improve this assignment.`,
+          engine: engine.label,
+          summary: result?.summary || null,
+          metrics: {
+            beforeAvoid,
+            beforeDischarge,
+            beforeSpread,
+            beforeRoomOverflow,
+            beforeReport,
+            afterAvoid,
+            afterDischarge,
+            afterSpread,
+            afterRoomOverflow,
+            afterReport,
+            changed,
+            improved,
+            cleanEnough
+          }
+        };
+      }
+
+      return {
+        applied: true,
+        changed: true,
+        engine: engine.label,
+        summary: result?.summary || null,
+        metrics: {
+          beforeAvoid,
+          beforeDischarge,
+          beforeSpread,
+          beforeRoomOverflow,
+          beforeReport,
+          afterAvoid,
+          afterDischarge,
+          afterSpread,
+          afterRoomOverflow,
+          afterReport,
+          changed,
+          improved,
+          cleanEnough,
+          acceptableByForce
+        }
+      };
+    } catch (e) {
+      console.warn("[assignment engine] solve failed", role, e);
+      __restoreSingleOwnerArrays(list, before);
+      return { applied: false, reason: `${engine.label} solve failed.`, engine: engine.label };
+    }
   }
 
   function balanceCountsWithoutCreatingNewAvoidableViolations(owners, role, opts = {}) {
@@ -757,6 +1589,27 @@ if (window.__assignmentsRenderLoaded) {
     }, 4200);
   }
 
+  function __setRebalanceButtonBusy(isBusy) {
+    const btn = document.getElementById("btnRebalanceOncomingBoth");
+    if (!btn) return;
+    btn.disabled = !!isBusy;
+    btn.textContent = isBusy ? "Rebalancing..." : "Rebalance (Both)";
+    btn.style.opacity = isBusy ? "0.75" : "";
+    btn.style.cursor = isBusy ? "progress" : "";
+  }
+
+  function __suspendOncomingAutoPopulate(ms) {
+    const dur = Math.max(0, Number(ms) || 0);
+    window.__oncomingAutoPopulateSuspendUntil = Date.now() + dur;
+    clearTimeout(window.__oncomingAutoPopulateTimer);
+  }
+
+  function __suspendCloudRealtimeApply(ms) {
+    const dur = Math.max(0, Number(ms) || 0);
+    window.__cloud = window.__cloud || {};
+    window.__cloud.suspendRealtimeApplyUntil = Date.now() + dur;
+  }
+
   function __setOncomingPopulateStatus(state, metaText) {
     const pill = document.getElementById("oncomingPopulateStatus");
     if (!pill) return;
@@ -765,9 +1618,12 @@ if (window.__assignmentsRenderLoaded) {
     const textEl = pill.querySelector && pill.querySelector(".staffing-status-text");
     const metaEl = pill.querySelector && pill.querySelector(".staffing-status-meta");
 
+    pill.setAttribute("data-state", String(state || ""));
+
     const isComplete = state === "complete";
-    if (dot) dot.style.background = isComplete ? "#22c55e" : "#fbbf24";
-    if (textEl) textEl.textContent = isComplete ? "All Patients Populated" : "Populating";
+    const isRebalancing = state === "rebalancing";
+    if (dot) dot.style.background = isComplete ? "#22c55e" : (isRebalancing ? "#2563eb" : "#fbbf24");
+    if (textEl) textEl.textContent = isComplete ? "All Patients Populated" : (isRebalancing ? "Rebalancing Assignments" : "Populating");
     if (metaEl) metaEl.textContent = metaText || "";
   }
 
@@ -797,7 +1653,9 @@ if (window.__assignmentsRenderLoaded) {
     __setOncomingPopulateStatus(allPopulated ? "complete" : "populating", `${populatedCount}/${total}`);
 
     const canAutoPopulate = !!(__getIncomingNurses().length && __getIncomingPcas().length && total > 0);
-    if (canAutoPopulate && !allPopulated && !window.__oncomingPopulateInFlight && !window.__oncomingRebalanceBothInFlight) {
+    const suspendedUntil = Number(window.__oncomingAutoPopulateSuspendUntil || 0);
+    const autoPopulateSuspended = Date.now() < suspendedUntil;
+    if (canAutoPopulate && !autoPopulateSuspended && !allPopulated && !window.__oncomingPopulateInFlight && !window.__oncomingRebalanceBothInFlight) {
       const now = Date.now();
       const last = Number(window.__oncomingAutoPopulateTs || 0);
       if (now - last > 1500) {
@@ -849,6 +1707,14 @@ if (window.__assignmentsRenderLoaded) {
       if (Number.isFinite(id)) snap.set(id, pts.map(Number));
     });
     return snap;
+  }
+
+  function __restoreOwnersFromSnapshot(owners, snap) {
+    (owners || []).forEach((o) => {
+      const id = Number(o?.id);
+      if (!Number.isFinite(id)) return;
+      o.patients = safeArray(snap?.get(id)).slice();
+    });
   }
 
   function __countMovesFromSnapshots(beforeSnap, ownersAfter) {
@@ -991,7 +1857,6 @@ if (window.__assignmentsRenderLoaded) {
 
       pts.forEach(p => {
         const prevName = firstNameOnly(prevRnByPid.get(Number(p.id)) || "");
-        const bedLabel = getBedLabel(p);
 
         const pinned = isPatientPinnedToIncomingRn(p.id, nurse.id);
         const draggable = pinned ? "false" : "true";
@@ -1028,7 +1893,7 @@ if (window.__assignmentsRenderLoaded) {
             onmouseleave="window.__cuppPinHoverHandler(event, false)"
             style="${pinned ? "opacity:0.98;" : ""}"
           >
-            <td>${escapeHtml(bedLabel)} ${pinControl}</td>
+            <td>${bedCellHtml(p, pinControl)}</td>
             <td>${p.tele ? "Tele" : "MS"}</td>
             <td>${typeof rnTagString === "function" ? rnTagString(p) : ""}</td>
             <td>${escapeHtml(prevName || "-")}</td>
@@ -1137,16 +2002,41 @@ if (window.__assignmentsRenderLoaded) {
 
       pts.forEach(p => {
         const prevName = firstNameOnly(prevPcaByPid.get(Number(p.id)) || "");
-        const bedLabel = getBedLabel(p);
+        const pinned = isPatientPinnedToIncomingPca(p.id, pca.id);
+        const draggable = pinned ? "false" : "true";
+        const pinControl = `
+          <button
+            type="button"
+            aria-label="Pin patient to this PCA"
+            title="${escapeHtml(pinned ? "Pinned to this PCA (click to unpin)" : "Pin to this PCA (preserve on regenerate)")}"
+            onclick="window.toggleIncomingPcaPin(${p.id}, ${pca.id})"
+            data-pinbtn="1"
+            data-pinned="${pinned ? "1" : "0"}"
+            style="
+              margin-left:8px;
+              border:none;
+              background:transparent;
+              cursor:pointer;
+              font-size:14px;
+              line-height:1;
+              padding:0;
+              opacity:${pinned ? "1" : "0"};
+              pointer-events:${pinned ? "auto" : "none"};
+            "
+          >📌</button>
+        `;
 
         html += `
           <tr
-            draggable="true"
+            draggable="${draggable}"
             ondragstart="onRowDragStart(event, 'incoming', 'pca', ${pca.id}, ${p.id})"
             ondragend="onRowDragEnd(event)"
             ondblclick="openPatientProfileFromRoom(${p.id})"
+            onmouseenter="window.__cuppPinHoverHandler(event, true)"
+            onmouseleave="window.__cuppPinHoverHandler(event, false)"
+            style="${pinned ? "opacity:0.98;" : ""}"
           >
-            <td>${escapeHtml(bedLabel)}</td>
+            <td>${bedCellHtml(p, pinControl)}</td>
             <td>${p.tele ? "Tele" : "MS"}</td>
             <td>${typeof pcaTagString === "function" ? pcaTagString(p) : ""}</td>
             <td>${escapeHtml(prevName || "-")}</td>
@@ -1167,25 +2057,31 @@ if (window.__assignmentsRenderLoaded) {
   // Batch render (RN + PCA share the same prev maps)
   function renderOncomingAll() {
     __beginRenderCycle();
+    __syncOncomingDischargeVisualToggle();
     const prevMaps = __getPrevMapsForCycle();
     __renderAssignmentOutputWithCache(prevMaps);
     __renderPcaAssignmentOutputWithCache(prevMaps);
     __refreshOncomingPopulateStatus();
+    __renderOncomingQualityPanel();
   }
 
   // Public render fns (keep API stable)
   function renderAssignmentOutput() {
     __beginRenderCycle();
+    __syncOncomingDischargeVisualToggle();
     const prevMaps = __getPrevMapsForCycle();
     __renderAssignmentOutputWithCache(prevMaps);
     __refreshOncomingPopulateStatus();
+    __renderOncomingQualityPanel();
   }
 
   function renderPcaAssignmentOutput() {
     __beginRenderCycle();
+    __syncOncomingDischargeVisualToggle();
     const prevMaps = __getPrevMapsForCycle();
     __renderPcaAssignmentOutputWithCache(prevMaps);
     __refreshOncomingPopulateStatus();
+    __renderOncomingQualityPanel();
   }
 
   function renderSitterAssignmentOutput() {
@@ -1199,6 +2095,7 @@ if (window.__assignmentsRenderLoaded) {
   function populateOncomingAssignment(randomize = false) {
     if (window.__oncomingPopulateInFlight) return;
     window.__oncomingPopulateInFlight = true;
+    __suspendOncomingAutoPopulate(1200);
     __setOncomingPopulateStatus("populating");
 
     try {
@@ -1226,6 +2123,7 @@ if (window.__assignmentsRenderLoaded) {
       pcas.forEach(p => { p.patients = []; });
 
       cleanupRnPinsAgainstRoster();
+      cleanupPcaPinsAgainstRoster();
 
       let list = activePatients.slice();
       if (randomize) list.sort(() => Math.random() - 0.5);
@@ -1236,11 +2134,16 @@ if (window.__assignmentsRenderLoaded) {
       if (typeof window.distributePatientsEvenly === "function") {
         window.distributePatientsEvenly(nurses, unlockedPool, { randomize, role: "nurse", preserveExisting: true });
         const pinnedToSitterPcas = __enforceSitterAssignmentsExclusive(pcas, list);
-        const pcaPool = list.filter((p) => !pinnedToSitterPcas.has(Number(p?.id)));
         const openPcas = pcas.filter((p) => !(p?.isSitter && String(p?.sitterRoomPair || "").trim()));
+        const pcaPoolSeed = list.filter((p) => !pinnedToSitterPcas.has(Number(p?.id)));
+        const { unlockedPool: pcaPool } = applyPcaPinsBeforeDistribute(pcaPoolSeed, openPcas);
         if (openPcas.length) {
           window.distributePatientsEvenly(openPcas, pcaPool, { randomize, role: "pca", preserveExisting: true });
         }
+        rebalanceSingleMovesStrict(nurses, "nurse", { maxPasses: 120 });
+        if (openPcas.length) rebalanceSingleMovesStrict(openPcas, "pca", { maxPasses: 120 });
+        rebalanceExpectedDischarges(nurses, "nurse", { maxPasses: 80 });
+        if (openPcas.length) rebalanceExpectedDischarges(openPcas, "pca", { maxPasses: 80 });
       } else {
         alert("ERROR: distributePatientsEvenly is not loaded. Check script order + app.assignmentRules.js loading.");
         console.error("distributePatientsEvenly missing — check index.html script order and app.assignmentRules.js.");
@@ -1248,8 +2151,10 @@ if (window.__assignmentsRenderLoaded) {
       }
 
       // keep these passes reasonable to avoid UI lag
+      rebalanceSingleMovesStrict(nurses, "nurse", { maxPasses: 80 });
       balanceCountsWithoutCreatingNewAvoidableViolations(nurses, "nurse", { maxPasses: 50 });
       const openPcasForBalance = pcas.filter((p) => !(p?.isSitter && String(p?.sitterRoomPair || "").trim()));
+      rebalanceSingleMovesStrict(openPcasForBalance, "pca", { maxPasses: 80 });
       balanceCountsWithoutCreatingNewAvoidableViolations(openPcasForBalance, "pca", { maxPasses: 50 });
 
       if (typeof window.repairAssignmentsInPlace === "function") {
@@ -1257,6 +2162,9 @@ if (window.__assignmentsRenderLoaded) {
         window.repairAssignmentsInPlace(openPcasForBalance, "pca", null, { maxIters: 35 });
       }
       __enforceSitterAssignmentsExclusive(pcas, list);
+      const populatePrevMaps = buildPrevOwnerMaps();
+      __applyEngineV2Solution(nurses, activePatients, "nurse", populatePrevMaps.prevRnByPid, { maxPasses: 160, forceApply: true });
+      __applyEngineV2Solution(openPcasForBalance, activePatients, "pca", populatePrevMaps.prevPcaByPid, { maxPasses: 160, forceApply: true });
 
       // ✅ batched render
       renderOncomingAll();
@@ -1282,9 +2190,21 @@ if (window.__assignmentsRenderLoaded) {
     return { applied: true, reason: "" };
   }
 
-  function rebalanceOncomingAssignment() {
+  function __waitForUiPaint() {
+    return new Promise((resolve) => {
+      const raf = window.requestAnimationFrame || ((cb) => setTimeout(cb, 16));
+      raf(() => setTimeout(resolve, 0));
+    });
+  }
+
+  async function rebalanceOncomingAssignment() {
     if (window.__oncomingRebalanceBothInFlight) return;
     window.__oncomingRebalanceBothInFlight = true;
+    __setRebalanceButtonBusy(true);
+    __suspendOncomingAutoPopulate(5000);
+    __suspendCloudRealtimeApply(5000);
+    __setOncomingPopulateStatus("rebalancing", "Thinking...");
+    await __waitForUiPaint();
 
     try {
       __syncIncomingGlobals();
@@ -1302,79 +2222,252 @@ if (window.__assignmentsRenderLoaded) {
       const beforeSnapPca = __snapshotOwners(pcas);
       const beforeStatsRn = __reportStatsForOwners(nurses, "nurse", prevRnByPid);
       const beforeStatsPca = __reportStatsForOwners(pcas, "pca", prevPcaByPid);
+      const beforeScoreRn = __nonIdealScore(nurses, "nurse", prevRnByPid);
+      const beforeScorePca = __nonIdealScore(pcas.filter((p) => !(p?.isSitter && String(p?.sitterRoomPair || "").trim())), "pca", prevPcaByPid);
+      const baselinePreventableRn = getAvoidableViolationCount(nurses, "nurse");
+      const baselinePreventablePca = getAvoidableViolationCount(pcas.filter((p) => !(p?.isSitter && String(p?.sitterRoomPair || "").trim())), "pca");
+      window.__lastOncomingRebalanceDebug = {
+        startedAt: new Date().toISOString(),
+        before: {
+          rn: __debugOwnerSummary(nurses),
+          pca: __debugOwnerSummary(pcas)
+        },
+        path: "starting"
+      };
 
       try {
         cleanupRnPinsAgainstRoster();
+        cleanupPcaPinsAgainstRoster();
         nurses.forEach(rn => {
           rn.patients = Array.isArray(rn.patients) ? rn.patients : [];
           rn.patients = rn.patients.filter(pid => !isPatientPinnedToIncomingRn(pid, rn.id));
         });
+        pcas.forEach(pca => {
+          pca.patients = Array.isArray(pca.patients) ? pca.patients : [];
+          pca.patients = pca.patients.filter(pid => !isPatientPinnedToIncomingPca(pid, pca.id));
+        });
         const active = ptsAll.filter(p => p && !p.isEmpty);
         applyRnPinsBeforeDistribute(active);
+        const openPcasForPins = pcas.filter((p) => !(p?.isSitter && String(p?.sitterRoomPair || "").trim()));
+        applyPcaPinsBeforeDistribute(active, openPcasForPins);
       } catch (e) {
         console.warn("[rebalance BOTH] pin placement pre-pass failed", e);
       }
 
       const openPcas = pcas.filter((p) => !(p?.isSitter && String(p?.sitterRoomPair || "").trim()));
-      const rnRes = __runSafeRebalance(nurses, "nurse");
-      const pcaRes = __runSafeRebalance(openPcas, "pca");
+      const activePatients = ptsAll.filter((p) => p && !p.isEmpty);
+      let v2Rn = { applied: false, reason: "Engine V2 deferred to final pass." };
+      let v2Pca = { applied: false, reason: "Engine V2 deferred to final pass." };
+      window.__lastOncomingRebalanceDebug.v2 = {
+        rn: v2Rn,
+        pca: v2Pca,
+        afterV2: {
+          rn: __debugOwnerSummary(nurses),
+          pca: __debugOwnerSummary(pcas)
+        }
+      };
+
+      const strictMoveRn = rebalanceSingleMovesStrict(nurses, "nurse", { maxPasses: 140 });
+      const strictMovePca = rebalanceSingleMovesStrict(openPcas, "pca", { maxPasses: 140 });
+      const dischargePassRn = rebalanceExpectedDischarges(nurses, "nurse", { maxPasses: 160 });
+      const dischargePassPca = rebalanceExpectedDischarges(openPcas, "pca", { maxPasses: 120 });
+      let rnRes = __runSafeRebalance(nurses, "nurse");
+      let pcaRes = __runSafeRebalance(openPcas, "pca");
+      rebalanceSingleMovesStrict(nurses, "nurse", { maxPasses: 140 });
+      rebalanceSingleMovesStrict(openPcas, "pca", { maxPasses: 140 });
       const rnCountFallback = balanceCountsWithoutCreatingNewAvoidableViolations(nurses, "nurse", { maxPasses: 80 });
       const pcaCountFallback = balanceCountsWithoutCreatingNewAvoidableViolations(openPcas, "pca", { maxPasses: 80 });
+      rebalanceSingleMovesStrict(nurses, "nurse", { maxPasses: 140 });
+      rebalanceSingleMovesStrict(openPcas, "pca", { maxPasses: 140 });
+      rebalanceExpectedDischarges(nurses, "nurse", { maxPasses: 160 });
+      rebalanceExpectedDischarges(openPcas, "pca", { maxPasses: 120 });
+      let afterPrimaryPreventableRn = getAvoidableViolationCount(nurses, "nurse");
+      let afterPrimaryPreventablePca = getAvoidableViolationCount(openPcas, "pca");
+      let emergencyRnRebuild = { changed: false, improved: false };
+      let emergencyPcaRebuild = { changed: false, improved: false };
+      const pcaPoolForRebuild = activePatients.filter((p) => !(__getIncomingPcas().some((owner) => owner?.isSitter && String(owner?.sitterRoomPair || "").trim() && safeArray(owner?.patients).includes(Number(p?.id)))));
+
+      if (afterPrimaryPreventableRn > 0) {
+        emergencyRnRebuild = __fullRebuildOwnersForRole(nurses, "nurse", activePatients);
+        rnRes = __runSafeRebalance(nurses, "nurse");
+        rebalanceExpectedDischarges(nurses, "nurse", { maxPasses: 180 });
+        afterPrimaryPreventableRn = getAvoidableViolationCount(nurses, "nurse");
+      }
+      if (afterPrimaryPreventablePca > 0 && openPcas.length) {
+        emergencyPcaRebuild = __fullRebuildOwnersForRole(openPcas, "pca", pcaPoolForRebuild);
+        pcaRes = __runSafeRebalance(openPcas, "pca");
+        rebalanceExpectedDischarges(openPcas, "pca", { maxPasses: 140 });
+        afterPrimaryPreventablePca = getAvoidableViolationCount(openPcas, "pca");
+      }
       __enforceSitterAssignmentsExclusive(pcas, ptsAll.filter((p) => p && !p.isEmpty));
+      v2Rn = __applyEngineV2Solution(nurses, activePatients, "nurse", prevRnByPid, { maxPasses: 220, reseedOwners: true, forceApply: true });
+      v2Pca = __applyEngineV2Solution(openPcas, activePatients, "pca", prevPcaByPid, { maxPasses: 220, reseedOwners: true, forceApply: true });
+      window.__lastOncomingRebalanceDebug.v2 = {
+        rn: v2Rn,
+        pca: v2Pca,
+        afterV2: {
+          rn: __debugOwnerSummary(nurses),
+          pca: __debugOwnerSummary(pcas)
+        }
+      };
+
+      const finalPreventableRn = getAvoidableViolationCount(nurses, "nurse");
+      const finalPreventablePca = getAvoidableViolationCount(openPcas, "pca");
+      const finalRoomOverflowRn = roomSpreadOverflowLocal(nurses, "nurse");
+      const finalRoomOverflowPca = roomSpreadOverflowLocal(openPcas, "pca");
+      const afterScoreRnAttempt = __nonIdealScore(nurses, "nurse", prevRnByPid);
+      const afterScorePcaAttempt = __nonIdealScore(openPcas, "pca", prevPcaByPid);
+      const beforeBoardScore = __sumNonIdealScores(beforeScoreRn, beforeScorePca);
+      const afterBoardScore = __sumNonIdealScores(afterScoreRnAttempt, afterScorePcaAttempt);
+      window.__lastOncomingRebalanceDebug.path = "legacy_fallback";
+      window.__lastOncomingRebalanceDebug.after = {
+        rn: __debugOwnerSummary(nurses),
+        pca: __debugOwnerSummary(pcas),
+        finalPreventableRn,
+        finalPreventablePca,
+        finalRoomOverflowRn,
+        finalRoomOverflowPca,
+        beforeBoardScore,
+        afterBoardScore
+      };
+      const baselinePreventablePresent = baselinePreventableRn > 0 || baselinePreventablePca > 0;
+      const finalCountSpreadRn = countSpreadLocal(nurses);
+      const finalCountSpreadPca = countSpreadLocal(openPcas);
+      const perfectRuleClean =
+        finalPreventableRn <= 0 &&
+        finalPreventablePca <= 0 &&
+        finalCountSpreadRn <= 1 &&
+        finalCountSpreadPca <= 1 &&
+        finalRoomOverflowRn <= 0 &&
+        finalRoomOverflowPca <= 0;
+      const boardImproved = __compareNonIdealScore(afterBoardScore, beforeBoardScore) < 0;
+      const countStillImbalanced = finalCountSpreadRn > 1 || finalCountSpreadPca > 1;
+      const roomStillWide = finalRoomOverflowRn > 0 || finalRoomOverflowPca > 0;
+      const shouldRollback = countStillImbalanced || roomStillWide || (!perfectRuleClean && !boardImproved);
+      if (shouldRollback) {
+        __restoreOwnersFromSnapshot(nurses, beforeSnapRn);
+        __restoreOwnersFromSnapshot(pcas, beforeSnapPca);
+      }
 
       const afterStatsRn = __reportStatsForOwners(nurses, "nurse", prevRnByPid);
       const afterStatsPca = __reportStatsForOwners(pcas, "pca", prevPcaByPid);
+      const afterScoreRn = __nonIdealScore(nurses, "nurse", prevRnByPid);
+      const afterScorePca = __nonIdealScore(openPcas, "pca", prevPcaByPid);
+      const beforeCountsRnText = __formatOwnerCounts(window.__lastOncomingRebalanceDebug?.before?.rn);
+      const afterCountsRnText = __formatOwnerCounts(window.__lastOncomingRebalanceDebug?.after?.rn || __debugOwnerSummary(nurses));
+      const beforeCountsPcaText = __formatOwnerCounts(window.__lastOncomingRebalanceDebug?.before?.pca);
+      const afterCountsPcaText = __formatOwnerCounts(window.__lastOncomingRebalanceDebug?.after?.pca || __debugOwnerSummary(pcas));
+      const v2RnReason = __formatEngineReason(v2Rn, "Engine V2 did not accept a better RN assignment.");
+      const v2PcaReason = __formatEngineReason(v2Pca, "Engine V2 did not accept a better PCA assignment.");
 
       const movesRn = __countMovesFromSnapshots(beforeSnapRn, nurses);
       const movesPca = __countMovesFromSnapshots(beforeSnapPca, pcas);
-      const rnApplied = !!(rnRes.applied || rnCountFallback?.changed || movesRn > 0);
-      const pcaApplied = !!(pcaRes.applied || pcaCountFallback?.changed || movesPca > 0);
+      const rnApplied = !shouldRollback && !!(v2Rn?.applied || strictMoveRn?.changed || dischargePassRn?.changed || rnRes.applied || rnCountFallback?.changed || emergencyRnRebuild?.changed || movesRn > 0);
+      const pcaApplied = !shouldRollback && !!(v2Pca?.applied || strictMovePca?.changed || dischargePassPca?.changed || pcaRes.applied || pcaCountFallback?.changed || emergencyPcaRebuild?.changed || movesPca > 0);
 
       const msgOkRn = [
         `Applied ${movesRn} move${movesRn === 1 ? "" : "s"}.`,
+        v2Rn?.applied ? "Engine V2 final pass applied." : "",
+        strictMoveRn?.changed ? "Direct one-patient RN moves applied." : "",
+        emergencyRnRebuild?.changed ? "Escalated to a full discharge-aware RN rebuild." : "",
         (rnCountFallback?.changed && !rnRes.applied) ? "Count-priority balancing applied." : "",
         __formatDeltaLine("Max report sources", beforeStatsRn.maxReport, afterStatsRn.maxReport),
         __formatDeltaLine("Report-source total", beforeStatsRn.sumReport, afterStatsRn.sumReport),
         __formatDeltaLine("Avoidable violations", beforeStatsRn.avoid, afterStatsRn.avoid),
-        __formatDeltaLine("Count spread", `${beforeStatsRn.minCount}-${beforeStatsRn.maxCount}`, `${afterStatsRn.minCount}-${afterStatsRn.maxCount}`)
+        __formatDeltaLine("Count spread", `${beforeStatsRn.minCount}-${beforeStatsRn.maxCount}`, `${afterStatsRn.minCount}-${afterStatsRn.maxCount}`),
+        `Non-ideal score: ${__formatNonIdealScore(beforeScoreRn)} -> ${__formatNonIdealScore(afterScoreRn)}`,
+        `Counts: ${afterCountsRnText}`
       ].filter(Boolean).join(" ");
 
       const msgOkPca = [
         `Applied ${movesPca} move${movesPca === 1 ? "" : "s"}.`,
+        v2Pca?.applied ? "Engine V2 final pass applied." : "",
+        strictMovePca?.changed ? "Direct one-patient PCA moves applied." : "",
+        emergencyPcaRebuild?.changed ? "Escalated to a full discharge-aware PCA rebuild." : "",
         (pcaCountFallback?.changed && !pcaRes.applied) ? "Count-priority balancing applied." : "",
         __formatDeltaLine("Max report sources", beforeStatsPca.maxReport, afterStatsPca.maxReport),
         __formatDeltaLine("Report-source total", beforeStatsPca.sumReport, afterStatsPca.sumReport),
         __formatDeltaLine("Avoidable violations", beforeStatsPca.avoid, afterStatsPca.avoid),
-        __formatDeltaLine("Count spread", `${beforeStatsPca.minCount}-${beforeStatsPca.maxCount}`, `${afterStatsPca.minCount}-${afterStatsPca.maxCount}`)
+        __formatDeltaLine("Count spread", `${beforeStatsPca.minCount}-${beforeStatsPca.maxCount}`, `${afterStatsPca.minCount}-${afterStatsPca.maxCount}`),
+        `Non-ideal score: ${__formatNonIdealScore(beforeScorePca)} -> ${__formatNonIdealScore(afterScorePca)}`,
+        `Counts: ${afterCountsPcaText}`
       ].filter(Boolean).join(" ");
 
       __setBanner(
         "assignmentOutput",
         "oncomingStatusRn",
         rnApplied ? "ok" : "warn",
-        rnApplied ? msgOkRn : (rnRes.reason || "Unable to rebalance safely.")
+        rnApplied ? msgOkRn : (
+          shouldRollback
+            ? (baselinePreventablePresent
+                ? `No board-quality improvement was found. Existing preventable RN/PCA rule breaks remain unchanged. Score ${__formatNonIdealScore(beforeScoreRn)} -> ${__formatNonIdealScore(afterScoreRn)}. Before: ${beforeCountsRnText}. After attempt: ${afterCountsRnText}. Engine V2: ${v2RnReason}.`
+                : `Rebalance rolled back because it did not improve board quality. Score ${__formatNonIdealScore(beforeScoreRn)} -> ${__formatNonIdealScore(afterScoreRn)}. Before: ${beforeCountsRnText}. After attempt: ${afterCountsRnText}. Engine V2: ${v2RnReason}.`)
+            : `${rnRes.reason || "Unable to rebalance safely."} Score ${__formatNonIdealScore(beforeScoreRn)} -> ${__formatNonIdealScore(afterScoreRn)}. Before: ${beforeCountsRnText}. After attempt: ${afterCountsRnText}. Engine V2: ${v2RnReason}.`
+        )
       );
 
       __setBanner(
         "pcaAssignmentOutput",
         "oncomingStatusPca",
         pcaApplied ? "ok" : "warn",
-        pcaApplied ? msgOkPca : (pcaRes.reason || "Unable to rebalance safely.")
+        pcaApplied ? msgOkPca : (
+          shouldRollback
+            ? (baselinePreventablePresent
+                ? `No board-quality improvement was found. Existing preventable RN/PCA rule breaks remain unchanged. Score ${__formatNonIdealScore(beforeScorePca)} -> ${__formatNonIdealScore(afterScorePca)}. Before: ${beforeCountsPcaText}. After attempt: ${afterCountsPcaText}. Engine V2: ${v2PcaReason}.`
+                : `Rebalance rolled back because it did not improve board quality. Score ${__formatNonIdealScore(beforeScorePca)} -> ${__formatNonIdealScore(afterScorePca)}. Before: ${beforeCountsPcaText}. After attempt: ${afterCountsPcaText}. Engine V2: ${v2PcaReason}.`)
+            : `${pcaRes.reason || "Unable to rebalance safely."} Score ${__formatNonIdealScore(beforeScorePca)} -> ${__formatNonIdealScore(afterScorePca)}. Before: ${beforeCountsPcaText}. After attempt: ${afterCountsPcaText}. Engine V2: ${v2PcaReason}.`
+        )
       );
       __showOncomingRebalanceToast(
         (rnApplied || pcaApplied) ? "ok" : "warn",
         (rnApplied || pcaApplied)
           ? `Rebalance complete. RN moves: ${movesRn}. PCA moves: ${movesPca}.`
-          : "No safe rebalance improvement found."
+          : (
+              shouldRollback
+                ? (baselinePreventablePresent
+                    ? `No safe rebalance improvement found. RN score ${__formatNonIdealScore(beforeScoreRn)} -> ${__formatNonIdealScore(afterScoreRn)}.`
+                    : `Rebalance canceled because it did not improve board quality. RN score ${__formatNonIdealScore(beforeScoreRn)} -> ${__formatNonIdealScore(afterScoreRn)}.`)
+                : `No safe rebalance improvement found. RN score ${__formatNonIdealScore(beforeScoreRn)} -> ${__formatNonIdealScore(afterScoreRn)}. Engine V2: ${v2RnReason}.`
+            )
       );
 
       // ✅ batched render
+      __suspendOncomingAutoPopulate(5000);
+      __suspendCloudRealtimeApply(5000);
       renderOncomingAll();
 
       if (typeof window.saveState === "function") window.saveState();
+      try {
+        if (window.cloudSync && typeof window.cloudSync.publishUnitStateNow === "function") {
+          void window.cloudSync.publishUnitStateNow("rebalance_apply");
+        }
+      } catch (_) {}
       if (typeof window.updateDischargeCount === "function") window.updateDischargeCount();
+    } catch (err) {
+      const msg = err && err.message ? err.message : String(err || "Unknown rebalance error.");
+      try {
+        window.__lastOncomingRebalanceDebug = {
+          ...(window.__lastOncomingRebalanceDebug || {}),
+          error: msg
+        };
+      } catch (_) {}
+      try {
+        __setBanner("assignmentOutput", "oncomingStatusRn", "warn", `Rebalance failed: ${msg}`);
+        __setBanner("pcaAssignmentOutput", "oncomingStatusPca", "warn", `Rebalance failed: ${msg}`);
+        __showOncomingRebalanceToast("warn", `Rebalance failed: ${msg}`);
+      } catch (_) {}
+      try { console.error("[oncoming rebalance] failed", err); } catch (_) {}
     } finally {
+      try {
+        window.__lastOncomingRebalanceDebug = {
+          ...(window.__lastOncomingRebalanceDebug || {}),
+          finishedAt: new Date().toISOString()
+        };
+      } catch (_) {}
       window.__oncomingRebalanceBothInFlight = false;
+      __setRebalanceButtonBusy(false);
+      try { __renderOncomingQualityPanel(); } catch (_) {}
+      try { __refreshOncomingPopulateStatus(); } catch (_) {}
     }
   }
 
@@ -1394,6 +2487,7 @@ if (window.__assignmentsRenderLoaded) {
       window[fnName] = wrapped;
     });
   }
+
   __hookOncomingAutoPopulateSignals();
   if (document.readyState === "loading") {
     document.addEventListener("DOMContentLoaded", __hookOncomingAutoPopulateSignals);
@@ -1409,8 +2503,38 @@ if (window.__assignmentsRenderLoaded) {
 
   window.populateOncomingAssignment = populateOncomingAssignment;
   window.rebalanceOncomingAssignment = rebalanceOncomingAssignment;
+  window.toggleOncomingQualityPanel = function toggleOncomingQualityPanel() {
+    window.__oncomingQualityPanelCollapsed = window.__oncomingQualityPanelCollapsed === false;
+    try { __renderOncomingQualityPanel(); } catch (_) {}
+  };
+  window.triggerOncomingRebalance = async function triggerOncomingRebalance() {
+    const nowIso = new Date().toISOString();
+    window.__lastOncomingRebalanceDebug = {
+      ...(window.__lastOncomingRebalanceDebug || {}),
+      clickReceivedAt: nowIso,
+      clickCount: Number(window.__lastOncomingRebalanceDebug?.clickCount || 0) + 1,
+      buttonTriggered: true
+    };
+
+    if (window.__oncomingRebalanceBothInFlight) {
+      __showOncomingRebalanceToast("warn", "Rebalance is already running.");
+      return;
+    }
+
+    __showOncomingRebalanceToast("ok", "Rebalance click received.");
+    await rebalanceOncomingAssignment();
+  };
 
   // Version marker
   window.__assignmentsRenderBuild =
     "v2026-01-25__reportSourceAwareCountBalancer";
+
+  document.addEventListener("click", function () {
+    setTimeout(() => {
+      try { __syncOncomingQualityPanelVisibility(); } catch (_) {}
+    }, 0);
+  });
+  setInterval(() => {
+    try { __syncOncomingQualityPanelVisibility(); } catch (_) {}
+  }, 500);
 }

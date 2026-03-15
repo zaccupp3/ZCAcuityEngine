@@ -84,13 +84,15 @@
     if (typeof window.getPcaPatientScore === "function") return window.getPcaPatientScore(p);
 
     let score = 0;
-    if (p.isolation) score += 3;
-    if (p.admit) score += 3;
-    if (p.lateDc) score += 2;
+    if (p.isolation || p.isoPca || p.iso) score += 3;
+    if (p.admit || p.admitPca) score += 3;
+    if (p.lateDc || p.lateDcPca) score += 2;
+    if (p.telePca || p.tele) score += 1;
     if (p.chg) score += 3;
     if (p.foley) score += 3;
-    if (p.q2turns) score += 4;
-    if (p.feeder) score += 3;
+    if (p.q2turns || p.q2Turns) score += 4;
+    if (p.feeder || p.feeders) score += 3;
+    if (p.strictIo || p.heavy) score += 2;
     return score;
   }
 
@@ -324,8 +326,68 @@
     return nums[nums.length - 1] - nums[0];
   }
 
+  function roomOverflowTotal(owners2, role2) {
+    const limit = role2 === "pca" ? 14 : 10;
+    return safeArray(owners2).reduce((sum, owner) => sum + Math.max(0, walkingSpreadForOwner(owner) - limit), 0);
+  }
+
   function ownerLoad(owner, role2) {
     return ownerProjectedLoad(owner, role2 === "pca" ? "pca" : "nurse", null);
+  }
+
+  function isExpectedDischargePatient(patient) {
+    const p = toPatientObj(patient);
+    return !!(p && !p.isEmpty && p.expectedDischarge);
+  }
+
+  function countExpectedDischargesForOwner(owner) {
+    return safeArray(owner?.patients).reduce((sum, pid) => sum + (isExpectedDischargePatient(pid) ? 1 : 0), 0);
+  }
+
+  function countExpectedDischargesForOwners(owners2) {
+    return safeArray(owners2).reduce((sum, owner) => sum + countExpectedDischargesForOwner(owner), 0);
+  }
+
+  function expectedDischargeBaseLimit(owner, role) {
+    const count = safeArray(owner?.patients).length;
+    if (role === "pca") return Math.floor(count / 2);
+    return 3;
+  }
+
+  function expectedDischargeUnavoidableOverflow(owners2, role) {
+    const owners = safeArray(owners2).filter(Boolean);
+    const totalDischarges = countExpectedDischargesForOwners(owners);
+    const totalBaseCapacity = owners.reduce((sum, owner) => sum + expectedDischargeBaseLimit(owner, role), 0);
+    return Math.max(0, totalDischarges - totalBaseCapacity);
+  }
+
+  function expectedDischargeOverflowForOwner(owner, role) {
+    return Math.max(0, countExpectedDischargesForOwner(owner) - expectedDischargeBaseLimit(owner, role));
+  }
+
+  function expectedDischargeOverflowTotal(owners2, role) {
+    return safeArray(owners2).reduce((sum, owner) => sum + expectedDischargeOverflowForOwner(owner, role), 0);
+  }
+
+  function expectedDischargeAvoidableOverflow(owners2, role) {
+    const totalOverflow = expectedDischargeOverflowTotal(owners2, role);
+    const unavoidable = expectedDischargeUnavoidableOverflow(owners2, role);
+    return Math.max(0, totalOverflow - unavoidable);
+  }
+
+  function expectedDischargeOwnerLimit(owner, ownersAll, role) {
+    const baseLimit = expectedDischargeBaseLimit(owner, role);
+    const unavoidable = expectedDischargeUnavoidableOverflow(ownersAll, role);
+    if (role !== "pca" || unavoidable <= 0) return baseLimit;
+
+    const owners = safeArray(ownersAll).filter(Boolean);
+    if (!owners.length) return baseLimit;
+    const sorted = owners
+      .map((o) => ({ id: Number(o?.id), count: safeArray(o?.patients).length }))
+      .sort((a, b) => b.count - a.count || a.id - b.id);
+    const ownerId = Number(owner?.id);
+    const rank = Math.max(0, sorted.findIndex((entry) => entry.id === ownerId));
+    return baseLimit + (rank > -1 && rank < unavoidable ? 1 : 0);
   }
 
   function loadImbalance(owners2, role2) {
@@ -336,10 +398,40 @@
     return max - min;
   }
 
+  function acceptableLoadImbalance(owners2, role2) {
+    const loads = safeArray(owners2).map(o => ownerLoad(o, role2)).filter(n => Number.isFinite(n));
+    if (!loads.length) return 0;
+    const total = loads.reduce((sum, n) => sum + n, 0);
+    const avg = total / Math.max(1, loads.length);
+    if (role2 === "pca") return Math.max(4, Math.ceil(avg * 0.5));
+    return Math.max(3, Math.ceil(avg * 0.45));
+  }
+
   function countSpread(owners2) {
     const counts = safeArray(owners2).map(o => safeArray(o?.patients).length);
     if (!counts.length) return 0;
     return Math.max(...counts) - Math.min(...counts);
+  }
+
+  function computeCountTargets(totalPatients, nOwners) {
+    const safeOwners = Math.max(1, Number(nOwners) || 0);
+    const base = Math.floor((Number(totalPatients) || 0) / safeOwners);
+    const remainder = (Number(totalPatients) || 0) % safeOwners;
+    return { minTarget: base, maxTarget: base + (remainder > 0 ? 1 : 0) };
+  }
+
+  function countOverflowForOwner(owner, ownersAll) {
+    const owners = safeArray(ownersAll).filter(Boolean);
+    const totalPatients = owners.reduce((sum, o) => sum + safeArray(o?.patients).length, 0);
+    const { minTarget, maxTarget } = computeCountTargets(totalPatients, owners.length);
+    const count = safeArray(owner?.patients).length;
+    if (count < minTarget) return minTarget - count;
+    if (count > maxTarget) return count - maxTarget;
+    return 0;
+  }
+
+  function countOverflowTotal(ownersAll) {
+    return safeArray(ownersAll).reduce((sum, owner) => sum + countOverflowForOwner(owner, ownersAll), 0);
   }
 
   function evaluateOwnerHardRules(owner, ownersAll, role, limitsOverride, ctx = {}) {
@@ -380,6 +472,40 @@
 
       if (severity === "violation") violations.push(rec);
       else warnings.push(rec);
+    }
+
+    const dischargeCount = countExpectedDischargesForOwner(owner);
+    const dischargeLimit = expectedDischargeOwnerLimit(owner, ownersAll, role);
+    if (dischargeCount > dischargeLimit) {
+      violations.push({
+        tag: "expectedDischarge",
+        mine: dischargeCount,
+        limit: dischargeLimit,
+        unitTotal: countExpectedDischargesForOwners(ownersAll),
+        ownerCount,
+        unavoidable: dischargeLimit > expectedDischargeBaseLimit(owner, role),
+        severity: "violation",
+        message: role === "pca"
+          ? `Expected discharges exceed half-assignment target (${dischargeCount} > ${dischargeLimit})`
+          : `Expected discharges stacked (${dischargeCount} > ${dischargeLimit})`
+      });
+    }
+
+    const countOverflow = countOverflowForOwner(owner, ownersAll);
+    if (countOverflow > 0) {
+      const totalPatients = safeArray(ownersAll).reduce((sum, o) => sum + safeArray(o?.patients).length, 0);
+      const { minTarget, maxTarget } = computeCountTargets(totalPatients, safeArray(ownersAll).filter(Boolean).length);
+      const count = safeArray(owner?.patients).length;
+      violations.push({
+        tag: "countBalance",
+        mine: count,
+        limit: `${minTarget}-${maxTarget}`,
+        unitTotal: totalPatients,
+        ownerCount,
+        unavoidable: false,
+        severity: "violation",
+        message: `Assignment count out of range (${count}; target ${minTarget}-${maxTarget})`
+      });
     }
 
     // ✅ Report sources flag (WARNING so it doesn't trip avoidable==0 gate)
@@ -544,6 +670,10 @@
 
     return {
       avoidable: countAvoidableViolationsAll(list2, role2, limitsOverride),
+      dischargeOverflow: expectedDischargeAvoidableOverflow(list2, role2),
+      dischargeOverflowTotal: expectedDischargeOverflowTotal(list2, role2),
+      countOverflow: countOverflowTotal(list2),
+      roomOverflow: roomOverflowTotal(list2, role2),
       reportOverflow: reportOverflowTotal(list2, prevMap),
       spread: countSpread(list2),
       loadImb: loadImbalance(list2, role2),
@@ -555,10 +685,13 @@
   function isBetterTuple(next, base) {
     if (!base) return true;
     if (next.avoidable !== base.avoidable) return next.avoidable < base.avoidable;
-    if (next.reportOverflow !== base.reportOverflow) return next.reportOverflow < base.reportOverflow;
-    if (next.spread !== base.spread) return next.spread < base.spread;
+    if (next.dischargeOverflow !== base.dischargeOverflow) return next.dischargeOverflow < base.dischargeOverflow;
+    if (next.countOverflow !== base.countOverflow) return next.countOverflow < base.countOverflow;
     if (next.loadImb !== base.loadImb) return next.loadImb < base.loadImb;
+    if (next.reportOverflow !== base.reportOverflow) return next.reportOverflow < base.reportOverflow;
     if (next.churn !== base.churn) return next.churn < base.churn;
+    if (next.roomOverflow !== base.roomOverflow) return next.roomOverflow < base.roomOverflow;
+    if (next.spread !== base.spread) return next.spread < base.spread;
     return next.walk < base.walk;
   }
 
@@ -674,8 +807,7 @@
 
     list.forEach(p => {
       let bestIdx = -1;
-      let bestScore = Infinity;
-      let bestWalk = Infinity;
+      let bestCandidate = null;
 
       for (let i = 0; i < owners.length; i++) {
         const o = owners[i];
@@ -684,19 +816,47 @@
 
         const causesViolation = wouldAddingPatientCauseAvoidableViolation(o, p, owners, role, limitsOverride);
         let score = ownerProjectedLoad(o, r2, p);
+        const tempPatients = safeArray(o.patients).concat(Number(p.id));
+        const dischargeOverflowAfter = expectedDischargeOverflowForOwner({ patients: tempPatients }, r2);
+        const countOverflowAfter = countOverflowForOwner({ patients: tempPatients }, owners.map((owner, ownerIdx) => (
+          ownerIdx === i ? { patients: tempPatients } : { patients: safeArray(owner?.patients) }
+        )));
         if (causesViolation) score += REPORT_SOURCE_PENALTY * 2;
+        if (dischargeOverflowAfter > 0) score += REPORT_SOURCE_PENALTY * 4 * dischargeOverflowAfter;
+        if (countOverflowAfter > 0) score += REPORT_SOURCE_PENALTY * 5 * countOverflowAfter;
 
         const sourcesAfter = reportSourcesAfterAdd(o, p.id, prevMap);
         const allowedSources = allowedReportSourcesForCount(curCount + 1);
         if (sourcesAfter > allowedSources) score += REPORT_SOURCE_PENALTY;
 
-        const tempOwner = { patients: safeArray(o.patients).concat(Number(p.id)) };
+        const tempOwner = { patients: tempPatients };
         const walkAfter = walkingSpreadForOwner(tempOwner);
+        const candidate = {
+          idx: i,
+          causesViolation: causesViolation ? 1 : 0,
+          dischargeOverflowAfter,
+          countOverflowAfter,
+          reportOverflowAfter: Math.max(0, sourcesAfter - allowedSources),
+          score,
+          walkAfter
+        };
 
-        const scoreTie = (bestIdx >= 0 && Math.abs(score - bestScore) <= LOAD_EPSILON);
-        if (bestIdx === -1 || score < bestScore || (scoreTie && walkAfter < bestWalk)) {
-          bestScore = score;
-          bestWalk = walkAfter;
+        if (!bestCandidate) {
+          bestCandidate = candidate;
+          bestIdx = i;
+          continue;
+        }
+
+        const better =
+          candidate.causesViolation < bestCandidate.causesViolation ||
+          (candidate.causesViolation === bestCandidate.causesViolation && candidate.dischargeOverflowAfter < bestCandidate.dischargeOverflowAfter) ||
+          (candidate.causesViolation === bestCandidate.causesViolation && candidate.dischargeOverflowAfter === bestCandidate.dischargeOverflowAfter && candidate.countOverflowAfter < bestCandidate.countOverflowAfter) ||
+          (candidate.causesViolation === bestCandidate.causesViolation && candidate.dischargeOverflowAfter === bestCandidate.dischargeOverflowAfter && candidate.countOverflowAfter === bestCandidate.countOverflowAfter && candidate.reportOverflowAfter < bestCandidate.reportOverflowAfter) ||
+          (candidate.causesViolation === bestCandidate.causesViolation && candidate.dischargeOverflowAfter === bestCandidate.dischargeOverflowAfter && candidate.countOverflowAfter === bestCandidate.countOverflowAfter && candidate.reportOverflowAfter === bestCandidate.reportOverflowAfter && candidate.score + LOAD_EPSILON < bestCandidate.score) ||
+          (candidate.causesViolation === bestCandidate.causesViolation && candidate.dischargeOverflowAfter === bestCandidate.dischargeOverflowAfter && candidate.countOverflowAfter === bestCandidate.countOverflowAfter && candidate.reportOverflowAfter === bestCandidate.reportOverflowAfter && Math.abs(candidate.score - bestCandidate.score) <= LOAD_EPSILON && candidate.walkAfter < bestCandidate.walkAfter);
+
+        if (better) {
+          bestCandidate = candidate;
           bestIdx = i;
         }
       }
@@ -753,6 +913,18 @@
     ownerB.patients = B;
   }
 
+  function moveInPlace(fromOwner, i, toOwner) {
+    const from = safeArray(fromOwner.patients);
+    const to = safeArray(toOwner.patients);
+    const pid = from[i];
+    if (pid === undefined) return null;
+    from.splice(i, 1);
+    if (!to.includes(pid)) to.push(pid);
+    fromOwner.patients = from;
+    toOwner.patients = to;
+    return pid;
+  }
+
   // ✅ RN lock helpers
   function rnLockMeta(patientId) {
     const p = resolvePatient(patientId);
@@ -777,6 +949,59 @@
     return true;
   }
 
+  function isMoveAllowedWithRnLocks(fromOwner, pid, toOwner, role2) {
+    if (role2 !== "nurse") return true;
+    const targetId = Number(toOwner?.id);
+    const lock = rnLockMeta(pid);
+    if (lock.enabled && lock.rnId && Number(lock.rnId) !== targetId) return false;
+    return true;
+  }
+
+  function findBestSingleMove(owners2, role2, limitsOverride) {
+    const list2 = safeArray(owners2).filter(Boolean);
+    const baseTuple = qualityTuple(list2, role2, limitsOverride);
+    let best = null;
+
+    for (let aIdx = 0; aIdx < list2.length; aIdx++) {
+      const A = list2[aIdx];
+      const Apts = safeArray(A.patients);
+      if (!Apts.length) continue;
+
+      for (let bIdx = 0; bIdx < list2.length; bIdx++) {
+        if (bIdx === aIdx) continue;
+        const B = list2[bIdx];
+
+        for (let i = 0; i < Apts.length; i++) {
+          const pidA = Apts[i];
+          if (!isMoveAllowedWithRnLocks(A, pidA, B, role2)) continue;
+
+          const origA = A.patients;
+          const origB = B.patients;
+          const movedPid = moveInPlace(A, i, B);
+          if (movedPid == null) {
+            A.patients = origA;
+            B.patients = origB;
+            continue;
+          }
+
+          const nextTuple = qualityTuple(list2, role2, limitsOverride);
+          A.patients = origA;
+          B.patients = origB;
+
+          if (!isBetterTuple(nextTuple, baseTuple)) continue;
+
+          const candidate = { kind: "move", aIdx, bIdx, i, pidA, nextTuple };
+          if (!best || isBetterTuple(candidate.nextTuple, best.nextTuple)) best = candidate;
+          if (nextTuple.avoidable <= 0 && nextTuple.dischargeOverflow <= 0 && nextTuple.countOverflow <= 0 && nextTuple.reportOverflow <= 0 && nextTuple.spread <= 1) {
+            return candidate;
+          }
+        }
+      }
+    }
+
+    return best;
+  }
+
   function repairAssignmentsInPlaceInternal(owners2, role2, limitsOverride, opts = {}) {
     const list2 = safeArray(owners2).filter(Boolean);
     if (list2.length < 2) return { ok: false, reason: "Need at least 2 owners" };
@@ -787,12 +1012,20 @@
     // Early exit when clean: no avoidable violations and no report-source overflow.
     // Avoids running the swap search when assignment is already safe and report-optimized.
     const initialTuple = qualityTuple(list2, r2, limitsOverride);
-    if (initialTuple.avoidable <= 0 && initialTuple.reportOverflow <= 0) {
+    if (
+      initialTuple.avoidable <= 0 &&
+      initialTuple.dischargeOverflow <= 0 &&
+      initialTuple.countOverflow <= 0 &&
+      initialTuple.reportOverflow <= 0 &&
+      initialTuple.loadImb <= acceptableLoadImbalance(list2, r2)
+    ) {
       return {
         ok: true,
         done: true,
         iter: 0,
         avoidableViolations: initialTuple.avoidable,
+        dischargeOverflow: initialTuple.dischargeOverflow,
+        countOverflow: initialTuple.countOverflow,
         reportOverflow: initialTuple.reportOverflow,
         warnings: countWarningsAll(list2, r2, limitsOverride)
       };
@@ -805,21 +1038,26 @@
 
       const baseTuple = qualityTuple(list2, r2, limitsOverride);
 
-      if (baseTuple.avoidable <= 0 && baseTuple.reportOverflow <= 0) {
+      if (
+        baseTuple.avoidable <= 0 &&
+        baseTuple.dischargeOverflow <= 0 &&
+        baseTuple.countOverflow <= 0 &&
+        baseTuple.reportOverflow <= 0 &&
+        baseTuple.loadImb <= acceptableLoadImbalance(list2, r2)
+      ) {
         return {
           ok: true,
           done: true,
           iter,
           avoidableViolations: baseTuple.avoidable,
+          dischargeOverflow: baseTuple.dischargeOverflow,
+          countOverflow: baseTuple.countOverflow,
           reportOverflow: baseTuple.reportOverflow,
           warnings: countWarningsAll(list2, r2, limitsOverride)
         };
       }
 
-      const offenders = getWorstOffenders(list2, r2, limitsOverride);
-      const candidateAIdxs = offenders.length
-        ? offenders.slice(0, 5).map(x => x.idx)
-        : list2.slice(0, 3).map((_, idx) => idx);
+      const candidateAIdxs = list2.map((_, idx) => idx);
 
       let best = null;
 
@@ -832,7 +1070,37 @@
           if (bIdx === aIdx) continue;
           const B = list2[bIdx];
           const Bpts = safeArray(B.patients);
+
+          for (let i = 0; i < Apts.length; i++) {
+            const pidA = Apts[i];
+            if (!isMoveAllowedWithRnLocks(A, pidA, B, r2)) continue;
+
+            const origA = A.patients;
+            const origB = B.patients;
+            const movedPid = moveInPlace(A, i, B);
+            if (movedPid == null) {
+              A.patients = origA;
+              B.patients = origB;
+              continue;
+            }
+
+            const nextTuple = qualityTuple(list2, r2, limitsOverride);
+
+            A.patients = origA;
+            B.patients = origB;
+
+            if (!isBetterTuple(nextTuple, baseTuple)) continue;
+
+            const candidate = { kind: "move", aIdx, bIdx, i, pidA, baseTuple, nextTuple };
+            if (!best || isBetterTuple(candidate.nextTuple, best.nextTuple)) best = candidate;
+            if (nextTuple.avoidable <= 0 && nextTuple.dischargeOverflow <= 0 && nextTuple.countOverflow <= 0 && nextTuple.reportOverflow <= 0 && nextTuple.spread <= 1) {
+              best = candidate;
+              break;
+            }
+          }
+
           if (!Bpts.length) continue;
+          if (best?.kind === "move" && best.aIdx === aIdx && best.bIdx === bIdx && best.nextTuple.avoidable <= 0 && best.nextTuple.dischargeOverflow <= 0 && best.nextTuple.countOverflow <= 0 && best.nextTuple.reportOverflow <= 0 && best.nextTuple.spread <= 1) break;
 
           for (let i = 0; i < Apts.length; i++) {
             for (let j = 0; j < Bpts.length; j++) {
@@ -853,11 +1121,18 @@
 
               if (!isBetterTuple(nextTuple, baseTuple)) continue;
 
-              const candidate = { aIdx, bIdx, i, j, pidA, pidB, baseTuple, nextTuple };
+              const candidate = { kind: "swap", aIdx, bIdx, i, j, pidA, pidB, baseTuple, nextTuple };
               if (!best || isBetterTuple(candidate.nextTuple, best.nextTuple)) best = candidate;
+              if (nextTuple.avoidable <= 0 && nextTuple.dischargeOverflow <= 0 && nextTuple.countOverflow <= 0 && nextTuple.reportOverflow <= 0 && nextTuple.spread <= 1) {
+                best = candidate;
+                break;
+              }
             }
+            if (best?.kind === "swap" && best.aIdx === aIdx && best.bIdx === bIdx && best.nextTuple.avoidable <= 0 && best.nextTuple.dischargeOverflow <= 0 && best.nextTuple.countOverflow <= 0 && best.nextTuple.reportOverflow <= 0 && best.nextTuple.spread <= 1) break;
           }
+          if (best && best.aIdx === aIdx && best.bIdx === bIdx && best.nextTuple.avoidable <= 0 && best.nextTuple.dischargeOverflow <= 0 && best.nextTuple.countOverflow <= 0 && best.nextTuple.reportOverflow <= 0 && best.nextTuple.spread <= 1) break;
         }
+        if (best && best.aIdx === aIdx && best.nextTuple.avoidable <= 0 && best.nextTuple.dischargeOverflow <= 0 && best.nextTuple.countOverflow <= 0 && best.nextTuple.reportOverflow <= 0 && best.nextTuple.spread <= 1) break;
       }
 
       if (!best) {
@@ -866,6 +1141,8 @@
           done: false,
           iter,
           avoidableViolations: qualityTuple(list2, r2, limitsOverride).avoidable,
+          dischargeOverflow: qualityTuple(list2, r2, limitsOverride).dischargeOverflow,
+          countOverflow: qualityTuple(list2, r2, limitsOverride).countOverflow,
           reportOverflow: qualityTuple(list2, r2, limitsOverride).reportOverflow,
           warnings: countWarningsAll(list2, r2, limitsOverride),
           reason: "No improving swap found (some issues may be unavoidable)."
@@ -874,8 +1151,13 @@
 
       const Ause = list2[best.aIdx];
       const Buse = list2[best.bIdx];
-      if (Ause && Buse) swapInPlace(Ause, best.i, Buse, best.j);
-      else break;
+      if (!Ause || !Buse) break;
+      if (best.kind === "move") {
+        const didMove = moveInPlace(Ause, best.i, Buse);
+        if (didMove == null) break;
+      } else {
+        swapInPlace(Ause, best.i, Buse, best.j);
+      }
     }
 
     return {
@@ -883,6 +1165,8 @@
       done: false,
       iter: maxIters,
       avoidableViolations: qualityTuple(list2, r2, limitsOverride).avoidable,
+      dischargeOverflow: qualityTuple(list2, r2, limitsOverride).dischargeOverflow,
+      countOverflow: qualityTuple(list2, r2, limitsOverride).countOverflow,
       reportOverflow: qualityTuple(list2, r2, limitsOverride).reportOverflow,
       warnings: countWarningsAll(list2, r2, limitsOverride),
       reason: "Hit max repair iterations"
@@ -904,17 +1188,47 @@
     const baselinePatients = baseOwners.map(o => safeArray(o?.patients).slice());
 
     const clone = deepCloneOwnersShallow(baseOwners);
+    const directMove = findBestSingleMove(clone, r, limitsOverride);
+    if (directMove) {
+      const Ause = clone[directMove.aIdx];
+      const Buse = clone[directMove.bIdx];
+      if (Ause && Buse) moveInPlace(Ause, directMove.i, Buse);
+      const directTuple = qualityTuple(clone, r, limitsOverride);
+      if (
+        directTuple.avoidable <= 0 &&
+        directTuple.dischargeOverflow <= 0 &&
+        directTuple.countOverflow <= 0 &&
+        directTuple.reportOverflow <= 0 &&
+        directTuple.spread <= 1 &&
+        isBetterTuple(directTuple, baselineTuple)
+      ) {
+        baseOwners.forEach((o, idx) => { o.patients = safeArray(clone[idx]?.patients); });
+        return {
+          ok: true,
+          applied: true,
+          baseline: baselineTuple,
+          improved: directTuple,
+          repair: { ok: true, done: true, via: "single-move" }
+        };
+      }
+    }
     const res = repairAssignmentsInPlaceInternal(clone, r, limitsOverride, opts);
 
     const nextTuple = qualityTuple(clone, r, limitsOverride);
 
     // ✅ HARD GATE: never apply preventable (avoidable) rule breaks
-    if (nextTuple.avoidable > 0) {
+    if (nextTuple.avoidable > 0 || nextTuple.dischargeOverflow > 0 || nextTuple.countOverflow > 0 || nextTuple.spread > 1) {
       baseOwners.forEach((o, idx) => { o.patients = safeArray(baselinePatients[idx]); });
       return {
         ok: true,
         applied: false,
-        reason: "Unable to produce a rule-clean rebalance (avoidable violations remain).",
+        reason: nextTuple.avoidable > 0
+          ? "Unable to produce a rule-clean rebalance (avoidable violations remain)."
+          : nextTuple.dischargeOverflow > 0
+            ? (r === "pca"
+                ? "Unable to produce a PCA rebalance that keeps expected discharges at or below half the assignment unless unavoidable."
+                : "Unable to produce a rebalance that keeps expected discharges at 3 or fewer per group.")
+            : "Unable to produce a rebalance that keeps patient counts within one of each other.",
         baseline: baselineTuple,
         attempted: nextTuple,
         repair: res

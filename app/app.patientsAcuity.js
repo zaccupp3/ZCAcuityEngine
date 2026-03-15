@@ -482,6 +482,7 @@
     p.strictIo = false;
     p.heavy = false;
     p.feeder = false;
+    p.expectedDischarge = false;
 
     p.reviewed = false;
 
@@ -904,6 +905,7 @@
         <table class="patient-table">
           <thead>
             <tr>
+              <th class="col-discharge" aria-label="Expected discharge"></th>
               <th class="col-room">Bed</th>
               <th>Status</th>
               <th>RN Tags</th>
@@ -916,7 +918,17 @@
               const empty = !!p.isEmpty;
 
               return `
-                <tr class="${empty ? "patient-row-empty" : ""}">
+                <tr class="${empty ? "patient-row-empty" : ""}${p.expectedDischarge ? " patient-row-discharge-expected" : ""}">
+                  <td class="col-discharge">
+                    <button
+                      class="patient-discharge-toggle${p.expectedDischarge ? " active" : ""}"
+                      type="button"
+                      title="${p.expectedDischarge ? "Expected discharge soon (click to clear)" : "Mark as expected discharge soon"}"
+                      aria-label="${p.expectedDischarge ? "Expected discharge soon" : "Mark expected discharge soon"}"
+                      ${empty ? "disabled" : ""}
+                      onclick="window.togglePatientFlag(${p.id}, 'expectedDischarge', ${p.expectedDischarge ? "false" : "true"})"
+                    >&#128663;</button>
+                  </td>
                   <td class="col-room">${roomLabel}</td>
 
                   <td>

@@ -1,0 +1,265 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Acuity Engine Monetary Impact Review</title>
+  <style>
+    body {
+      font-family: "Segoe UI", Arial, sans-serif;
+      margin: 38px auto;
+      max-width: 940px;
+      color: #172033;
+      line-height: 1.45;
+      font-size: 14px;
+    }
+    h1, h2, h3 {
+      color: #0f2f63;
+      margin-bottom: 8px;
+    }
+    h1 {
+      font-size: 28px;
+      border-bottom: 3px solid #d7e3f8;
+      padding-bottom: 10px;
+    }
+    h2 {
+      margin-top: 28px;
+      font-size: 20px;
+    }
+    h3 {
+      margin-top: 18px;
+      font-size: 16px;
+    }
+    p, li {
+      margin: 6px 0;
+    }
+    ul {
+      padding-left: 20px;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 12px 0 20px;
+    }
+    th, td {
+      border: 1px solid #d6dde8;
+      padding: 8px 10px;
+      text-align: left;
+      vertical-align: top;
+    }
+    th {
+      background: #eef4ff;
+    }
+    .callout {
+      background: #f6f9ff;
+      border: 1px solid #cfdcf5;
+      border-radius: 12px;
+      padding: 14px 16px;
+      margin: 16px 0;
+    }
+    .small {
+      color: #4b5b74;
+      font-size: 12px;
+    }
+    .mono {
+      font-family: Consolas, "Courier New", monospace;
+    }
+    a {
+      color: #0f4fb8;
+      text-decoration: none;
+    }
+  </style>
+</head>
+<body>
+  <h1>Acuity Engine Monetary Impact Review</h1>
+
+  <div class="callout">
+    <strong>Executive summary</strong>: this platform should be evaluated as a hospital operations risk-reduction and workforce-efficiency tool. Its most credible financial impact comes from three areas:
+    <ul>
+      <li>lower nursing turnover and staffing friction,</li>
+      <li>fewer preventable hospital-acquired events,</li>
+      <li>more consistent assignment decisions under interruption-heavy conditions.</li>
+    </ul>
+  </div>
+
+  <h2>1. Framing</h2>
+  <p>This report presents <strong>scenario-based financial modeling</strong>, not guaranteed savings. The aim is to estimate the economic value that could plausibly be captured if a hospital uses the platform to improve assignment quality, reduce workforce strain, and prevent a subset of avoidable adverse events.</p>
+
+  <h2>2. Source-Backed Cost Inputs</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>Cost category</th>
+        <th>Input used</th>
+        <th>Source basis</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>1% RN turnover change</td>
+        <td>$289,000 per average hospital per year</td>
+        <td>2025 NSI figures cited by the American Hospital Association workforce scan</td>
+      </tr>
+      <tr>
+        <td>Replace one bedside RN</td>
+        <td>$61,110 average</td>
+        <td>2025 NSI figures cited by AHA workforce scan / Becker summary</td>
+      </tr>
+      <tr>
+        <td>CLABSI</td>
+        <td>$48,108 additional cost per case</td>
+        <td>AHRQ hospital-acquired condition meta-analysis</td>
+      </tr>
+      <tr>
+        <td>CAUTI</td>
+        <td>$13,793 additional cost per case</td>
+        <td>AHRQ hospital-acquired condition meta-analysis</td>
+      </tr>
+      <tr>
+        <td>Inpatient falls</td>
+        <td>$6,694 additional cost per case</td>
+        <td>AHRQ hospital-acquired condition meta-analysis</td>
+      </tr>
+      <tr>
+        <td>Hospital-acquired pressure injury</td>
+        <td>$14,506 additional cost per case</td>
+        <td>AHRQ hospital-acquired condition meta-analysis</td>
+      </tr>
+      <tr>
+        <td>Severe pressure injury sensitivity</td>
+        <td>$20,900 to $151,700 per injury</td>
+        <td>AHRQ pressure injury training materials citing CMS-era estimates</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2>3. Why This Platform Could Influence Those Costs</h2>
+  <ul>
+    <li>More balanced assignments can reduce preventable workload concentration.</li>
+    <li>Lower assignment volatility can reduce handoff complexity and hidden burden stacking.</li>
+    <li>More consistent workload fairness may support retention and reduce burnout-related turnover pressure.</li>
+    <li>Structured patient-risk visibility may improve prevention focus on falls, pressure injuries, CLABSI, and CAUTI.</li>
+  </ul>
+
+  <div class="callout">
+    <strong>Important note</strong>: these links are operational inferences, not proof of direct causality. The strongest evidence is that staffing strain and nurse workload affect burnout, dissatisfaction, and some patient safety outcomes; the platform’s role is to improve assignment quality within that operating environment.
+  </div>
+
+  <h2>4. Modeled Annual Savings Scenarios</h2>
+  <p>The following scenarios assume the platform contributes to a reduction in turnover and a modest reduction in preventable events over a year at a single hospital.</p>
+
+  <table>
+    <thead>
+      <tr>
+        <th>Scenario</th>
+        <th>Assumptions</th>
+        <th>Estimated annual savings</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Conservative</td>
+        <td>
+          1% RN turnover improvement<br>
+          1 CLABSI prevented<br>
+          3 CAUTIs prevented<br>
+          5 falls prevented<br>
+          4 pressure injuries prevented
+        </td>
+        <td class="mono">$438,503</td>
+      </tr>
+      <tr>
+        <td>Moderate</td>
+        <td>
+          2% RN turnover improvement<br>
+          2 CLABSIs prevented<br>
+          6 CAUTIs prevented<br>
+          10 falls prevented<br>
+          8 pressure injuries prevented
+        </td>
+        <td class="mono">$877,006</td>
+      </tr>
+      <tr>
+        <td>Higher-impact</td>
+        <td>
+          3% RN turnover improvement<br>
+          4 CLABSIs prevented<br>
+          10 CAUTIs prevented<br>
+          15 falls prevented<br>
+          12 pressure injuries prevented
+        </td>
+        <td class="mono">$1,402,735</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2>5. Severe Pressure Injury Sensitivity</h2>
+  <p>If the avoided pressure injuries are concentrated in severe Stage 3/4, unstageable, or DTI cases, financial effect may be materially higher.</p>
+  <table>
+    <thead>
+      <tr>
+        <th>Prevented severe HAPI cases</th>
+        <th>Low estimate</th>
+        <th>High estimate</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>3 cases</td>
+        <td class="mono">$62,700</td>
+        <td class="mono">$455,100</td>
+      </tr>
+      <tr>
+        <td>5 cases</td>
+        <td class="mono">$104,500</td>
+        <td class="mono">$758,500</td>
+      </tr>
+      <tr>
+        <td>10 cases</td>
+        <td class="mono">$209,000</td>
+        <td class="mono">$1,517,000</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2>6. Workforce and Burnout Value</h2>
+  <p>Recent workforce reporting cited by the American Hospital Association indicates that:</p>
+  <ul>
+    <li>average bedside RN replacement cost is about <strong>$61,110</strong>,</li>
+    <li>average hospital losses from nurse turnover are in the range of <strong>$3.9M to $5.7M annually</strong>,</li>
+    <li>each 1% RN turnover change is worth about <strong>$289,000 per year</strong> to the average hospital.</li>
+  </ul>
+
+  <p>If the platform helps reduce unfair assignments, visible burden stacking, and preventable staffing dissatisfaction, even a small retention effect can matter financially.</p>
+
+  <h2>7. Why This Is Hard To Do Manually</h2>
+  <p>Assignment quality depends on balancing many simultaneous constraints under constant interruption. Manual assignment making on paper or in Excel depends on working memory and repeated mental recalculation. A structured balancing platform can re-run those comparisons consistently after each data change.</p>
+
+  <h2>8. Key Caveats</h2>
+  <ul>
+    <li>This report does <strong>not</strong> claim the platform alone directly prevents infections or injuries.</li>
+    <li>Actual savings depend on adoption, workflow fit, baseline event rates, and quality of local implementation.</li>
+    <li>Financial impact is best validated with pilot data: event trends, turnover trends, reassignment time, and user adoption.</li>
+  </ul>
+
+  <h2>9. Suggested ROI Framing For Hospitals</h2>
+  <p>A reasonable framing is:</p>
+  <div class="callout">
+    <strong>ROI case</strong> = turnover savings + avoided hospital-acquired-event costs + avoided operational friction from manual rework.
+  </div>
+
+  <p>Even modest gains can become meaningful because turnover and preventable adverse events are each individually expensive.</p>
+
+  <h2>10. Sources</h2>
+  <ul>
+    <li><a href="https://www.ahrq.gov/hai/pfp/haccost2017-results.html">AHRQ hospital-acquired condition cost estimates</a></li>
+    <li><a href="https://www.ahrq.gov/patient-safety/settings/hospital/resource/pressureinjury/workshop/slides1.html">AHRQ pressure injury cost training materials</a></li>
+    <li><a href="https://www.ahrq.gov/data/infographics/hac-rates_2019.html">AHRQ national declines in hospital-acquired conditions</a></li>
+    <li><a href="https://www.aha.org/system/files/media/file/2025/12/2026-Health-Care-Workforce-Scan.pdf">American Hospital Association workforce scan citing 2025 NSI figures</a></li>
+    <li><a href="https://pubmed.ncbi.nlm.nih.gov/12387650/">Aiken et al. on nurse staffing, burnout, and dissatisfaction</a></li>
+    <li><a href="https://pubmed.ncbi.nlm.nih.gov/31811735/">PubMed study on staffing and hospital-acquired pressure ulcers</a></li>
+    <li><a href="https://pubmed.ncbi.nlm.nih.gov/35118745/">PubMed study on staffing and falls performance</a></li>
+  </ul>
+
+  <p class="small">Prepared for internal business review. Monetary figures are scenario-based estimates, not guaranteed outcomes. Date: 2026-03-15.</p>
+</body>
+</html>

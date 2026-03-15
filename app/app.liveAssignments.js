@@ -161,6 +161,19 @@
     return m ? Number(m[1]) : 9999;
   }
 
+  function isExpectedDischarge(p) {
+    return !!(p && !p.isEmpty && p.expectedDischarge);
+  }
+
+  function liveBedCellHtml(p) {
+    const label = String(p?.room || "");
+    const dischargeClass = isExpectedDischarge(p) ? " discharge-expected" : "";
+    const carBadge = isExpectedDischarge(p)
+      ? `<span class="expected-discharge-indicator" title="Expected discharge soon" aria-label="Expected discharge soon">&#128663;</span>`
+      : "";
+    return `<span class="bed-chip${dischargeClass}">${escapeHtml(label)}${carBadge}</span>`;
+  }
+
   function getPatientByIdSafe(id) {
     try {
       if (typeof window.getPatientById === "function") return window.getPatientById(id);
@@ -1344,7 +1357,7 @@
             ondragend="onRowDragEnd(event)"
             ondblclick="openPatientProfileFromRoom(${p.id})"
           >
-            <td>${p.room || ""}</td>
+            <td>${liveBedCellHtml(p)}</td>
             <td>${p.tele ? "Tele" : "MS"}</td>
             <td>${typeof window.rnTagString === "function" ? window.rnTagString(p) : ""}</td>
           </tr>
@@ -1405,7 +1418,7 @@
             ondragend="onRowDragEnd(event)"
             ondblclick="openPatientProfileFromRoom(${p.id})"
           >
-            <td>${p.room || ""}</td>
+            <td>${liveBedCellHtml(p)}</td>
             <td>${p.tele ? "Tele" : "MS"}</td>
             <td>${typeof window.rnTagString === "function" ? window.rnTagString(p) : ""}</td>
           </tr>
@@ -1486,7 +1499,7 @@
             ondragend="onRowDragEnd(event)"
             ondblclick="openPatientProfileFromRoom(${p.id})"
           >
-            <td>${p.room || ""}</td>
+            <td>${liveBedCellHtml(p)}</td>
             <td>${p.tele ? "Tele" : "MS"}</td>
             <td>${typeof window.pcaTagString === "function" ? window.pcaTagString(p) : ""}</td>
           </tr>
@@ -1551,7 +1564,7 @@
             ondragend="onRowDragEnd(event)"
             ondblclick="openPatientProfileFromRoom(${p.id})"
           >
-            <td>${p.room || ""}</td>
+            <td>${liveBedCellHtml(p)}</td>
             <td>${p.tele ? "Tele" : "MS"}</td>
             <td>${typeof window.pcaTagString === "function" ? window.pcaTagString(p) : ""}</td>
           </tr>

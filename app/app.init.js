@@ -790,6 +790,11 @@ window.addEventListener("DOMContentLoaded", async () => {
     window.__cloud.unitStateChannel = null;
   }
 
+  function cloudApplySuspended() {
+    const until = Number(window.__cloud?.suspendRealtimeApplyUntil || 0);
+    return Date.now() < until;
+  }
+
   async function subscribeUnitState(unitId) {
     if (!sbReady()) return;
     if (!unitId) return;
@@ -803,6 +808,11 @@ window.addEventListener("DOMContentLoaded", async () => {
 
     window.__cloud.unitStateChannel = window.sb.subscribeUnitState(String(unitId), async () => {
       try {
+        if (cloudApplySuspended()) {
+          console.log("[cloud] realtime apply skipped during local rebalance/edit window");
+          return;
+        }
+
         const { row, error } = await window.sb.getUnitState(String(unitId));
         if (error || !row) return;
 
@@ -810,6 +820,10 @@ window.addEventListener("DOMContentLoaded", async () => {
         const localV = typeof window.__cloud.unitStateVersion === "number" ? window.__cloud.unitStateVersion : 0;
 
         if (incomingV > localV) {
+          if (cloudApplySuspended()) {
+            console.log("[cloud] newer snapshot ignored during local rebalance/edit window");
+            return;
+          }
           window.__cloud.unitStateVersion = incomingV;
 
           const st = row.state || row.state_json || row || {};

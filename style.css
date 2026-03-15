@@ -658,6 +658,38 @@ button:active{
   background: rgba(255,255,255,0.92);
 }
 
+.bed-chip{
+  display:inline-flex;
+  align-items:center;
+  gap:6px;
+  padding:3px 8px;
+  border-radius:999px;
+  transition:background-color 120ms ease, color 120ms ease, box-shadow 120ms ease;
+}
+
+.bed-chip.discharge-expected{
+  background:rgba(251, 146, 60, 0.22);
+  color:#9a3412;
+  box-shadow:inset 0 0 0 1px rgba(249, 115, 22, 0.22);
+}
+
+.expected-discharge-indicator{
+  font-size:14px;
+  line-height:1;
+}
+
+.pp-discharge-toggle{
+  opacity:0.22;
+  transition:opacity 120ms ease, box-shadow 120ms ease, transform 120ms ease;
+}
+
+.pp-discharge-toggle:hover,
+.pp-discharge-toggle:focus-within{
+  opacity:1;
+  box-shadow:0 8px 16px rgba(249, 115, 22, 0.16);
+  transform:translateY(-1px);
+}
+
 #liveNurseAssignments tbody tr:hover td,
 #livePcaAssignments tbody tr:hover td,
 #assignmentOutput tbody tr:hover td,
@@ -1083,6 +1115,44 @@ button:active{
   text-align: center;
   font-weight: 900;
   width: 70px;
+}
+
+.patient-table .col-discharge,
+.patient-table td.col-discharge{
+  width: 42px;
+  text-align:center;
+}
+
+.patient-discharge-toggle{
+  border:0;
+  background:transparent;
+  color:#c2410c;
+  cursor:pointer;
+  font-size:18px;
+  line-height:1;
+  padding:4px;
+  opacity:0.12;
+  transition:opacity 120ms ease, transform 120ms ease;
+}
+
+.patient-table tbody tr:hover .patient-discharge-toggle,
+.patient-discharge-toggle:focus-visible,
+.patient-discharge-toggle.active{
+  opacity:1;
+}
+
+.patient-discharge-toggle:hover{
+  transform:translateY(-1px);
+}
+
+.patient-discharge-toggle:disabled{
+  opacity:0.08;
+  cursor:not-allowed;
+}
+
+.patient-row-discharge-expected td.col-room{
+  background:rgba(251, 146, 60, 0.18);
+  color:#9a3412;
 }
 
 .status-toggle{
@@ -2088,4 +2158,63 @@ button[onclick*="populateLiveAssignment"]{
 .global-tab-print-btn:hover{
   background:#000;
   border-color:#000;
+}
+.dc-visual-toggle {
+  border: 1px solid rgba(245, 158, 11, 0.35);
+  background: linear-gradient(180deg, rgba(255,255,255,0.96), rgba(255,247,237,0.96));
+  color: #9a3412;
+  border-radius: 999px;
+  padding: 7px 12px;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.dc-visual-toggle[data-state="off"] {
+  border-color: rgba(148, 163, 184, 0.35);
+  background: linear-gradient(180deg, rgba(255,255,255,0.96), rgba(241,245,249,0.96));
+  color: #475569;
+}
+
+.oncoming-quality-card {
+  border: 1px solid rgba(15, 23, 42, 0.10);
+  background: rgba(255,255,255,0.96);
+  border-radius: 12px;
+  padding: 10px 12px;
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.08);
+}
+
+.oncoming-quality-title {
+  font-size: 12px;
+  font-weight: 800;
+  color: #0f172a;
+  margin-bottom: 6px;
+}
+
+.oncoming-quality-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  border: 0;
+  background: transparent;
+  padding: 0;
+  margin: 0 0 6px;
+  font-size: 12px;
+  font-weight: 800;
+  color: #0f172a;
+  cursor: pointer;
+  text-align: left;
+}
+
+.oncoming-quality-line {
+  font-size: 12px;
+  line-height: 1.35;
+  color: #334155;
+}
+
+.oncoming-quality-meta {
+  font-size: 11px;
+  line-height: 1.35;
+  color: #64748b;
+  margin-top: 6px;
 }

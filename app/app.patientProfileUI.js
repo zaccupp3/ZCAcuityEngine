@@ -50,6 +50,7 @@
       isolation: !!p.isolation,
       admit: !!p.admit,
       lateDc: !!p.lateDc,
+      expectedDischarge: !!p.expectedDischarge,
 
       chg: !!p.chg,
       foley: !!p.foley,
@@ -304,6 +305,32 @@
     `;
   }
 
+  function expectedDischargeControl(checked) {
+    return `
+      <div style="display:flex;align-items:center;justify-content:flex-start;margin:4px 0 12px;">
+        <label class="pp-discharge-toggle" style="
+          display:inline-flex;
+          align-items:center;
+          gap:8px;
+          padding:8px 12px;
+          border-radius:999px;
+          border:1px solid rgba(245, 158, 11, 0.28);
+          background:rgba(255,255,255,0.96);
+          color:#9a3412;
+          font-weight:800;
+          cursor:pointer;
+          opacity:${checked ? "1" : "0.22"};
+        ">
+          <span style="position:relative;display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;">
+            <span aria-hidden="true" style="font-size:18px;line-height:1;opacity:${checked ? "1" : "0.14"};transition:opacity 120ms ease;">&#128663;</span>
+          </span>
+          <span>Expected discharge soon</span>
+          <input type="checkbox" id="profExpectedDischarge" ${checked ? "checked" : ""} style="margin-left:4px;" />
+        </label>
+      </div>
+    `;
+  }
+
   function openPatientProfileFromRoom(patientId) {
     const p = safeGetPatient(patientId);
     if (!p) return;
@@ -359,7 +386,8 @@
     if (bodyEl) {
       const bedLabel = getBedLabel(p) || "?";
       bodyEl.innerHTML = `
-        <div class="pp-row" style="display:flex;align-items:center;justify-content:flex-end;gap:10px;margin-bottom:10px;">
+        <div class="pp-row" style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px;flex-wrap:wrap;">
+          ${expectedDischargeControl(!!p.expectedDischarge)}
           <div style="display:flex;align-items:center;gap:8px;">
             <button class="btn" type="button" id="ppRoomChangeBtn">Room Change</button>
           </div>
@@ -527,6 +555,7 @@
     p.iso = p.isolation;
     p.admit = getCheck("profAdmit") || getCheck("profAdmitPca");
     p.lateDc = getCheck("profLateDc") || getCheck("profLateDcPca");
+    p.expectedDischarge = getCheck("profExpectedDischarge");
 
     p.drip = getCheck("profDrip");
     p.nih = getCheck("profNih");

@@ -26,7 +26,7 @@
 
   function stripPins(s) {
     return String(s || "")
-      .replace(/[\u{1F4CC}\u{1F4CD}\u{1F4CE}]/gu, "")
+      .replace(/[\u{1F4CC}\u{1F4CD}\u{1F4CE}\u{1F697}]/gu, "")
       .replace(/\s{2,}/g, " ")
       .trim();
   }
@@ -45,7 +45,34 @@
     return `${months[d.getMonth()]}-${d.getDate()}`;
   }
 
+  function getShiftDateLabel() {
+    const raw = String(getValueById("finalizeShiftDate") || "").trim();
+    if (raw) {
+      const d = new Date(`${raw}T00:00:00`);
+      if (!Number.isNaN(d.getTime())) return `${d.getMonth() + 1}/${d.getDate()}/${String(d.getFullYear()).slice(-2)}`;
+    }
+    const now = new Date();
+    return `${now.getMonth() + 1}/${now.getDate()}/${String(now.getFullYear()).slice(-2)}`;
+  }
+
+  function getUnitLabel() {
+    const unitSelect = document.getElementById("unitSwitcher");
+    const selectedText = String(unitSelect?.selectedOptions?.[0]?.textContent || "").trim();
+    if (selectedText) return selectedText;
+    return "Charge Nurse Assignment";
+  }
+
+  function getPrintHeaderTitle(shift) {
+    const unit = getUnitLabel();
+    const shiftLabel = String(shift || "").trim();
+    if (!shiftLabel || shiftLabel === "-") return unit;
+    return `${unit} ${shiftLabel} Shift`;
+  }
+
   function detectShift() {
+    const fromFinalize = String(getValueById("finalizeShiftType") || "").toLowerCase();
+    if (fromFinalize === "day") return "DAY";
+    if (fromFinalize === "night") return "NOC";
     const s = String(window.pcaShift || "").toLowerCase();
     if (s.includes("noc") || s.includes("night")) return "NOC";
     if (s.includes("day")) return "DAY";
@@ -308,6 +335,16 @@
     return /\bsitter\b/.test(t);
   }
 
+  function configuredSitterAssignments(pcaOwners) {
+    return (Array.isArray(pcaOwners) ? pcaOwners : [])
+      .filter((pca) => pca && pca.isSitter && String(pca.sitterRoomPair || "").trim())
+      .map((pca) => ({
+        room: String(pca.sitterRoomPair || "").trim(),
+        label: `${String(pca.sitterRoomPair || "").trim()} - ${String(pca.name || "Sitter PCA").trim()}`
+      }))
+      .sort((a, b) => roomSortKey(a.room).localeCompare(roomSortKey(b.room)));
+  }
+
   function collectHoldRoomsFromCards(cards) {
     const out = [];
     (Array.isArray(cards) ? cards : []).forEach((c) => {
@@ -320,37 +357,43 @@
     return Array.from(new Set(out)).sort((a, b) => roomSortKey(a).localeCompare(roomSortKey(b)));
   }
 
-  function renderLegacyWorksheetSpecialRows(pcaCards) {
-    const cards = Array.isArray(pcaCards) ? pcaCards : [];
-    const sitter = [];
+  function renderLegacyWorksheetSpecialRows(rnCards, pcaCards, pcaOwners) {
+    const pcaCardList = Array.isArray(pcaCards) ? pcaCards : [];
+    const rnCardList = Array.isArray(rnCards) ? rnCards : [];
+    const sitter = configuredSitterAssignments(pcaOwners);
     const vpo = [];
-    cards.forEach((c) => {
+    pcaCardList.forEach((c) => {
       const title = String(c.title || "PCA").trim();
       const rows = Array.isArray(c.rows) ? c.rows : [];
-      const rooms = rows.map((r) => stripPins(r.room || "")).filter(Boolean);
-      const hasSitter = isSitterOwnerTitle(title) || rows.some((r) => /sitter/i.test(String(r.notes || "")));
-      const hasVpo = rows.some((r) => /vpo/i.test(String(r.notes || "")));
-      if (hasSitter) sitter.push({ title, rooms: Array.from(new Set(rooms)).sort((a, b) => roomSortKey(a).localeCompare(roomSortKey(b))) });
-      if (hasVpo) vpo.push({
-        title,
-        rooms: rows
-          .filter((r) => /vpo/i.test(String(r.notes || "")))
-          .map((r) => stripPins(r.room || ""))
-          .filter(Boolean)
-      });
+      rows
+        .filter((r) => /sitter/i.test(String(r.notes || "")) || isSitterOwnerTitle(title))
+        .forEach((r) => {
+          const room = stripPins(r.room || "");
+          if (!room) return;
+          const label = `${room} - ${title}`;
+          if (!sitter.some((entry) => entry.label === label)) sitter.push({ room, label });
+        });
+    });
+
+    rnCardList.concat(pcaCardList).forEach((c) => {
+      const title = String(c.title || "").trim();
+      const rows = Array.isArray(c.rows) ? c.rows : [];
+      rows
+        .filter((r) => /vpo/i.test(String(r.notes || "")))
+        .forEach((r) => {
+          const room = stripPins(r.room || "");
+          if (!room) return;
+          vpo.push({ room });
+        });
     });
 
     const sitterLines = sitter
-      .map((s) => {
-        const room = (s.rooms && s.rooms[0]) ? s.rooms[0] : "-";
-        return `Sitter designation: ${room} - ${s.title}`;
-      })
-      .sort((a, b) => roomSortKey(a).localeCompare(roomSortKey(b)));
+      .sort((a, b) => roomSortKey(a.room).localeCompare(roomSortKey(b.room)))
+      .map((s) => s.label);
 
     const vpoLines = vpo
-      .flatMap((s) => (s.rooms || []).map((room) => ({ room, title: s.title })))
       .sort((a, b) => roomSortKey(a.room).localeCompare(roomSortKey(b.room)))
-      .map((x) => `${x.room} - ${x.title}`);
+      .map((x) => `${x.room}`);
 
     return {
       sitterHtml: sitterLines.length ? sitterLines.map((x) => `<div>${escapeHtml(x)}</div>`).join("") : "",
@@ -409,15 +452,16 @@
 
   function buildPrintHTMLTraditional(data, orientation) {
     const pageSize = "size: 11in 8.5in;";
-    const shiftDate = `${new Date().getMonth() + 1}/${new Date().getDate()}/${String(new Date().getFullYear()).slice(-2)}`;
+    const shiftDate = getShiftDateLabel();
     const shift = data.shift || detectShift();
+    const printTitle = getPrintHeaderTitle(shift);
     const openRooms = getOpenRoomLabels();
     const holdRooms = collectHoldRoomsFromCards(data.pcaCards).concat(collectHoldRoomsFromCards(data.rnCards || []));
     const availabilityRooms = Array.from(new Set([...(openRooms || []), ...holdRooms]))
       .sort((a, b) => roomSortKey(a).localeCompare(roomSortKey(b)));
     const pcaRows = renderLegacyWorksheetPcaRows(data.pcaCards, "Current PCA");
     const rnGrid = renderLegacyWorksheetRnGrid(data.rnCards, "Current RN");
-    const specials = renderLegacyWorksheetSpecialRows(data.pcaCards);
+    const specials = renderLegacyWorksheetSpecialRows(data.rnCards, data.pcaCards, data.pcaOwners);
 
     return `<!doctype html>
 <html>
@@ -428,27 +472,30 @@
 <style>
   *{ box-sizing:border-box; }
   html,body{ margin:0; padding:0; background:#fff; color:#111827; font-family:"Times New Roman", serif; }
-  @page { margin:5mm; ${pageSize} }
-  .wrap{ padding:2px; width:100%; max-width:10.9in; margin:0 auto; min-height:7.9in; }
+  @page { margin:4mm; ${pageSize} }
+  .wrap{ padding:1px; width:100%; max-width:100%; margin:0 auto; min-height:8.2in; }
+  .ws-page-title{ text-align:center; font-size:24px; font-weight:700; line-height:1.1; margin:6px 0 10px; }
+  :root{ --ws-line:0.8px solid #111; }
   .ws-table{ width:100%; border-collapse:collapse; table-layout:fixed; }
-  .ws-table th,.ws-table td{ border:1px solid #111; padding:2px 4px; font-size:11px; line-height:1.12; vertical-align:top; }
-  .ws-pca-table{ table-layout:auto; }
-  .ws-pca-table td.pca-name{ white-space:nowrap; width:1%; }
-  .ws-pca-table td.pca-rooms{ white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .ws-table th,.ws-table td{ border:var(--ws-line); padding:2px 4px; font-size:11px; line-height:1.12; vertical-align:top; }
+  .ws-pca-table{ table-layout:fixed; }
+  .ws-pca-table td.pca-name{ white-space:nowrap; width:18%; }
+  .ws-pca-table td.num{ width:7%; }
+  .ws-pca-table td.pca-rooms{ white-space:nowrap; overflow:hidden; text-overflow:ellipsis; width:40%; }
   .ws-head{ font-weight:700; text-align:center; }
-  .ws-top-grid{ display:grid; grid-template-columns:2fr 1fr; gap:0; border:1px solid #111; border-bottom:none; }
-  .ws-top-grid > div{ border-right:1px solid #111; }
+  .ws-top-grid{ display:grid; grid-template-columns:1.68fr .82fr; gap:0; border:var(--ws-line); border-bottom:none; }
+  .ws-top-grid > div{ border-right:var(--ws-line); }
   .ws-top-grid > div:last-child{ border-right:none; }
   .ws-date{ text-align:center; font-size:44px; font-weight:700; line-height:1.04; margin-top:4px; }
   .ws-msg{ text-align:center; font-size:21px; font-weight:700; margin-top:4px; }
-  .ws-mid{ display:grid; grid-template-columns:1fr 1fr 1fr; border:1px solid #111; border-top:none; }
-  .ws-mid > div{ border-right:1px solid #111; min-height:120px; }
+  .ws-mid{ display:grid; grid-template-columns:.88fr 1.24fr .88fr; border:var(--ws-line); border-top:none; }
+  .ws-mid > div{ border-right:var(--ws-line); min-height:140px; }
   .ws-mid > div:last-child{ border-right:none; }
   .ws-box-title{ font-size:12px; font-weight:700; text-align:center; margin:2px 0; }
-  .ws-line{ border-top:1px solid #111; min-height:20px; padding:2px 4px; font-size:11px; }
+  .ws-line{ border-top:var(--ws-line); min-height:20px; padding:2px 4px; font-size:11px; }
   .ws-list{ padding:2px 4px; font-size:10px; line-height:1.2; }
   .ws-leadership-box{
-    min-height:120px;
+    min-height:140px;
     display:flex;
     flex-direction:column;
     justify-content:space-evenly;
@@ -457,16 +504,20 @@
     padding:4px 6px;
     font-size:19px;
     font-weight:700;
+    border-left:var(--ws-line);
+    border-right:var(--ws-line);
+    height:100%;
   }
-  .ws-rn-grid{ display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:0; border-left:1px solid #111; border-right:1px solid #111; border-bottom:1px solid #111; }
+  .ws-rn-grid{ display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:0; border-left:var(--ws-line); border-right:var(--ws-line); border-bottom:var(--ws-line); }
   .ws-rn-card{ width:100%; border-collapse:collapse; table-layout:fixed; }
-  .ws-rn-card th,.ws-rn-card td{ padding:2px 3px; font-size:11px; line-height:1.05; vertical-align:top; border-left:1px solid #111; border-right:1px solid #111; }
-  .ws-rn-card thead th{ text-align:center; font-weight:700; border-top:1px solid #111; border-bottom:1px solid #111; }
+  .ws-rn-card th,.ws-rn-card td{ padding:2px 3px; font-size:11px; line-height:1.05; vertical-align:top; border-left:var(--ws-line); border-right:var(--ws-line); }
+  .ws-rn-card thead th{ text-align:center; font-weight:700; border-top:var(--ws-line); border-bottom:var(--ws-line); }
   .ws-rn-card tbody td{ border-top:none; border-bottom:none; }
-  .ws-rn-card tbody tr:last-child td{ border-bottom:1px solid #111; }
-  .ws-rn-card td.room,.ws-rn-card td.acty{ text-align:center; width:14%; }
+  .ws-rn-card tbody tr:last-child td{ border-bottom:var(--ws-line); }
+  .ws-rn-card td.room{ text-align:center; width:17%; }
+  .ws-rn-card td.acty{ text-align:center; width:8%; }
   .ws-rn-card td.notes{ font-size:9px; }
-  .ws-rn-card td.rn-name{ width:28%; text-align:center; font-weight:700; vertical-align:middle; }
+  .ws-rn-card td.rn-name{ width:31%; text-align:center; font-weight:700; vertical-align:middle; }
   .num{ width:60px; text-align:center; font-weight:700; }
   .availability-room{ font-size:11px; line-height:1.2; padding:4px; }
   @media print { .wrap{ padding:0; } }
@@ -474,6 +525,7 @@
 </head>
 <body>
   <div class="wrap">
+    <div class="ws-page-title">${escapeHtml(printTitle)}</div>
     <div class="ws-top-grid">
       <div>
         <table class="ws-table ws-pca-table">
@@ -663,6 +715,7 @@
         shift: detectShift(),
         rnCards: extractCardsFrom("liveNurseAssignments", "RN"),
         pcaCards: extractCardsFrom("livePcaAssignments", "PCA"),
+        pcaOwners: Array.isArray(window.currentPcas) ? window.currentPcas : [],
       };
 
       const html = mode === "traditional"

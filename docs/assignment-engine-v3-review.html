@@ -1,0 +1,187 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Acuity Engine V3 Review</title>
+  <style>
+    body {
+      font-family: "Segoe UI", Arial, sans-serif;
+      margin: 40px auto;
+      max-width: 900px;
+      color: #172033;
+      line-height: 1.45;
+      font-size: 14px;
+    }
+    h1, h2, h3 {
+      color: #0f2f63;
+      margin-bottom: 8px;
+    }
+    h1 {
+      font-size: 28px;
+      border-bottom: 3px solid #d7e3f8;
+      padding-bottom: 10px;
+    }
+    h2 {
+      margin-top: 28px;
+      font-size: 20px;
+    }
+    h3 {
+      margin-top: 18px;
+      font-size: 16px;
+    }
+    p, li {
+      margin: 6px 0;
+    }
+    ul {
+      padding-left: 20px;
+    }
+    .callout {
+      background: #f6f9ff;
+      border: 1px solid #cfdcf5;
+      border-radius: 12px;
+      padding: 14px 16px;
+      margin: 16px 0;
+    }
+    .small {
+      color: #4b5b74;
+      font-size: 12px;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 12px 0 20px;
+    }
+    th, td {
+      border: 1px solid #d6dde8;
+      padding: 8px 10px;
+      text-align: left;
+      vertical-align: top;
+    }
+    th {
+      background: #eef4ff;
+    }
+    .mono {
+      font-family: Consolas, "Courier New", monospace;
+    }
+  </style>
+</head>
+<body>
+  <h1>Acuity Engine V3 Review</h1>
+
+  <div class="callout">
+    <strong>Bottom line</strong>: the assignment problem grows combinatorially, so humans cannot reliably evaluate more than a tiny fraction of the available legal boards. A constrained optimizer can score hundreds to thousands of candidate states consistently inside a short time budget and can re-run after every staffing or patient change.
+  </div>
+
+  <h2>1. Problem Scale</h2>
+  <p>If <span class="mono">P</span> patients can each be assigned to one of <span class="mono">N</span> owners, the raw assignment space is approximately <span class="mono">N^P</span> before constraints, locks, and roster exclusions remove impossible combinations.</p>
+
+  <table>
+    <thead>
+      <tr>
+        <th>Example</th>
+        <th>Approximate search space</th>
+        <th>Interpretation</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>8 RNs, 32 patients</td>
+        <td class="mono">8^32 ≈ 7.9 × 10^28</td>
+        <td>Far beyond any human mental search process and far beyond direct brute force.</td>
+      </tr>
+      <tr>
+        <td>4 PCAs, 32 patients</td>
+        <td class="mono">4^32 ≈ 1.84 × 10^19</td>
+        <td>Still enormous. Requires pruning, scoring, and bounded search.</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2>2. Why Software Has an Advantage</h2>
+  <h3>What a human does well</h3>
+  <ul>
+    <li>Spots obviously unsafe or unfair assignments quickly.</li>
+    <li>Uses contextual judgment the system may not yet model.</li>
+    <li>Balances clinical nuance when the rules are ambiguous.</li>
+  </ul>
+
+  <h3>What the optimizer does better</h3>
+  <ul>
+    <li>Checks the same rules the same way every time.</li>
+    <li>Does not forget a constraint after an interruption.</li>
+    <li>Can compare many alternative boards inside one rebalance cycle.</li>
+    <li>Can re-run after every staffing, acuity, or discharge-status change.</li>
+  </ul>
+
+  <div class="callout">
+    <strong>Practical interpretation</strong>: a charge nurse may mentally compare a handful of candidate layouts while also taking interruptions. The engine can score many more candidate boards in a bounded search window while consistently preserving explicit constraints.
+  </div>
+
+  <h2>3. Version Progression</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>Version</th>
+        <th>Main style</th>
+        <th>Primary strength</th>
+        <th>Main limitation</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>V1</td>
+        <td>Heuristic populate + repair</td>
+        <td>Gets to a workable board quickly</td>
+        <td>Becomes patch-heavy as more priorities are added</td>
+      </tr>
+      <tr>
+        <td>V2</td>
+        <td>Scored optimizer with local improvements</td>
+        <td>Compares boards more coherently than V1</td>
+        <td>Can get stuck in decent but not best local optima</td>
+      </tr>
+      <tr>
+        <td>V3</td>
+        <td>Multi-seed + beam-search optimization</td>
+        <td>Searches multiple promising board families before committing</td>
+        <td>Still bounded, so not a full exhaustive global optimum</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2>4. Current V3 Priority Stack</h2>
+  <ol>
+    <li>Safe assignment with no preventable rule breaks</li>
+    <li>Balanced patient counts</li>
+    <li>Balanced acuity / load spread</li>
+    <li>Minimal report-source burden</li>
+    <li>Tighter room clustering</li>
+  </ol>
+
+  <h2>5. Expected Efficiency Impact</h2>
+  <p>These are operational expectations, not outcome guarantees.</p>
+  <ul>
+    <li>Faster regeneration of candidate boards after data changes.</li>
+    <li>More consistent enforcement of explicit staffing rules.</li>
+    <li>Reduced chance of preventable oversights caused by interruption or working-memory overload.</li>
+    <li>More repeatable fairness decisions across shifts and users.</li>
+  </ul>
+
+  <h2>6. Downstream Safety Value</h2>
+  <p>The platform does not remove clinical risk. It reduces one specific source of operational risk: preventable assignment inconsistency.</p>
+  <ul>
+    <li>Fewer preventable stacking patterns should reduce exposure to unfair workload concentration.</li>
+    <li>More consistent balancing should reduce the chance that one owner receives a hidden high-burden cluster.</li>
+    <li>Lower dependence on manual mental recomputation should reduce error opportunities during interruptions.</li>
+  </ul>
+
+  <div class="callout">
+    <strong>Important note</strong>: the statements above are reasoned operational inferences from better constraint consistency. They are not claims of proven patient-outcome effect unless validated by real unit data.
+  </div>
+
+  <h2>7. Why This Matters</h2>
+  <p>Acuity assignment is not just a formatting problem. It is a constrained decision problem with a search space too large for manual comparison. The engine’s value is that it can repeatedly search, score, and improve assignments under pressure while keeping the same explicit priorities every time.</p>
+
+  <p class="small">Prepared for internal product review. Date: 2026-03-15.</p>
+</body>
+</html>
