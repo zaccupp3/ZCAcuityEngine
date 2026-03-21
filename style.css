@@ -578,6 +578,166 @@ button:active{
   overflow: hidden; /* keeps bar crisp */
 }
 
+.owner-card-controls{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  margin-left:auto;
+  position:relative;
+  z-index:3;
+  pointer-events:auto;
+}
+
+.owner-name-edit-btn{
+  border:1px solid rgba(15,23,42,0.12);
+  background:rgba(255,255,255,0.92);
+  color:#0f172a;
+  padding:4px 9px;
+  border-radius:999px;
+  cursor:pointer;
+  font-size:12px;
+  font-weight:800;
+  position:relative;
+  z-index:3;
+  pointer-events:auto;
+}
+
+.owner-card-step-btn{
+  border:1px solid rgba(15,23,42,0.12);
+  background:rgba(255,255,255,0.92);
+  color:#0f172a;
+  width:28px;
+  height:28px;
+  border-radius:10px;
+  cursor:pointer;
+  font-size:13px;
+  font-weight:900;
+  line-height:26px;
+  text-align:center;
+  position:relative;
+  z-index:3;
+  pointer-events:auto;
+}
+
+.owner-card-drag-handle{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  width:28px;
+  height:28px;
+  border-radius:10px;
+  background:rgba(15,23,42,0.08);
+  color:#334155;
+  cursor:grab;
+  user-select:none;
+  font-weight:900;
+  letter-spacing:1px;
+  border:1px solid rgba(15,23,42,0.12);
+  position:relative;
+  z-index:3;
+  pointer-events:auto;
+}
+
+.owner-card-drag-handle:active{
+  cursor:grabbing;
+}
+
+body.owner-tile-dragging [data-owner-card="1"]{
+  transition: box-shadow 120ms ease, transform 120ms ease, outline-color 120ms ease;
+}
+
+body.owner-tile-dragging [data-owner-card="1"]:hover{
+  box-shadow: var(--card-shadow);
+  transform: none;
+}
+
+.owner-card-drop-before{
+  box-shadow: inset 0 4px 0 #2563eb, var(--card-shadow);
+  outline: 1px solid rgba(37,99,235,0.14);
+}
+
+.owner-card-drop-after{
+  box-shadow: inset 0 -4px 0 #2563eb, var(--card-shadow);
+  outline: 1px solid rgba(37,99,235,0.14);
+}
+
+#liveNurseAssignments.owner-card-drop-append,
+#livePcaAssignments.owner-card-drop-append,
+#assignmentOutput.owner-card-drop-append,
+#pcaAssignmentOutput.owner-card-drop-append{
+  outline: 2px dashed #2563eb;
+  outline-offset: 8px;
+}
+
+.owner-card-drag-ghost{
+  margin:0 !important;
+  opacity:1 !important;
+  transform:none !important;
+  box-shadow:0 20px 38px rgba(15,23,42,0.18) !important;
+  outline:2px solid rgba(37,99,235,0.32);
+}
+
+.owner-rename-backdrop{
+  position:fixed;
+  inset:0;
+  background:rgba(15,23,42,0.28);
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  z-index:10002;
+}
+
+.owner-rename-card{
+  width:min(92vw, 360px);
+  background:#fff;
+  border:1px solid rgba(15,23,42,0.12);
+  border-radius:18px;
+  box-shadow:0 24px 48px rgba(15,23,42,0.22);
+  padding:18px;
+}
+
+.owner-rename-title{
+  font-size:16px;
+  font-weight:800;
+  color:#0f172a;
+  margin-bottom:10px;
+}
+
+.owner-rename-input{
+  width:100%;
+  border:1px solid rgba(15,23,42,0.14);
+  border-radius:12px;
+  padding:10px 12px;
+  font-size:14px;
+  box-sizing:border-box;
+}
+
+.owner-rename-actions{
+  display:flex;
+  justify-content:flex-end;
+  gap:8px;
+  margin-top:12px;
+}
+
+.owner-rename-btn{
+  border:1px solid rgba(15,23,42,0.12);
+  border-radius:999px;
+  padding:8px 14px;
+  font-size:13px;
+  font-weight:800;
+  cursor:pointer;
+}
+
+.owner-rename-btn-secondary{
+  background:#fff;
+  color:#334155;
+}
+
+.owner-rename-btn-primary{
+  background:#0f172a;
+  color:#fff;
+}
+
 /* =========================
    ASSIGNMENT CARDS (RN + PCA) — CLEAN TILE THEME
 ========================= */

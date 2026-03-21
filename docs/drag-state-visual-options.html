@@ -1,0 +1,351 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Drag State Visual Options</title>
+  <style>
+    :root{
+      --ink:#0f172a;
+      --muted:#475569;
+      --line:#dbe4ef;
+      --panel:#ffffff;
+      --bg:#f5f7fb;
+      --blue:#2563eb;
+      --blue-soft:#dbeafe;
+      --shadow:0 12px 28px rgba(15,23,42,.12);
+    }
+    *{box-sizing:border-box}
+    body{
+      margin:0;
+      font-family: Georgia, "Times New Roman", serif;
+      color:var(--ink);
+      background:linear-gradient(180deg,#f8fbff 0%, #eef4fb 100%);
+    }
+    .page{
+      width:8.5in;
+      min-height:11in;
+      margin:0 auto;
+      padding:.45in;
+      background:transparent;
+    }
+    h1,h2,h3,p{margin:0}
+    .hero{
+      border:1px solid var(--line);
+      background:rgba(255,255,255,.82);
+      border-radius:22px;
+      padding:22px 24px;
+      box-shadow:var(--shadow);
+      margin-bottom:18px;
+    }
+    .hero h1{
+      font-size:28px;
+      margin-bottom:8px;
+    }
+    .hero p{
+      font-size:14px;
+      line-height:1.45;
+      color:var(--muted);
+      max-width:7in;
+    }
+    .summary{
+      display:grid;
+      grid-template-columns:1.25fr .95fr;
+      gap:14px;
+      margin-bottom:16px;
+    }
+    .card{
+      border:1px solid var(--line);
+      background:rgba(255,255,255,.88);
+      border-radius:18px;
+      box-shadow:var(--shadow);
+      padding:16px;
+    }
+    .card h2{
+      font-size:18px;
+      margin-bottom:10px;
+    }
+    .bullets{
+      padding-left:18px;
+      margin:0;
+      color:var(--muted);
+      font-size:13px;
+      line-height:1.45;
+    }
+    .bullets li{margin:4px 0}
+    .grid{
+      display:grid;
+      grid-template-columns:1fr 1fr;
+      gap:14px;
+    }
+    .option{
+      border:1px solid var(--line);
+      background:rgba(255,255,255,.9);
+      border-radius:18px;
+      overflow:hidden;
+      box-shadow:var(--shadow);
+    }
+    .option-head{
+      padding:14px 16px 10px;
+      border-bottom:1px solid var(--line);
+      background:linear-gradient(180deg,#fff 0%, #f8fbff 100%);
+    }
+    .option-head h3{
+      font-size:17px;
+      margin-bottom:5px;
+    }
+    .option-head p{
+      font-size:12px;
+      line-height:1.4;
+      color:var(--muted);
+    }
+    .mock{
+      padding:14px;
+      min-height:220px;
+      background:
+        radial-gradient(circle at top left, rgba(37,99,235,.06), transparent 35%),
+        linear-gradient(180deg,#fbfdff 0%, #f2f6fb 100%);
+    }
+    .board{
+      display:grid;
+      grid-template-columns:1fr 1fr;
+      gap:10px;
+    }
+    .tile{
+      position:relative;
+      border:1px solid #d6dfeb;
+      border-radius:16px;
+      background:#fff;
+      min-height:86px;
+      box-shadow:0 8px 20px rgba(15,23,42,.08);
+      overflow:hidden;
+    }
+    .tile::before{
+      content:"";
+      position:absolute;
+      left:0;
+      top:0;
+      bottom:0;
+      width:6px;
+      background:#22c55e;
+    }
+    .tile.red::before{background:#ef4444}
+    .tile.yellow::before{background:#f59e0b}
+    .tile-head{
+      display:flex;
+      justify-content:space-between;
+      align-items:center;
+      gap:8px;
+      padding:10px 12px 8px 14px;
+      font-size:11px;
+      font-weight:700;
+    }
+    .tile-meta{
+      padding:0 12px 10px 14px;
+      font-size:10px;
+      line-height:1.45;
+      color:var(--muted);
+    }
+    .drag{
+      cursor:grab;
+      padding:4px 7px;
+      border:1px solid #d8dee9;
+      border-radius:10px;
+      background:#f8fafc;
+      font-size:10px;
+    }
+    .lift .active{
+      opacity:1;
+      outline:2px solid var(--blue);
+      box-shadow:0 18px 34px rgba(37,99,235,.24);
+      transform:translateY(-4px);
+    }
+    .rails .target-before{ box-shadow:inset 0 4px 0 var(--blue), 0 8px 20px rgba(15,23,42,.08); }
+    .rails .target-after{ box-shadow:inset 0 -4px 0 var(--blue), 0 8px 20px rgba(15,23,42,.08); }
+    .placeholder .slot{
+      border:2px dashed var(--blue);
+      border-radius:16px;
+      min-height:86px;
+      background:rgba(37,99,235,.06);
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      font-size:11px;
+      font-weight:700;
+      color:var(--blue);
+    }
+    .glow .active{
+      opacity:1;
+      transform:scale(1.02);
+      box-shadow:0 0 0 2px rgba(37,99,235,.35), 0 18px 36px rgba(37,99,235,.20);
+    }
+    .pulse .target-before::after,
+    .pulse .target-after::after{
+      content:"";
+      position:absolute;
+      left:10px;
+      right:10px;
+      height:4px;
+      border-radius:999px;
+      background:var(--blue);
+    }
+    .pulse .target-before::after{ top:8px; }
+    .pulse .target-after::after{ bottom:8px; }
+    .small-note{
+      padding:10px 14px 14px;
+      font-size:11px;
+      line-height:1.45;
+      color:var(--muted);
+      border-top:1px solid var(--line);
+      background:#fff;
+    }
+    .recommend{
+      margin-top:16px;
+      border:1px solid #bfdbfe;
+      background:linear-gradient(180deg,#eff6ff 0%, #dbeafe 100%);
+      border-radius:18px;
+      padding:16px 18px;
+    }
+    .recommend h2{
+      font-size:18px;
+      margin-bottom:8px;
+    }
+    .recommend p{
+      font-size:13px;
+      line-height:1.5;
+      color:#1e3a8a;
+    }
+    .key{
+      display:flex;
+      gap:10px;
+      flex-wrap:wrap;
+      margin-top:10px;
+    }
+    .chip{
+      border:1px solid rgba(37,99,235,.18);
+      border-radius:999px;
+      background:#fff;
+      padding:6px 10px;
+      font-size:11px;
+      font-weight:700;
+      color:#1e3a8a;
+    }
+    @media print{
+      body{background:#fff}
+      .page{margin:0; width:auto; min-height:auto; padding:.3in}
+      .hero,.card,.option,.recommend{box-shadow:none}
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <section class="hero">
+      <h1>Drag State Visual Options</h1>
+      <p>
+        This review compares several ways to show RN/PCA tile reordering without making the selected card translucent.
+        The goal is to preserve readability while still making it obvious that tiles can switch order.
+      </p>
+    </section>
+
+    <section class="summary">
+      <div class="card">
+        <h2>What We Want</h2>
+        <ul class="bullets">
+          <li>Full readability while dragging</li>
+          <li>Clear signal for where the card will land</li>
+          <li>Low visual noise on already busy staffing boards</li>
+          <li>Consistent feel across Live and Oncoming</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h2>Recommended Direction</h2>
+        <ul class="bullets">
+          <li><strong>Primary:</strong> Insertion rails on the hovered target</li>
+          <li><strong>Secondary:</strong> Mild lift + outline on the dragged card</li>
+          <li><strong>Append area:</strong> Dashed board outline when dropping into blank space</li>
+        </ul>
+      </div>
+    </section>
+
+    <section class="grid">
+      <article class="option">
+        <div class="option-head">
+          <h3>1. Lift + Outline</h3>
+          <p>The dragged tile stays fully readable and looks picked up from the board.</p>
+        </div>
+        <div class="mock lift">
+          <div class="board">
+            <div class="tile red active"><div class="tile-head">Dianne Samiengo (RN) <span class="drag">::</span></div><div class="tile-meta">Patients: 4 | Load: 20</div></div>
+            <div class="tile"><div class="tile-head">Gretchen Narciso (RN) <span class="drag">::</span></div><div class="tile-meta">Patients: 4 | Load: 0</div></div>
+            <div class="tile yellow"><div class="tile-head">Paul Sangalang (RN) <span class="drag">::</span></div><div class="tile-meta">Patients: 4 | Load: 14</div></div>
+            <div class="tile"><div class="tile-head">Ivy Grey (RN) <span class="drag">::</span></div><div class="tile-meta">Patients: 4 | Load: 3</div></div>
+          </div>
+        </div>
+        <div class="small-note">Best when you want the board to feel premium and calm, but by itself it is weaker at showing the exact landing position.</div>
+      </article>
+
+      <article class="option">
+        <div class="option-head">
+          <h3>2. Insertion Rails</h3>
+          <p>The target card shows a blue bar on its top or bottom edge to indicate placement.</p>
+        </div>
+        <div class="mock rails">
+          <div class="board">
+            <div class="tile red"><div class="tile-head">Dianne Samiengo (RN) <span class="drag">::</span></div><div class="tile-meta">Dragging this card</div></div>
+            <div class="tile target-before"><div class="tile-head">Gretchen Narciso (RN) <span class="drag">::</span></div><div class="tile-meta">Drop before this tile</div></div>
+            <div class="tile yellow"><div class="tile-head">Paul Sangalang (RN) <span class="drag">::</span></div><div class="tile-meta">Alternative target</div></div>
+            <div class="tile target-after"><div class="tile-head">Ivy Grey (RN) <span class="drag">::</span></div><div class="tile-meta">Drop after this tile</div></div>
+          </div>
+        </div>
+        <div class="small-note">Best at answering “where exactly will this land?” with the least disruption to the board content.</div>
+      </article>
+
+      <article class="option">
+        <div class="option-head">
+          <h3>3. Placeholder Slot</h3>
+          <p>The dragged card stays readable while the board shows a dedicated dashed landing slot.</p>
+        </div>
+        <div class="mock placeholder">
+          <div class="board">
+            <div class="tile red"><div class="tile-head">Dianne Samiengo (RN) <span class="drag">::</span></div><div class="tile-meta">Dragging this card</div></div>
+            <div class="slot">Drop slot</div>
+            <div class="tile yellow"><div class="tile-head">Paul Sangalang (RN) <span class="drag">::</span></div><div class="tile-meta">Keeps spacing obvious</div></div>
+            <div class="tile"><div class="tile-head">Ivy Grey (RN) <span class="drag">::</span></div><div class="tile-meta">Good for blank-area drop</div></div>
+          </div>
+        </div>
+        <div class="small-note">Best if you want a Trello-style mental model, though it adds more visible structure than the rail approach.</div>
+      </article>
+
+      <article class="option">
+        <div class="option-head">
+          <h3>4. Target Pulse Only</h3>
+          <p>The dragged card stays almost unchanged while the hovered target edge animates subtly.</p>
+        </div>
+        <div class="mock pulse">
+          <div class="board">
+            <div class="tile red"><div class="tile-head">Dianne Samiengo (RN) <span class="drag">::</span></div><div class="tile-meta">Dragging this card</div></div>
+            <div class="tile target-before"><div class="tile-head">Gretchen Narciso (RN) <span class="drag">::</span></div><div class="tile-meta">Target is highlighted only</div></div>
+            <div class="tile yellow"><div class="tile-head">Paul Sangalang (RN) <span class="drag">::</span></div><div class="tile-meta">Quieter visual system</div></div>
+            <div class="tile target-after"><div class="tile-head">Ivy Grey (RN) <span class="drag">::</span></div><div class="tile-meta">Low-noise option</div></div>
+          </div>
+        </div>
+        <div class="small-note">Best if you want the least visual clutter, but it is not quite as explicit as the rail system.</div>
+      </article>
+    </section>
+
+    <section class="recommend">
+      <h2>Recommended Implementation</h2>
+      <p>
+        Use <strong>Insertion Rails</strong> as the main signal, add a <strong>mild lift + outline</strong> to the dragged tile,
+        and keep the existing dashed append-state around the board when a tile is headed into open space. That combination keeps the cards readable,
+        clearly shows order changes, and fits a clinical board better than making the selected card translucent.
+      </p>
+      <div class="key">
+        <div class="chip">Dragged tile stays fully opaque</div>
+        <div class="chip">Target card shows top/bottom landing bar</div>
+        <div class="chip">Board outline for blank-space append</div>
+      </div>
+    </section>
+  </div>
+</body>
+</html>

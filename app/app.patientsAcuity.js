@@ -1261,7 +1261,6 @@
     if (p.chg) tags.push("CHG");
     if (p.foley) tags.push("Foley");
     if (p.q2turns) tags.push("Totals");
-    if (p.strictIo || p.heavy) tags.push("Strict I/O");
     if (p.feeder) tags.push("Feeder");
     return tags.join(", ");
   }

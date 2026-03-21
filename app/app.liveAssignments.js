@@ -52,6 +52,35 @@
     return Array.isArray(v) ? v : [];
   }
 
+  function ownerHeaderControlsHtml(board, role, owner) {
+    if (!owner || isHoldOwner(owner)) return "";
+    const ownerId = Number(owner.id);
+    const safeBoard = escapeHtml(board);
+    const safeRole = escapeHtml(role);
+    return `
+      <div class="owner-card-controls">
+        <button
+          type="button"
+          class="owner-name-edit-btn"
+          title="Rename ${safeRole.toUpperCase()}"
+          data-owner-edit="1"
+          data-board="${safeBoard}"
+          data-role="${safeRole}"
+          data-owner-id="${ownerId}"
+        >Edit</button>
+        <span
+          class="owner-card-drag-handle"
+          draggable="true"
+          title="Drag to reposition tile"
+          data-owner-drag-handle="1"
+          data-board="${safeBoard}"
+          data-role="${safeRole}"
+          data-owner-id="${ownerId}"
+        >::</span>
+      </div>
+    `;
+  }
+
   function clamp(n, a, b) {
     const x = Number.isFinite(Number(n)) ? Number(n) : 0;
     return Math.max(a, Math.min(b, x));
@@ -1338,6 +1367,18 @@
 
     nurseContainer.innerHTML = "";
     pcaContainer.innerHTML = "";
+    nurseContainer.ondragover = function (event) {
+      if (window.onOwnerTileDragOver) window.onOwnerTileDragOver(event);
+    };
+    nurseContainer.ondrop = function (event) {
+      if (window.onOwnerTileContainerDrop) window.onOwnerTileContainerDrop(event, "live", "nurse");
+    };
+    pcaContainer.ondragover = function (event) {
+      if (window.onOwnerTileDragOver) window.onOwnerTileDragOver(event);
+    };
+    pcaContainer.ondrop = function (event) {
+      if (window.onOwnerTileContainerDrop) window.onOwnerTileContainerDrop(event, "live", "pca");
+    };
 
     const rnEvalMap = getRuleEvalMap(realNurses, "nurse");
     const pcaEvalMap = getRuleEvalMap(realPcas, "pca");
@@ -1448,8 +1489,18 @@
       `;
 
       nurseContainer.innerHTML += `
-        <div class="assignment-card ${escapeHtml(loadClass)}" style="${accentStyle}">
-          <div class="assignment-header" style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;">
+        <div class="assignment-card ${escapeHtml(loadClass)}"
+             data-owner-card="1"
+             data-board="live"
+             data-role="nurse"
+             data-owner-id="${Number(nurse.id)}"
+             ondragover="window.onOwnerTileDragOver && window.onOwnerTileDragOver(event)"
+             ondrop="window.onOwnerTileDrop && window.onOwnerTileDrop(event, 'live', 'nurse', ${Number(nurse.id)})"
+             style="${accentStyle}">
+          <div class="assignment-header"
+               style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;"
+               ondragover="window.onOwnerTileDragOver && window.onOwnerTileDragOver(event)"
+               ondrop="window.onOwnerTileDrop && window.onOwnerTileDrop(event, 'live', 'nurse', ${Number(nurse.id)})">
             <div>
               <div style="display:flex;align-items:flex-start;gap:10px;">
                 <div>
@@ -1460,6 +1511,7 @@
               <div>Patients: ${pts.length} | Load Score: ${loadScore}</div>
             </div>
             <div style="display:flex;align-items:center;gap:8px;">
+              ${ownerHeaderControlsHtml("live", "nurse", nurse)}
               ${removeBtn}
             </div>
           </div>
@@ -1483,6 +1535,7 @@
     });
 
     nurseContainer.innerHTML += `<div id="rnGridSlot9" class="rn-grid-slot-9"></div>`;
+    if (window.bindOwnerCardControls) window.bindOwnerCardControls(nurseContainer);
 
     const holdPcaPts = safeArray(holdPca?.patients)
       .map((id) => getPatientByIdSafe(id))
@@ -1594,8 +1647,18 @@
       `;
 
       pcaContainer.innerHTML += `
-        <div class="assignment-card ${escapeHtml(loadClass)}" style="${accentStyle}">
-          <div class="assignment-header" style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;">
+        <div class="assignment-card ${escapeHtml(loadClass)}"
+             data-owner-card="1"
+             data-board="live"
+             data-role="pca"
+             data-owner-id="${Number(pca.id)}"
+             ondragover="window.onOwnerTileDragOver && window.onOwnerTileDragOver(event)"
+             ondrop="window.onOwnerTileDrop && window.onOwnerTileDrop(event, 'live', 'pca', ${Number(pca.id)})"
+             style="${accentStyle}">
+          <div class="assignment-header"
+               style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;"
+               ondragover="window.onOwnerTileDragOver && window.onOwnerTileDragOver(event)"
+               ondrop="window.onOwnerTileDrop && window.onOwnerTileDrop(event, 'live', 'pca', ${Number(pca.id)})">
             <div>
               <div style="display:flex;align-items:flex-start;gap:10px;">
                 <div>
@@ -1606,6 +1669,7 @@
               <div>${isSitterPca ? `Load Score: ${loadScore}` : `Patients: ${pts.length} | Load Score: ${loadScore}`}</div>
             </div>
             <div style="display:flex;align-items:center;gap:8px;">
+              ${ownerHeaderControlsHtml("live", "pca", pca)}
               ${removeBtn}
             </div>
           </div>
@@ -1627,6 +1691,7 @@
         </div>
       `;
     });
+    if (window.bindOwnerCardControls) window.bindOwnerCardControls(pcaContainer);
 
     // Shift log button intentionally hidden for now.
   }

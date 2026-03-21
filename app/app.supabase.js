@@ -17,6 +17,7 @@
 // - Ensures only ONE definition per helper (no duplicates)
 
 (function () {
+  const BUILD = "supabase_v2026-03-20_analytics_metrics_required_v3";
   const SUPABASE_URL = window.SUPABASE_URL || "";
   const SUPABASE_ANON_KEY = window.SUPABASE_ANON_KEY || "";
   const supabaseLib = window.supabase;
@@ -49,6 +50,7 @@
   window.sb.client = client;
   window.supabaseClient = client;
   window.sb.__ready = true;
+  window.sb.__build = BUILD;
 
   function normName(s) {
     return String(s || "").trim().toLowerCase().replace(/\s+/g, " ");
@@ -146,11 +148,57 @@
   }
 
   async function sbUpsertAnalyticsShiftMetrics(payload) {
-    const { error } = await client
-      .from("analytics_shift_metrics")
-      .upsert(payload, { onConflict: "unit_id,shift_date,shift_type" });
+    const base = payload && typeof payload === "object" ? payload : {};
 
-    return { ok: !error, error: error || null };
+    const canonical = {
+      unit_id: base.unit_id,
+      shift_date: base.shift_date,
+      shift_type: base.shift_type,
+      total_pts: Number(base.total_pts ?? base.metrics?.totals?.total_pts ?? 0),
+      admits: Number(base.admits ?? base.metrics?.totals?.admits ?? 0),
+      discharges: Number(base.discharges ?? base.metrics?.totals?.discharges ?? 0)
+    };
+    if (base.tag_counts && typeof base.tag_counts === "object") canonical.tag_counts = base.tag_counts;
+    const metricsAttempt = {
+      unit_id: canonical.unit_id,
+      shift_date: canonical.shift_date,
+      shift_type: canonical.shift_type,
+      metrics: base.metrics && typeof base.metrics === "object"
+        ? base.metrics
+        : {
+            version: 2,
+            totals: {
+              total_pts: canonical.total_pts,
+              admits: canonical.admits,
+              discharges: canonical.discharges
+            },
+            tag_counts: canonical.tag_counts || {}
+          }
+    };
+    const { error: metricsError } = await client
+      .from("analytics_shift_metrics")
+      .upsert(metricsAttempt, { onConflict: "unit_id,shift_date,shift_type" });
+    if (!metricsError) return { ok: true, error: null };
+
+    const metricsMsg = String(metricsError?.message || metricsError || "");
+    if (!/Could not find the 'metrics' column/i.test(metricsMsg)) {
+      return { ok: false, error: metricsError || null };
+    }
+
+    const legacyAttempt = {
+      unit_id: canonical.unit_id,
+      shift_date: canonical.shift_date,
+      shift_type: canonical.shift_type,
+      total_pts: canonical.total_pts,
+      admits: canonical.admits,
+      discharges: canonical.discharges,
+      tag_counts: canonical.tag_counts || {}
+    };
+    const { error: legacyError } = await client
+      .from("analytics_shift_metrics")
+      .upsert(legacyAttempt, { onConflict: "unit_id,shift_date,shift_type" });
+
+    return { ok: !legacyError, error: legacyError || null };
   }
 
   // ------------------------
@@ -373,6 +421,7 @@
   });
 
   window.supabaseClient = window.sb.client;
+  console.log("[supabase] loaded", BUILD);
 
   window.afterAuthRoute = async function (_session) {
     try {

@@ -314,9 +314,10 @@
       const s = sectionById[id];
       const title = customTitle || s?.label || id;
       const value = String(draft.details?.[id] || "");
+      const isLargeText = id === "special_procedures" || id === "special_endorsements" || id === "wounds" || id === "central_lines";
       return `
         <div style="font-weight:700; font-size:17px; text-decoration:underline; margin-bottom:4px;">${escapeHtml(title)}:</div>
-        <textarea data-hr-detail="${escapeHtml(id)}" rows="1" data-hr-autosize="1" placeholder="None" style="width:100%; resize:none; min-height:34px; padding:6px 10px; border:1px solid rgba(15,23,42,0.2); border-radius:10px; font-size:16px; line-height:1.22; color:#0f172a; overflow:hidden;">${escapeHtml(value)}</textarea>
+        <textarea data-hr-detail="${escapeHtml(id)}" rows="${isLargeText ? 4 : 2}" data-hr-autosize="1" placeholder="None" style="width:100%; resize:vertical; min-height:${isLargeText ? "94px" : "48px"}; padding:8px 10px; border:1px solid rgba(15,23,42,0.2); border-radius:10px; font-size:16px; line-height:1.28; color:#0f172a; overflow:auto; white-space:pre-wrap;">${escapeHtml(value)}</textarea>
       `;
     }
 
@@ -540,7 +541,6 @@
           padding:2px 1px;
           font-family:"Times New Roman",serif;
           color:#000;
-          min-height:7.9in;
           display:flex;
           flex-direction:column;
         }
@@ -548,9 +548,8 @@
         .hr-sheet{
           border:1px solid #222;
           display:grid;
-          grid-template-rows:1.25fr 1fr 1fr 1fr .6fr;
-          min-height:7.35in;
-          flex:1;
+          grid-template-rows:auto auto auto auto auto;
+          align-content:start;
         }
         .hr-row{ display:grid; gap:0; min-height:0; align-items:stretch; }
         .hr-row + .hr-row{ border-top:1px solid #222; }
@@ -560,11 +559,11 @@
         .hr-row-endorse{ grid-template-columns:1fr; }
         .hr-row-top .hr-cell:first-child{ grid-column:1 / span 3; }
         .hr-row-bottom .hr-cell:first-child{ grid-column:1 / span 3; }
-        .hr-cell{ padding:2px 5px; min-height:24px; border-left:1px solid #222; display:flex; flex-direction:column; }
+        .hr-cell{ padding:2px 5px 4px; min-height:18px; border-left:1px solid #222; display:flex; flex-direction:column; justify-content:flex-start; }
         .hr-cell:first-child{ border-left:none; }
-        .hr-cell-title{ font-weight:700; font-size:16px; text-decoration:underline; margin-bottom:1px; }
-        .hr-cell-value{ font-size:15.5px; line-height:1.16; white-space:pre-wrap; word-break:break-word; margin-bottom:1px; }
-        .hr-row-endorse .hr-cell{ min-height:28px; }
+        .hr-cell-title{ font-weight:700; font-size:15px; text-decoration:underline; margin-bottom:1px; }
+        .hr-cell-value{ font-size:14.5px; line-height:1.12; white-space:pre-wrap; word-break:break-word; margin-bottom:1px; }
+        .hr-row-endorse .hr-cell{ min-height:22px; }
       </style>
     `;
     if (htmlDoc.includes("</head>")) {

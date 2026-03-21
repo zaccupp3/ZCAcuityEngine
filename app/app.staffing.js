@@ -1404,6 +1404,551 @@
     });
   }
 
+  function publishSharedStateSoon(reason) {
+    try {
+      if (window.cloudSync && typeof window.cloudSync.publishUnitStateNow === "function") {
+        void window.cloudSync.publishUnitStateNow(reason || "staffing_update");
+      }
+    } catch (_) {}
+  }
+
+  function ownerCollectionForBoard(board, role) {
+    const live = board === "live" || board === "current";
+    if (live) {
+      return {
+        list: role === "pca" ? currentPcas : currentNurses,
+        renderListFn: role === "pca" ? window.renderCurrentPcaList : window.renderCurrentNurseList
+      };
+    }
+    return {
+      list: role === "pca" ? incomingPcas : incomingNurses,
+      renderListFn: role === "pca" ? window.renderIncomingPcaList : window.renderIncomingNurseList
+    };
+  }
+
+  function commitStaffingMutation(board, role, renderListFn) {
+    syncWindowRefs();
+    try { if (typeof renderListFn === "function") renderListFn(); } catch (_) {}
+    refreshAllViews();
+    if (typeof window.saveState === "function") window.saveState();
+    publishSharedStateSoon(`staff_${board}_${role}_update`);
+  }
+
+  window.renameStaffOwnerById = function (board, role, ownerId, nextName) {
+    if (isDemoEditLocked()) return warnDemoStaffLocked();
+    const { list, renderListFn } = ownerCollectionForBoard(board, role);
+    const owner = safeArray(list).find((entry) => Number(entry?.id) === Number(ownerId));
+    if (!owner) return false;
+    const labelBase = board === "incoming" ? "Incoming" : "Current";
+    const roleBase = role === "pca" ? "PCA" : "RN";
+    owner.name = String(nextName || "").trim() || `${labelBase} ${roleBase} ${Number(ownerId) || ""}`.trim();
+    commitStaffingMutation(board, role, renderListFn);
+    return true;
+  };
+
+  window.reorderStaffOwnerById = function (board, role, draggedId, targetId) {
+    if (isDemoEditLocked()) return warnDemoStaffLocked();
+    if (Number(draggedId) === Number(targetId)) return false;
+    const { list, renderListFn } = ownerCollectionForBoard(board, role);
+    const source = safeArray(list);
+    const live = board === "live" || board === "current";
+    const hold = live ? getHoldBucket(source) : null;
+    const reorderable = filterOutHoldBuckets(source);
+    const fromIdx = reorderable.findIndex((entry) => Number(entry?.id) === Number(draggedId));
+    const toIdx = reorderable.findIndex((entry) => Number(entry?.id) === Number(targetId));
+    if (fromIdx < 0 || toIdx < 0) return false;
+    const [moved] = reorderable.splice(fromIdx, 1);
+    reorderable.splice(toIdx, 0, moved);
+
+    if (live) {
+      if (role === "pca") currentPcas = hold ? [hold, ...reorderable] : reorderable;
+      else currentNurses = hold ? [hold, ...reorderable] : reorderable;
+    } else {
+      if (role === "pca") incomingPcas = reorderable;
+      else incomingNurses = reorderable;
+    }
+
+    commitStaffingMutation(board, role, renderListFn);
+    return true;
+  };
+
+  window.reorderStaffOwnerAroundTarget = function (board, role, draggedId, targetId, placeAfter) {
+    if (isDemoEditLocked()) return warnDemoStaffLocked();
+    if (Number(draggedId) === Number(targetId)) return false;
+    const { list, renderListFn } = ownerCollectionForBoard(board, role);
+    const source = safeArray(list);
+    const live = board === "live" || board === "current";
+    const hold = live ? getHoldBucket(source) : null;
+    const reorderable = filterOutHoldBuckets(source);
+    const fromIdx = reorderable.findIndex((entry) => Number(entry?.id) === Number(draggedId));
+    const targetIdx = reorderable.findIndex((entry) => Number(entry?.id) === Number(targetId));
+    if (fromIdx < 0 || targetIdx < 0) return false;
+    const [moved] = reorderable.splice(fromIdx, 1);
+    let insertIdx = targetIdx;
+    if (fromIdx < targetIdx) insertIdx -= 1;
+    if (placeAfter) insertIdx += 1;
+    insertIdx = Math.max(0, Math.min(reorderable.length, insertIdx));
+    reorderable.splice(insertIdx, 0, moved);
+
+    if (live) {
+      if (role === "pca") currentPcas = hold ? [hold, ...reorderable] : reorderable;
+      else currentNurses = hold ? [hold, ...reorderable] : reorderable;
+    } else {
+      if (role === "pca") incomingPcas = reorderable;
+      else incomingNurses = reorderable;
+    }
+
+    commitStaffingMutation(board, role, renderListFn);
+    return true;
+  };
+
+  window.moveStaffOwnerByDelta = function (board, role, ownerId, delta) {
+    if (isDemoEditLocked()) return warnDemoStaffLocked();
+    const step = Number(delta) || 0;
+    if (!step) return false;
+    const { list, renderListFn } = ownerCollectionForBoard(board, role);
+    const source = safeArray(list);
+    const live = board === "live" || board === "current";
+    const hold = live ? getHoldBucket(source) : null;
+    const reorderable = filterOutHoldBuckets(source);
+    const fromIdx = reorderable.findIndex((entry) => Number(entry?.id) === Number(ownerId));
+    if (fromIdx < 0) return false;
+    const toIdx = Math.max(0, Math.min(reorderable.length - 1, fromIdx + step));
+    if (toIdx === fromIdx) return false;
+    const [moved] = reorderable.splice(fromIdx, 1);
+    reorderable.splice(toIdx, 0, moved);
+    if (live) {
+      if (role === "pca") currentPcas = hold ? [hold, ...reorderable] : reorderable;
+      else currentNurses = hold ? [hold, ...reorderable] : reorderable;
+    } else {
+      if (role === "pca") incomingPcas = reorderable;
+      else incomingNurses = reorderable;
+    }
+    commitStaffingMutation(board, role, renderListFn);
+    return true;
+  };
+
+  window.promptRenameStaffOwner = function (board, role, ownerId) {
+    const { list } = ownerCollectionForBoard(board, role);
+    const owner = safeArray(list).find((entry) => Number(entry?.id) === Number(ownerId));
+    if (!owner) return false;
+    const title = `Rename ${String(role || "").toUpperCase()}`;
+    const seed = String(owner.name || "").trim();
+    if (typeof window.showOwnerRenameDialog === "function") {
+      return window.showOwnerRenameDialog(board, role, ownerId, title, seed);
+    }
+    const next = window.prompt(title, seed);
+    if (next == null) return false;
+    return !!window.renameStaffOwnerById(board, role, ownerId, next);
+  };
+
+  window.onOwnerTileDragStart = function (event, board, role, ownerId) {
+    if (!event || !event.dataTransfer) return;
+    const payload = JSON.stringify({ kind: "owner-tile", board, role, ownerId: Number(ownerId) });
+    event.dataTransfer.effectAllowed = "move";
+    event.dataTransfer.setData("text/plain", payload);
+    try { event.dataTransfer.setData("application/json", payload); } catch (_) {}
+    try { document.body.classList.add("owner-tile-dragging"); } catch (_) {}
+  };
+
+  window.onOwnerTileDragOver = function (event) {
+    const raw = event?.dataTransfer?.getData("text/plain") || "";
+    if (!raw.includes("\"kind\":\"owner-tile\"")) return;
+    event.preventDefault();
+    if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
+  };
+
+  window.onOwnerTileDrop = function (event, board, role, targetOwnerId) {
+    const raw = event?.dataTransfer?.getData("text/plain") || "";
+    if (!raw) return false;
+    let payload = null;
+    try { payload = JSON.parse(raw); } catch (_) {}
+    if (!payload || payload.kind !== "owner-tile") return false;
+    if (payload.board !== board || payload.role !== role) return false;
+    event.preventDefault();
+    let placeAfter = false;
+    try {
+      const card = event.target?.closest?.("[data-owner-card='1']");
+      const rect = card?.getBoundingClientRect?.();
+      if (rect) {
+        const x = Number(event.clientX) - rect.left;
+        const y = Number(event.clientY) - rect.top;
+        placeAfter = rect.width >= rect.height
+          ? x >= rect.width / 2
+          : y >= rect.height / 2;
+      }
+    } catch (_) {}
+    return !!window.reorderStaffOwnerAroundTarget(board, role, payload.ownerId, Number(targetOwnerId), placeAfter);
+  };
+
+  window.onOwnerTileContainerDrop = function (event, board, role) {
+    const raw = event?.dataTransfer?.getData("text/plain") || "";
+    if (!raw) return false;
+    let payload = null;
+    try { payload = JSON.parse(raw); } catch (_) {}
+    if (!payload || payload.kind !== "owner-tile") return false;
+    if (payload.board !== board || payload.role !== role) return false;
+    event.preventDefault();
+
+    const { list, renderListFn } = ownerCollectionForBoard(board, role);
+    const source = safeArray(list);
+    const live = board === "live" || board === "current";
+    const hold = live ? getHoldBucket(source) : null;
+    const reorderable = filterOutHoldBuckets(source);
+    const fromIdx = reorderable.findIndex((entry) => Number(entry?.id) === Number(payload.ownerId));
+    if (fromIdx < 0) return false;
+    const [moved] = reorderable.splice(fromIdx, 1);
+    reorderable.push(moved);
+
+    if (live) {
+      if (role === "pca") currentPcas = hold ? [hold, ...reorderable] : reorderable;
+      else currentNurses = hold ? [hold, ...reorderable] : reorderable;
+    } else {
+      if (role === "pca") incomingPcas = reorderable;
+      else incomingNurses = reorderable;
+    }
+
+    commitStaffingMutation(board, role, renderListFn);
+    return true;
+  };
+
+  window.onOwnerTileDragEnd = function () {
+    try { document.body.classList.remove("owner-tile-dragging"); } catch (_) {}
+  };
+
+  function ensureOwnerRenameDialog() {
+    let host = document.getElementById("ownerRenameDialog");
+    if (host) return host;
+    host = document.createElement("div");
+    host.id = "ownerRenameDialog";
+    host.innerHTML = `
+      <div class="owner-rename-backdrop" data-owner-rename-close="1">
+        <div class="owner-rename-card" role="dialog" aria-modal="true" aria-labelledby="ownerRenameTitle">
+          <div class="owner-rename-title" id="ownerRenameTitle">Rename</div>
+          <input id="ownerRenameInput" class="owner-rename-input" type="text" maxlength="80" />
+          <div class="owner-rename-actions">
+            <button type="button" class="owner-rename-btn owner-rename-btn-secondary" data-owner-rename-cancel="1">Cancel</button>
+            <button type="button" class="owner-rename-btn owner-rename-btn-primary" data-owner-rename-save="1">Save</button>
+          </div>
+        </div>
+      </div>
+    `;
+    host.style.display = "none";
+    document.body.appendChild(host);
+
+    const closeDialog = () => {
+      host.style.display = "none";
+      host.removeAttribute("data-board");
+      host.removeAttribute("data-role");
+      host.removeAttribute("data-owner-id");
+    };
+
+    host.addEventListener("click", function (event) {
+      const saveBtn = event.target?.closest?.("[data-owner-rename-save]");
+      const cancelBtn = event.target?.closest?.("[data-owner-rename-cancel]");
+      const backdrop = event.target?.closest?.("[data-owner-rename-close]");
+      if (saveBtn) {
+        const board = String(host.getAttribute("data-board") || "");
+        const role = String(host.getAttribute("data-role") || "");
+        const ownerId = Number(host.getAttribute("data-owner-id"));
+        const input = host.querySelector("#ownerRenameInput");
+        window.renameStaffOwnerById(board, role, ownerId, input?.value || "");
+        closeDialog();
+        return;
+      }
+      if (cancelBtn) {
+        closeDialog();
+        return;
+      }
+      if (backdrop && event.target === backdrop) {
+        closeDialog();
+      }
+    });
+
+    host.addEventListener("keydown", function (event) {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        closeDialog();
+        return;
+      }
+      if (event.key === "Enter") {
+        const saveBtn = host.querySelector("[data-owner-rename-save]");
+        if (saveBtn) {
+          event.preventDefault();
+          saveBtn.click();
+        }
+      }
+    });
+    return host;
+  }
+
+  window.showOwnerRenameDialog = function (board, role, ownerId, title, value) {
+    const host = ensureOwnerRenameDialog();
+    const titleEl = host.querySelector("#ownerRenameTitle");
+    const input = host.querySelector("#ownerRenameInput");
+    if (!titleEl || !input) return false;
+    titleEl.textContent = String(title || "Rename");
+    input.value = String(value || "");
+    host.setAttribute("data-board", String(board || ""));
+    host.setAttribute("data-role", String(role || ""));
+    host.setAttribute("data-owner-id", String(Number(ownerId) || ""));
+    host.style.display = "block";
+    setTimeout(() => {
+      try {
+        input.focus();
+        input.select();
+      } catch (_) {}
+    }, 0);
+    return true;
+  };
+
+  function ownerBoardContainer(board, role) {
+    const key = `${board}:${role}`;
+    if (key === "live:nurse") return document.getElementById("liveNurseAssignments");
+    if (key === "live:pca") return document.getElementById("livePcaAssignments");
+    if (key === "incoming:nurse") return document.getElementById("assignmentOutput");
+    if (key === "incoming:pca") return document.getElementById("pcaAssignmentOutput");
+    return null;
+  }
+
+  let ownerTilePointerDrag = null;
+
+  function clearOwnerTileDropMarkers() {
+    document.querySelectorAll(".owner-card-drop-before, .owner-card-drop-after, .owner-card-drop-append").forEach((el) => {
+      el.classList.remove("owner-card-drop-before", "owner-card-drop-after", "owner-card-drop-append");
+    });
+  }
+
+  function endOwnerTilePointerDrag() {
+    clearOwnerTileDropMarkers();
+    if (ownerTilePointerDrag?.ghost?.remove) {
+      try { ownerTilePointerDrag.ghost.remove(); } catch (_) {}
+    }
+    ownerTilePointerDrag = null;
+    document.body.classList.remove("owner-tile-dragging");
+  }
+
+  function updateOwnerTilePointerDrag(clientX, clientY) {
+    if (!ownerTilePointerDrag) return;
+    const ghost = ownerTilePointerDrag.ghost;
+    if (ghost) {
+      ghost.style.left = `${clientX + 14}px`;
+      ghost.style.top = `${clientY + 14}px`;
+    }
+
+    clearOwnerTileDropMarkers();
+    const el = document.elementFromPoint(clientX, clientY);
+    if (!el) return;
+
+    const targetCard = el.closest?.("[data-owner-card='1']");
+    if (targetCard) {
+      const board = String(targetCard.getAttribute("data-board") || "");
+      const role = String(targetCard.getAttribute("data-role") || "");
+      const targetOwnerId = Number(targetCard.getAttribute("data-owner-id"));
+      if (board === ownerTilePointerDrag.board && role === ownerTilePointerDrag.role && Number.isFinite(targetOwnerId)) {
+        const rect = targetCard.getBoundingClientRect();
+        const placeAfter = rect.width >= rect.height
+          ? (clientX - rect.left) >= rect.width / 2
+          : (clientY - rect.top) >= rect.height / 2;
+        targetCard.classList.add(placeAfter ? "owner-card-drop-after" : "owner-card-drop-before");
+        ownerTilePointerDrag.targetOwnerId = targetOwnerId;
+        ownerTilePointerDrag.placeAfter = placeAfter;
+        ownerTilePointerDrag.appendToEnd = false;
+        return;
+      }
+    }
+
+    const container = ownerBoardContainer(ownerTilePointerDrag.board, ownerTilePointerDrag.role);
+    if (container && container.contains(el)) {
+      container.classList.add("owner-card-drop-append");
+      ownerTilePointerDrag.targetOwnerId = null;
+      ownerTilePointerDrag.placeAfter = true;
+      ownerTilePointerDrag.appendToEnd = true;
+    }
+  }
+
+  window.bindOwnerCardControls = function (root) {
+    if (!root || !root.querySelectorAll) return;
+
+    root.querySelectorAll("[data-owner-edit]").forEach((el) => {
+      if (el.__ownerCtlBound) return;
+      el.__ownerCtlBound = true;
+      el.addEventListener("click", function (event) {
+        event.preventDefault();
+        event.stopPropagation();
+        const board = String(el.getAttribute("data-board") || "");
+        const role = String(el.getAttribute("data-role") || "");
+        const ownerId = Number(el.getAttribute("data-owner-id"));
+        if (board && role && Number.isFinite(ownerId)) {
+          window.promptRenameStaffOwner(board, role, ownerId);
+        }
+      });
+    });
+
+    root.querySelectorAll("[data-owner-move]").forEach((el) => {
+      if (el.__ownerCtlBound) return;
+      el.__ownerCtlBound = true;
+      el.addEventListener("click", function (event) {
+        event.preventDefault();
+        event.stopPropagation();
+        const board = String(el.getAttribute("data-board") || "");
+        const role = String(el.getAttribute("data-role") || "");
+        const ownerId = Number(el.getAttribute("data-owner-id"));
+        const delta = Number(el.getAttribute("data-delta"));
+        if (board && role && Number.isFinite(ownerId) && Number.isFinite(delta)) {
+          window.moveStaffOwnerByDelta(board, role, ownerId, delta);
+        }
+      });
+    });
+
+    root.querySelectorAll("[data-owner-drag-handle]").forEach((el) => {
+      if (el.__ownerDragBound) return;
+      el.__ownerDragBound = true;
+      el.setAttribute("draggable", "true");
+      el.addEventListener("dragstart", function (event) {
+        event.stopPropagation();
+        const board = String(el.getAttribute("data-board") || "");
+        const role = String(el.getAttribute("data-role") || "");
+        const ownerId = Number(el.getAttribute("data-owner-id"));
+        window.onOwnerTileDragStart(event, board, role, ownerId);
+      });
+      el.addEventListener("dragend", function (event) {
+        event.stopPropagation();
+        window.onOwnerTileDragEnd(event);
+      });
+      el.addEventListener("mousedown", function (event) {
+        event.stopPropagation();
+      });
+      el.addEventListener("click", function (event) {
+        event.preventDefault();
+        event.stopPropagation();
+      });
+    });
+  };
+
+  if (!window.__ownerCardDelegatesWired) {
+    window.__ownerCardDelegatesWired = true;
+
+    document.addEventListener("click", function (event) {
+      const editBtn = event.target?.closest?.("[data-owner-edit]");
+      if (editBtn) {
+        event.preventDefault();
+        event.stopPropagation();
+        const board = String(editBtn.getAttribute("data-board") || "");
+        const role = String(editBtn.getAttribute("data-role") || "");
+        const ownerId = Number(editBtn.getAttribute("data-owner-id"));
+        if (board && role && Number.isFinite(ownerId)) {
+          window.promptRenameStaffOwner(board, role, ownerId);
+        }
+        return;
+      }
+
+      const moveBtn = event.target?.closest?.("[data-owner-move]");
+      if (moveBtn) {
+        event.preventDefault();
+        event.stopPropagation();
+        const board = String(moveBtn.getAttribute("data-board") || "");
+        const role = String(moveBtn.getAttribute("data-role") || "");
+        const ownerId = Number(moveBtn.getAttribute("data-owner-id"));
+        const delta = Number(moveBtn.getAttribute("data-delta"));
+        if (board && role && Number.isFinite(ownerId) && Number.isFinite(delta)) {
+          window.moveStaffOwnerByDelta(board, role, ownerId, delta);
+        }
+      }
+    }, true);
+
+    document.addEventListener("dragstart", function (event) {
+      const handle = event.target?.closest?.("[data-owner-drag-handle]");
+      if (!handle) return;
+      event.stopPropagation();
+      const board = String(handle.getAttribute("data-board") || "");
+      const role = String(handle.getAttribute("data-role") || "");
+      const ownerId = Number(handle.getAttribute("data-owner-id"));
+      window.onOwnerTileDragStart(event, board, role, ownerId);
+    }, true);
+
+    document.addEventListener("dragend", function (event) {
+      const handle = event.target?.closest?.("[data-owner-drag-handle]");
+      if (!handle) return;
+      event.stopPropagation();
+      window.onOwnerTileDragEnd(event);
+    }, true);
+
+    document.addEventListener("mousedown", function (event) {
+      const handle = event.target?.closest?.("[data-owner-drag-handle]");
+      if (!handle || event.button !== 0) return;
+      const board = String(handle.getAttribute("data-board") || "");
+      const role = String(handle.getAttribute("data-role") || "");
+      const ownerId = Number(handle.getAttribute("data-owner-id"));
+      const card = handle.closest?.("[data-owner-card='1']");
+      if (!board || !role || !Number.isFinite(ownerId) || !card) return;
+
+      const rect = card.getBoundingClientRect();
+      const ghost = card.cloneNode(true);
+      ghost.style.position = "fixed";
+      ghost.style.left = `${event.clientX + 14}px`;
+      ghost.style.top = `${event.clientY + 14}px`;
+      ghost.style.width = `${rect.width}px`;
+      ghost.style.pointerEvents = "none";
+      ghost.style.zIndex = "10001";
+      ghost.style.opacity = "1";
+      ghost.style.transform = "none";
+      ghost.style.boxShadow = "0 18px 38px rgba(15,23,42,0.22)";
+      ghost.classList.add("owner-card-drag-ghost");
+      document.body.appendChild(ghost);
+
+      ownerTilePointerDrag = {
+        board,
+        role,
+        ownerId,
+        ghost,
+        targetOwnerId: null,
+        placeAfter: true,
+        appendToEnd: false
+      };
+      document.body.classList.add("owner-tile-dragging");
+      event.preventDefault();
+      event.stopPropagation();
+    }, true);
+
+    document.addEventListener("mousemove", function (event) {
+      if (!ownerTilePointerDrag) return;
+      updateOwnerTilePointerDrag(event.clientX, event.clientY);
+    }, true);
+
+    document.addEventListener("mouseup", function (event) {
+      if (!ownerTilePointerDrag) return;
+      const drag = ownerTilePointerDrag;
+      updateOwnerTilePointerDrag(event.clientX, event.clientY);
+      if (drag.appendToEnd) {
+        window.onOwnerTileContainerDrop({
+          preventDefault() {},
+          dataTransfer: {
+            getData() {
+              return JSON.stringify({
+                kind: "owner-tile",
+                board: drag.board,
+                role: drag.role,
+                ownerId: drag.ownerId
+              });
+            }
+          }
+        }, drag.board, drag.role);
+      } else if (Number.isFinite(drag.targetOwnerId)) {
+        window.reorderStaffOwnerAroundTarget(
+          drag.board,
+          drag.role,
+          drag.ownerId,
+          drag.targetOwnerId,
+          !!drag.placeAfter
+        );
+      }
+      endOwnerTilePointerDrag();
+      event.preventDefault();
+      event.stopPropagation();
+    }, true);
+  }
+
   window.clearCurrentRnNames = function () {
     if (isDemoEditLocked()) return warnDemoStaffLocked();
     clearNames(currentNurses, (n) => `Current RN ${n}`);

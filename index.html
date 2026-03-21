@@ -4,7 +4,7 @@
 <head>
   <meta charset="UTF-8" />
   <title>Charge Nurse Platform</title>
-  <link rel="stylesheet" href="style.css?v=2" />
+  <link rel="stylesheet" href="style.css?v=7" />
 
   <!-- ✅ Staffing Details v2 layout helpers (safe, scoped) -->
   <style>
@@ -467,7 +467,6 @@
       <button class="tabButton header-tab" data-target="liveAssignmentTab">LIVE Assignment</button>
       <button class="tabButton header-tab" data-target="oncomingAssignmentTab">Oncoming Assignment</button>
       <button class="tabButton header-tab" data-target="highRiskTab">High Risk Report</button>
-      <button class="tabButton header-tab" data-target="unitPulseTab">Unit Pulse</button>
       <button class="tabButton header-tab" data-target="unitMetricsTab">Unit Metrics</button>
     </nav>
 
@@ -876,18 +875,6 @@
     </section>
 
     <!-- ✅ UNIT PULSE TAB -->
-    <section id="unitPulseTab" class="tab-section" style="display: none;">
-      <div class="tab-title-row">
-        <h1>Unit Pulse</h1>
-        <button type="button" class="tab-info-btn" data-tab-help="unitPulse">i</button>
-      </div>
-      <p>
-        Live, shift-specific workload pulse (time-windowed). Staff list is driven by current RN/PCA assignments.
-      </p>
-
-      <div id="unitPulseRoot"></div>
-    </section>
-
     <!-- ✅ UNIT METRICS TAB -->
     <section id="unitMetricsTab" class="tab-section" style="display: none;">
       <div class="tab-title-row">
@@ -928,10 +915,7 @@
         </div>
       </div>
 
-      <div class="staff-card">
-        <div class="staff-card-header">Metrics (Table)</div>
-        <div id="pulseTable" style="overflow:auto;"></div>
-      </div>
+      <div id="pulseTable" style="display:none;"></div>
     </section>
 
   </main>
@@ -1178,7 +1162,7 @@
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 
     <script src="app/app.supabaseConfig.js?v=1"></script>
-    <script src="app/app.supabase.js?v=1"></script>
+    <script src="app/app.supabase.js?v=7"></script>
     <script src="app/app.authGate.js?v=18"></script>
     <script src="app/app.authUI.js?v=19"></script>
 
@@ -1191,26 +1175,27 @@
     <script src="app/app.shiftReport.js?v=1"></script>
 
     <script src="app/app.queue.js?v=1"></script>
-    <script src="app/app.staffing.js?v=9"></script>
-    <script src="app/app.patientsAcuity.js?v=3"></script>
+    <script src="app/app.staffing.js?v=15"></script>
+    <script src="app/app.patientsAcuity.js?v=4"></script>
 
     <script src="app/app.assignmentRules.js?v=8"></script>
     <script src="app/app.assignmentEngineV2.js?v=5"></script>
     <script src="app/app.assignmentEngineV3.js?v=4"></script>
 
-    <script src="app/app.liveAssignments.js?v=97"></script>
-    <script src="app/app.assignmentsrender.js?v=14"></script>
+    <script src="app/app.liveAssignments.js?v=102"></script>
+    <script src="app/app.assignmentsrender.js?v=19"></script>
     <script src="app/app.assignmentsDrag.js?v=2"></script>
 
     <script src="app/app.modals.js?v=1"></script>
     <script src="app/app.patientProfileUI.js?v=909"></script>
 
-    <script src="app/app.shiftChange.js?v=1"></script>
+    <script src="app/app.shiftChange.js?v=10"></script>
+    <script src="app/app.shiftBackfill.js?v=2"></script>
 
-    <script src="app/app.unitMetrics.js?v=1"></script>
+    <script src="app/app.unitMetrics.js?v=12"></script>
     <script src="app/app.unitPulse.js?v=5"></script>
 
-    <script src="app/app.printOncoming.js?v=19"></script>
+    <script src="app/app.printOncoming.js?v=20"></script>
     <script src="app/app.printLive.js?v=13"></script>
 
     <script src="https://unpkg.com/tesseract.js@5/dist/tesseract.min.js"></script>

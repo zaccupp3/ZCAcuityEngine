@@ -48,6 +48,33 @@ if (window.__assignmentsRenderLoaded) {
     return Array.isArray(v) ? v : [];
   }
 
+  function __ownerHeaderControlsHtml(board, role, owner) {
+    if (!owner) return "";
+    const ownerId = Number(owner.id);
+    return `
+      <div class="owner-card-controls">
+        <button
+          type="button"
+          class="owner-name-edit-btn"
+          title="Rename ${escapeHtml(String(role || "").toUpperCase())}"
+          data-owner-edit="1"
+          data-board="${escapeHtml(board)}"
+          data-role="${escapeHtml(role)}"
+          data-owner-id="${ownerId}"
+        >Edit</button>
+        <span
+          class="owner-card-drag-handle"
+          draggable="true"
+          title="Drag to reposition tile"
+          data-owner-drag-handle="1"
+          data-board="${escapeHtml(board)}"
+          data-role="${escapeHtml(role)}"
+          data-owner-id="${ownerId}"
+        >::</span>
+      </div>
+    `;
+  }
+
   // =========================================================
   // ✅ Canonical state accessors (prevents reference drift)
   // =========================================================
@@ -1812,8 +1839,16 @@ if (window.__assignmentsRenderLoaded) {
       const ruleTip = buildRuleTooltip(ruleEval);
 
       html += `
-        <div class="assignment-card ${loadClass}">
-          <div class="assignment-header">
+        <div class="assignment-card ${loadClass}"
+             data-owner-card="1"
+             data-board="incoming"
+             data-role="nurse"
+             data-owner-id="${Number(nurse.id)}"
+             ondragover="window.onOwnerTileDragOver && window.onOwnerTileDragOver(event)"
+             ondrop="window.onOwnerTileDrop && window.onOwnerTileDrop(event, 'incoming', 'nurse', ${Number(nurse.id)})">
+          <div class="assignment-header"
+               ondragover="window.onOwnerTileDragOver && window.onOwnerTileDragOver(event)"
+               ondrop="window.onOwnerTileDrop && window.onOwnerTileDrop(event, 'incoming', 'nurse', ${Number(nurse.id)})">
             <div style="display:flex;align-items:flex-start;gap:10px;">
               <div style="min-width:0;flex:1;">
                 <div style="display:flex;align-items:baseline;justify-content:space-between;gap:12px;">
@@ -1834,6 +1869,7 @@ if (window.__assignmentsRenderLoaded) {
             </div>
 
             <div>Patients: ${pts.length} | Load Score: ${loadScore}</div>
+            ${__ownerHeaderControlsHtml("incoming", "nurse", nurse)}
           </div>
 
           <table class="assignment-table">
@@ -1909,6 +1945,13 @@ if (window.__assignmentsRenderLoaded) {
     });
 
     container.innerHTML = html;
+    if (window.bindOwnerCardControls) window.bindOwnerCardControls(container);
+    container.ondragover = function (event) {
+      if (window.onOwnerTileDragOver) window.onOwnerTileDragOver(event);
+    };
+    container.ondrop = function (event) {
+      if (window.onOwnerTileContainerDrop) window.onOwnerTileContainerDrop(event, "incoming", "nurse");
+    };
   }
 
   // =========================================================
@@ -1957,8 +2000,16 @@ if (window.__assignmentsRenderLoaded) {
       const sitterRoomsLabel = isSitterPca ? `${sitterPair}A, ${sitterPair}B` : "";
 
       html += `
-        <div class="assignment-card ${loadClass}">
-          <div class="assignment-header">
+        <div class="assignment-card ${loadClass}"
+             data-owner-card="1"
+             data-board="incoming"
+             data-role="pca"
+             data-owner-id="${Number(pca.id)}"
+             ondragover="window.onOwnerTileDragOver && window.onOwnerTileDragOver(event)"
+             ondrop="window.onOwnerTileDrop && window.onOwnerTileDrop(event, 'incoming', 'pca', ${Number(pca.id)})">
+          <div class="assignment-header"
+               ondragover="window.onOwnerTileDragOver && window.onOwnerTileDragOver(event)"
+               ondrop="window.onOwnerTileDrop && window.onOwnerTileDrop(event, 'incoming', 'pca', ${Number(pca.id)})">
             <div style="display:flex;align-items:flex-start;gap:10px;">
               <div style="min-width:0;flex:1;">
                 <div style="display:flex;align-items:baseline;justify-content:space-between;gap:12px;">
@@ -1979,6 +2030,7 @@ if (window.__assignmentsRenderLoaded) {
             </div>
 
             <div>${isSitterPca ? `Load Score: ${loadScore}` : `Patients: ${pts.length} | Load Score: ${loadScore}`}</div>
+            ${__ownerHeaderControlsHtml("incoming", "pca", pca)}
           </div>
 
           <table class="assignment-table">
@@ -2052,6 +2104,13 @@ if (window.__assignmentsRenderLoaded) {
     });
 
     container.innerHTML = html;
+    if (window.bindOwnerCardControls) window.bindOwnerCardControls(container);
+    container.ondragover = function (event) {
+      if (window.onOwnerTileDragOver) window.onOwnerTileDragOver(event);
+    };
+    container.ondrop = function (event) {
+      if (window.onOwnerTileContainerDrop) window.onOwnerTileContainerDrop(event, "incoming", "pca");
+    };
   }
 
   // Batch render (RN + PCA share the same prev maps)
