@@ -47,6 +47,31 @@
     el.msg.textContent = text || "";
   }
 
+  function isFileOrigin() {
+    try {
+      return String(window.location?.protocol || "").toLowerCase() === "file:";
+    } catch (_) {
+      return false;
+    }
+  }
+
+  function describeAuthError(error, action = "complete this request") {
+    const raw = error?.message || error?.error_description || error?.description || String(error || "");
+    const text = String(raw || "").trim();
+
+    if (/failed to fetch|networkerror|load failed/i.test(text)) {
+      if (isFileOrigin()) {
+        return "Can't reach Supabase from a file:// page. Open the app through http://localhost or your deployed site and try again.";
+      }
+      if (typeof navigator !== "undefined" && navigator.onLine === false) {
+        return `You're offline right now, so we couldn't ${action}. Reconnect to the internet and try again.`;
+      }
+      return `Couldn't reach Supabase to ${action}. Check your internet connection, browser privacy/ad blocker settings, and confirm this site can access ${window.SUPABASE_URL || "your Supabase project"}.`;
+    }
+
+    return text || `Unable to ${action}.`;
+  }
+
   function setStatus(text) {
     if (el.status) el.status.textContent = `Auth: ${text}`;
   }
@@ -408,7 +433,7 @@
     window.demoMode = false;
     try { localStorage.removeItem("__demoMode"); } catch (_) {}
     const { error } = await window.sb.signInWithPassword(email, password);
-    if (error) return setMsg(error.message || String(error));
+    if (error) return setMsg(describeAuthError(error, "sign in"));
 
     await waitForSessionUser(1500);
     setMsg("");
@@ -435,7 +460,7 @@
     window.demoMode = false;
     try { localStorage.removeItem("__demoMode"); } catch (_) {}
     const { error } = await window.sb.signUpWithPassword(email, password);
-    if (error) return setMsg(error.message || String(error));
+    if (error) return setMsg(describeAuthError(error, "create your account"));
 
     setMsg("Account created. If required, confirm your email, then sign in.");
     await refreshAuthUI();
@@ -457,7 +482,7 @@
     const { error } = await c.auth.resetPasswordForEmail(email, {
       redirectTo: window.location.origin
     });
-    if (error) return setMsg(error.message || String(error));
+    if (error) return setMsg(describeAuthError(error, "send a password reset email"));
 
     setMsg("Password reset email sent. Open it to set your password.");
   }

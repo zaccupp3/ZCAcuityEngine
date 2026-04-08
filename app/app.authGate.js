@@ -31,6 +31,31 @@
     if (kind) msg.classList.add(kind);
   }
 
+  function isFileOrigin() {
+    try {
+      return String(window.location?.protocol || "").toLowerCase() === "file:";
+    } catch (_) {
+      return false;
+    }
+  }
+
+  function describeAuthError(error, action = "complete this request") {
+    const raw = error?.message || error?.error_description || error?.description || String(error || "");
+    const text = String(raw || "").trim();
+
+    if (/failed to fetch|networkerror|load failed/i.test(text)) {
+      if (isFileOrigin()) {
+        return "Can't reach Supabase from a file:// page. Open the app through http://localhost or your deployed site and try again.";
+      }
+      if (typeof navigator !== "undefined" && navigator.onLine === false) {
+        return `You're offline right now, so we couldn't ${action}. Reconnect to the internet and try again.`;
+      }
+      return `Couldn't reach Supabase to ${action}. Check your internet connection, browser privacy/ad blocker settings, and confirm this site can access ${window.SUPABASE_URL || "your Supabase project"}.`;
+    }
+
+    return text || `Unable to ${action}.`;
+  }
+
   function showGate() {
     if (!gate) return;
     gate.classList.add("show");
@@ -166,7 +191,7 @@
 
       const { error } = await window.sb.signInWithPassword(email, password);
       if (error) {
-        setMsg(error.message || "Login failed.", "error");
+        setMsg(describeAuthError(error, "sign in"), "error");
         return;
       }
 
@@ -189,7 +214,7 @@
       }
     } catch (e) {
       console.error(e);
-      setMsg("Login error. Check console.", "error");
+      setMsg(describeAuthError(e, "sign in"), "error");
     }
   }
 
@@ -221,14 +246,14 @@
       });
 
       if (error) {
-        setMsg(error.message || "Could not send reset email.", "error");
+        setMsg(describeAuthError(error, "send a password reset email"), "error");
         return;
       }
 
       setMsg("Reset email sent. Check inbox.", "ok");
     } catch (e) {
       console.error(e);
-      setMsg("Reset error. Check console.", "error");
+      setMsg(describeAuthError(e, "send a password reset email"), "error");
     }
   }
 
@@ -283,6 +308,10 @@
   async function bootGate() {
     wireUI();
     setupSessionOnlyBehavior();
+
+    if (isFileOrigin()) {
+      setMsg("This page is running from file://. Login works best from http://localhost or your deployed site.", "error");
+    }
 
     // Wait briefly so we don't flash errors
     await waitForSupabase(8000);

@@ -99,6 +99,158 @@ if (window.__assignmentsRenderLoaded) {
     return [];
   }
 
+  function __isOncomingHoldOwner(owner) {
+    if (!owner) return false;
+    if (owner.isHold || owner.__hold) return true;
+    const type = String(owner.type || "").trim().toLowerCase();
+    const name = String(owner.name || "").trim().toLowerCase();
+    return type === "hold" || name === "needs to be assigned" || name === "needs to be assigned (pca)" || Number(owner.id) === 0;
+  }
+
+  function __prevMapLookup(prevMap, patientId) {
+    if (!(prevMap instanceof Map)) return "";
+    return String(prevMap.get(Number(patientId)) || "");
+  }
+
+  function __getIncomingNursesReal() {
+    return __getIncomingNurses().filter((owner) => owner && !__isOncomingHoldOwner(owner));
+  }
+
+  function __getIncomingPcasReal() {
+    return __getIncomingPcas().filter((owner) => owner && !__isOncomingHoldOwner(owner));
+  }
+
+  function __ensureOncomingHoldOwner(role) {
+    const key = role === "pca" ? "incomingPcas" : "incomingNurses";
+    const label = role === "pca" ? "Needs to be assigned (PCA)" : "Needs to be assigned";
+    const arr = safeArray(window[key]);
+    const id0 = arr.find((owner) => Number(owner?.id) === 0);
+
+    if (id0 && !__isOncomingHoldOwner(id0)) {
+      const maxId = arr.reduce((max, owner) => Math.max(max, Number(owner?.id) || 0), 0);
+      id0.id = maxId + 1;
+    }
+
+    let hold = arr.find((owner) => __isOncomingHoldOwner(owner));
+
+    if (!hold) {
+      hold = {
+        id: 0,
+        name: label,
+        type: "HOLD",
+        isHold: true,
+        patients: []
+      };
+      arr.push(hold);
+    } else {
+      hold.id = 0;
+      hold.name = label;
+      hold.type = "HOLD";
+      hold.isHold = true;
+      hold.patients = safeArray(hold.patients);
+      const idx = arr.indexOf(hold);
+      if (idx > -1 && idx < arr.length - 1) {
+        arr.splice(idx, 1);
+        arr.push(hold);
+      }
+    }
+
+    window[key] = arr;
+    return hold;
+  }
+
+  function __syncOncomingHoldPatients(role) {
+    const hold = __ensureOncomingHoldOwner(role);
+    const active = __getPatients()
+      .filter((p) => p && !p.isEmpty)
+      .map((p) => Number(p.id))
+      .filter(Number.isFinite);
+    const activeSet = new Set(active);
+    const assigned = new Set();
+    const owners = role === "pca" ? __getIncomingPcasReal() : __getIncomingNursesReal();
+
+    owners.forEach((owner) => {
+      safeArray(owner?.patients).forEach((pid) => {
+        const n = Number(pid);
+        if (Number.isFinite(n)) assigned.add(n);
+      });
+    });
+
+    hold.patients = active.filter((pid) => activeSet.has(pid) && !assigned.has(pid));
+
+    try {
+      window.oncomingUnassigned = window.oncomingUnassigned || { rn: [], pca: [], sitter: [] };
+      if (role === "pca") window.oncomingUnassigned.pca = hold.patients.slice();
+      else window.oncomingUnassigned.rn = hold.patients.slice();
+    } catch (_) {}
+
+    return hold;
+  }
+
+  function __buildOncomingHoldCard(role, hold, prevMap) {
+    const pts = safeArray(hold?.patients)
+      .map((pid) => (typeof window.getPatientById === "function" ? window.getPatientById(pid) : null))
+      .filter((p) => p && !p.isEmpty)
+      .sort(safeSortPatientsForDisplay);
+
+    if (!pts.length) return "";
+
+    let rows = "";
+    pts.forEach((p) => {
+      const prevName = firstNameOnly(__prevMapLookup(prevMap, p.id));
+      rows += `
+        <tr
+          draggable="true"
+          ondragstart="onRowDragStart(event, 'incoming', '${role}', 0, ${p.id})"
+          ondragend="onRowDragEnd(event)"
+          ondblclick="openPatientProfileFromRoom(${p.id})"
+        >
+          <td>${bedCellHtml(p)}</td>
+          <td>${p.tele ? "Tele" : "MS"}</td>
+          <td>${role === "pca" ? (typeof pcaTagString === "function" ? pcaTagString(p) : "") : (typeof rnTagString === "function" ? rnTagString(p) : "")}</td>
+          <td>${escapeHtml(prevName || "-")}</td>
+        </tr>
+      `;
+    });
+
+    if (!pts.length) {
+      rows = buildEmptyDropRow(4, role === "pca" ? "Drop a patient here to leave them unassigned for PCA" : "Drop a patient here to leave them unassigned for RN");
+    }
+
+    const roleLabel = role === "pca" ? "PCA" : "RN";
+    return `
+      <div class="assignment-card" style="border-left:6px solid rgba(100,116,139,0.85); opacity:0.97;"
+           data-owner-card="1"
+           data-board="incoming"
+           data-role="${escapeHtml(role)}"
+           data-owner-id="0"
+           ondragover="window.onOwnerTileDragOver && window.onOwnerTileDragOver(event)"
+           ondrop="window.onOwnerTileDrop && window.onOwnerTileDrop(event, 'incoming', '${role}', 0)">
+        <div class="assignment-header"
+             ondragover="window.onOwnerTileDragOver && window.onOwnerTileDragOver(event)"
+             ondrop="window.onOwnerTileDrop && window.onOwnerTileDrop(event, 'incoming', '${role}', 0)">
+          <div>
+            <strong>${escapeHtml(String(hold?.name || "Needs to be assigned"))}</strong>
+          </div>
+          <div style="font-weight:700;">Patients: ${pts.length} | ${roleLabel} queue</div>
+        </div>
+        <table class="assignment-table">
+          <thead>
+            <tr>
+              <th>Bed</th>
+              <th>Level</th>
+              <th>Acuity Notes</th>
+              <th>Prev. ${roleLabel}</th>
+            </tr>
+          </thead>
+          <tbody ondragover="onRowDragOver(event)" ondrop="onRowDrop(event, 'incoming', '${role}', 0)">
+            ${rows}
+          </tbody>
+        </table>
+      </div>
+    `;
+  }
+
   function __syncIncomingGlobals() {
     const nurses = __getIncomingNurses();
     const pcas = __getIncomingPcas();
@@ -992,6 +1144,361 @@ if (window.__assignmentsRenderLoaded) {
     return items.slice(0, 2).join(" | ") || "hold this layout";
   }
 
+  function __buildSuggestionBoardSignature(role, owners) {
+    const activeIds = __getPatients()
+      .filter((p) => p && !p.isEmpty)
+      .map((p) => Number(p.id))
+      .filter(Number.isFinite)
+      .sort((a, b) => a - b);
+    return JSON.stringify({
+      role: String(role || ""),
+      activeIds,
+      owners: safeArray(owners).map((owner) => ({
+        id: Number(owner?.id),
+        patients: safeArray(owner?.patients).map(Number).filter(Number.isFinite).sort((a, b) => a - b)
+      }))
+    });
+  }
+
+  function __patientLabelForSuggestion(patientId) {
+    const p = typeof window.getPatientById === "function" ? window.getPatientById(patientId) : null;
+    if (!p) return `Patient ${patientId}`;
+    const room = getBedLabel(p) || p.room || `Patient ${patientId}`;
+    const name = String(p.name || "").trim();
+    return name ? `${room} (${name})` : String(room);
+  }
+
+  function __metricDeltaText(label, beforeVal, afterVal) {
+    const b = Number(beforeVal) || 0;
+    const a = Number(afterVal) || 0;
+    if (a >= b) return "";
+    return `${label} ${b} -> ${a}`;
+  }
+
+  function __suggestionBenefits(beforeScore, afterScore) {
+    const benefits = [];
+    if ((Number(afterScore?.violations) || 0) < (Number(beforeScore?.violations) || 0)) benefits.push("fewer rule conflicts");
+    if ((Number(afterScore?.dischargeOverflow) || 0) < (Number(beforeScore?.dischargeOverflow) || 0)) benefits.push("better discharge distribution");
+    if ((Number(afterScore?.countSpread) || 0) < (Number(beforeScore?.countSpread) || 0)) benefits.push("better count balance");
+    if ((Number(afterScore?.loadSpread) || 0) < (Number(beforeScore?.loadSpread) || 0)) benefits.push("improved acuity distribution");
+    if ((Number(afterScore?.reportOverflow) || 0) < (Number(beforeScore?.reportOverflow) || 0) || (Number(afterScore?.reportTotal) || 0) < (Number(beforeScore?.reportTotal) || 0)) benefits.push("fewer handoffs");
+    if ((Number(afterScore?.roomOverflow) || 0) < (Number(beforeScore?.roomOverflow) || 0)) benefits.push("tighter room clustering");
+    return benefits;
+  }
+
+  function __suggestionMetricLines(beforeScore, afterScore) {
+    return [
+      __metricDeltaText("Violations", beforeScore?.violations, afterScore?.violations),
+      __metricDeltaText("Discharge overflow", beforeScore?.dischargeOverflow, afterScore?.dischargeOverflow),
+      __metricDeltaText("Count spread", beforeScore?.countSpread, afterScore?.countSpread),
+      __metricDeltaText("Load spread", beforeScore?.loadSpread, afterScore?.loadSpread),
+      __metricDeltaText("Report overflow", beforeScore?.reportOverflow, afterScore?.reportOverflow),
+      __metricDeltaText("Report sources", beforeScore?.reportTotal, afterScore?.reportTotal),
+      __metricDeltaText("Room overflow", beforeScore?.roomOverflow, afterScore?.roomOverflow)
+    ].filter(Boolean);
+  }
+
+  function __weightedSuggestionScore(score) {
+    if (!score || typeof score !== "object") return Number.POSITIVE_INFINITY;
+    return (
+      (Number(score.violations) || 0) * 1000 +
+      (Number(score.dischargeOverflow) || 0) * 400 +
+      (Number(score.countSpread) || 0) * 120 +
+      (Number(score.loadSpread) || 0) * 10 +
+      (Number(score.reportOverflow) || 0) * 60 +
+      (Number(score.reportTotal) || 0) * 8 +
+      (Number(score.roomOverflow) || 0) * 4
+    );
+  }
+
+  function __buildFallbackCountSuggestions(role, owners, prevMap, beforeScore, beforeWeighted, seen, limit = 8) {
+    const list = Array.isArray(owners) ? owners.filter(Boolean) : [];
+    if (list.length < 2) return [];
+
+    const byHighCount = list
+      .slice()
+      .sort((a, b) => safeArray(b?.patients).length - safeArray(a?.patients).length || String(a?.name || "").localeCompare(String(b?.name || "")));
+    const byLowCount = list
+      .slice()
+      .sort((a, b) => safeArray(a?.patients).length - safeArray(b?.patients).length || String(a?.name || "").localeCompare(String(b?.name || "")));
+
+    const candidates = [];
+    for (const fromOwner of byHighCount) {
+      const movable = getMovablePatientIdsFromOwner(fromOwner, role);
+      if (!movable.length) continue;
+
+      for (const toOwner of byLowCount) {
+        if (!toOwner || toOwner === fromOwner) continue;
+        if (safeArray(fromOwner?.patients).length <= safeArray(toOwner?.patients).length) continue;
+
+        for (const patientId of movable) {
+          const beforeSnap = __snapshotSingleOwnerArrays(list);
+          const did = tryMovePatient(list, role, fromOwner, toOwner, patientId);
+          if (!did) {
+            __restoreSingleOwnerArrays(list, beforeSnap);
+            continue;
+          }
+
+          const afterScore = __nonIdealScore(list, role, prevMap);
+          const afterWeighted = __weightedSuggestionScore(afterScore);
+          __restoreSingleOwnerArrays(list, beforeSnap);
+
+          const worsensViolations = (Number(afterScore?.violations) || 0) > (Number(beforeScore?.violations) || 0);
+          const worsensDischarge = (Number(afterScore?.dischargeOverflow) || 0) > (Number(beforeScore?.dischargeOverflow) || 0);
+          const improvesCounts = (Number(afterScore?.countSpread) || 0) < (Number(beforeScore?.countSpread) || 0);
+          const improvesOverall = afterWeighted < beforeWeighted;
+          if (worsensViolations || worsensDischarge) continue;
+          if (!(improvesCounts || improvesOverall)) continue;
+
+          const candidate = {
+            role,
+            patientId: Number(patientId),
+            fromOwnerId: Number(fromOwner?.id),
+            toOwnerId: Number(toOwner?.id),
+            fromOwnerName: String(fromOwner?.name || ""),
+            toOwnerName: String(toOwner?.name || ""),
+            patientLabel: __patientLabelForSuggestion(patientId),
+            beforeScore,
+            afterScore,
+            weightedDelta: beforeWeighted - afterWeighted,
+            compare: __compareNonIdealScore(afterScore, beforeScore),
+            benefits: __suggestionBenefits(beforeScore, afterScore),
+            metricLines: __suggestionMetricLines(beforeScore, afterScore),
+            signature: __buildSuggestionBoardSignature(role, list)
+          };
+
+          const dedupeKey = `${candidate.patientId}:${candidate.fromOwnerId}:${candidate.toOwnerId}`;
+          if (seen.has(dedupeKey)) continue;
+          seen.add(dedupeKey);
+          candidates.push(candidate);
+          if (candidates.length >= limit) return candidates;
+        }
+      }
+    }
+
+    return candidates;
+  }
+
+  function __findBestSuggestionsForRole(role, owners, prevMap, limit = 8) {
+    const list = Array.isArray(owners) ? owners.filter(Boolean) : [];
+    if (list.length < 2) return [];
+
+    const beforeScore = __nonIdealScore(list, role, prevMap);
+    const beforeWeighted = __weightedSuggestionScore(beforeScore);
+    const candidates = [];
+    const seen = new Set();
+
+    for (const fromOwner of list) {
+      const movable = getMovablePatientIdsFromOwner(fromOwner, role);
+      if (!movable.length) continue;
+
+      for (const patientId of movable) {
+        for (const toOwner of list) {
+          if (!toOwner || toOwner === fromOwner) continue;
+
+          const beforeSnap = __snapshotSingleOwnerArrays(list);
+          const did = tryMovePatient(list, role, fromOwner, toOwner, patientId);
+          if (!did) {
+            __restoreSingleOwnerArrays(list, beforeSnap);
+            continue;
+          }
+
+          const afterScore = __nonIdealScore(list, role, prevMap);
+          const cmp = __compareNonIdealScore(afterScore, beforeScore);
+          const afterWeighted = __weightedSuggestionScore(afterScore);
+          __restoreSingleOwnerArrays(list, beforeSnap);
+
+          const improvesViolations = (Number(afterScore?.violations) || 0) < (Number(beforeScore?.violations) || 0);
+          const improvesDischarge = (Number(afterScore?.dischargeOverflow) || 0) < (Number(beforeScore?.dischargeOverflow) || 0);
+          const improvesWeighted = afterWeighted < beforeWeighted;
+          const worsensViolations = (Number(afterScore?.violations) || 0) > (Number(beforeScore?.violations) || 0);
+          const worsensDischarge = (Number(afterScore?.dischargeOverflow) || 0) > (Number(beforeScore?.dischargeOverflow) || 0);
+
+          if (worsensViolations || worsensDischarge) continue;
+          if (!(cmp < 0 || improvesViolations || improvesDischarge || improvesWeighted)) continue;
+
+          const benefits = __suggestionBenefits(beforeScore, afterScore);
+          const metricLines = __suggestionMetricLines(beforeScore, afterScore);
+          const candidate = {
+            role,
+            patientId: Number(patientId),
+            fromOwnerId: Number(fromOwner?.id),
+            toOwnerId: Number(toOwner?.id),
+            fromOwnerName: String(fromOwner?.name || ""),
+            toOwnerName: String(toOwner?.name || ""),
+            patientLabel: __patientLabelForSuggestion(patientId),
+            beforeScore,
+            afterScore,
+            weightedDelta: beforeWeighted - afterWeighted,
+            compare: cmp,
+            benefits,
+            metricLines,
+            signature: __buildSuggestionBoardSignature(role, list)
+          };
+
+          const dedupeKey = `${candidate.patientId}:${candidate.fromOwnerId}:${candidate.toOwnerId}`;
+          if (seen.has(dedupeKey)) continue;
+          seen.add(dedupeKey);
+          candidates.push(candidate);
+        }
+      }
+    }
+
+    if (!candidates.length) {
+      const ruleMap = safeGetRuleEvalMap(list, role);
+      const flaggedOwners = list.filter((owner) => {
+        const ruleEval = getOwnerRuleEvalFromMap(owner, ruleMap);
+        return (ruleEval?.violations?.length || 0) > 0;
+      });
+
+      for (const fromOwner of flaggedOwners) {
+        const movable = getMovablePatientIdsFromOwner(fromOwner, role);
+        if (!movable.length) continue;
+
+        for (const patientId of movable) {
+          for (const toOwner of list) {
+            if (!toOwner || toOwner === fromOwner) continue;
+
+            const beforeSnap = __snapshotSingleOwnerArrays(list);
+            const fromCountBefore = safeArray(fromOwner?.patients).length;
+            const toCountBefore = safeArray(toOwner?.patients).length;
+            const did = tryMovePatient(list, role, fromOwner, toOwner, patientId);
+            if (!did) {
+              __restoreSingleOwnerArrays(list, beforeSnap);
+              continue;
+            }
+
+            const afterScore = __nonIdealScore(list, role, prevMap);
+            const afterWeighted = __weightedSuggestionScore(afterScore);
+            __restoreSingleOwnerArrays(list, beforeSnap);
+
+            const worsensViolations = (Number(afterScore?.violations) || 0) > (Number(beforeScore?.violations) || 0);
+            const worsensDischarge = (Number(afterScore?.dischargeOverflow) || 0) > (Number(beforeScore?.dischargeOverflow) || 0);
+            const helpsRules = (Number(afterScore?.violations) || 0) < (Number(beforeScore?.violations) || 0);
+            const helpsCounts = fromCountBefore > toCountBefore;
+            const helpsOverall = afterWeighted < beforeWeighted;
+            if (worsensViolations || worsensDischarge) continue;
+            if (!(helpsRules || helpsCounts || helpsOverall)) continue;
+
+            const benefits = __suggestionBenefits(beforeScore, afterScore);
+            const metricLines = __suggestionMetricLines(beforeScore, afterScore);
+            const candidate = {
+              role,
+              patientId: Number(patientId),
+              fromOwnerId: Number(fromOwner?.id),
+              toOwnerId: Number(toOwner?.id),
+              fromOwnerName: String(fromOwner?.name || ""),
+              toOwnerName: String(toOwner?.name || ""),
+              patientLabel: __patientLabelForSuggestion(patientId),
+              beforeScore,
+              afterScore,
+              weightedDelta: beforeWeighted - afterWeighted,
+              compare: __compareNonIdealScore(afterScore, beforeScore),
+              benefits,
+              metricLines,
+              signature: __buildSuggestionBoardSignature(role, list)
+            };
+
+            const dedupeKey = `${candidate.patientId}:${candidate.fromOwnerId}:${candidate.toOwnerId}`;
+            if (seen.has(dedupeKey)) continue;
+            seen.add(dedupeKey);
+            candidates.push(candidate);
+          }
+        }
+      }
+    }
+
+    if (!candidates.length) {
+      candidates.push(...__buildFallbackCountSuggestions(role, list, prevMap, beforeScore, beforeWeighted, seen, limit));
+    }
+
+    candidates.sort((a, b) => {
+      const violationDeltaA = (Number(a.beforeScore?.violations) || 0) - (Number(a.afterScore?.violations) || 0);
+      const violationDeltaB = (Number(b.beforeScore?.violations) || 0) - (Number(b.afterScore?.violations) || 0);
+      if (violationDeltaA !== violationDeltaB) return violationDeltaB - violationDeltaA;
+      const dischargeDeltaA = (Number(a.beforeScore?.dischargeOverflow) || 0) - (Number(a.afterScore?.dischargeOverflow) || 0);
+      const dischargeDeltaB = (Number(b.beforeScore?.dischargeOverflow) || 0) - (Number(b.afterScore?.dischargeOverflow) || 0);
+      if (dischargeDeltaA !== dischargeDeltaB) return dischargeDeltaB - dischargeDeltaA;
+      if ((Number(a.weightedDelta) || 0) !== (Number(b.weightedDelta) || 0)) return (Number(b.weightedDelta) || 0) - (Number(a.weightedDelta) || 0);
+      const cmp = __compareNonIdealScore(a.afterScore, b.afterScore);
+      if (cmp !== 0) return cmp;
+      if (a.benefits.length !== b.benefits.length) return b.benefits.length - a.benefits.length;
+      return String(a.fromOwnerName || "").localeCompare(String(b.fromOwnerName || ""));
+    });
+
+    return candidates.slice(0, Math.max(1, Number(limit) || 8)).map((candidate) => ({
+      ...candidate,
+      summary: `${candidate.patientLabel}: move from ${candidate.fromOwnerName || "Owner A"} to ${candidate.toOwnerName || "Owner B"}`,
+      impact: candidate.benefits.slice(0, 3).join(" | ") || "Improves board quality"
+    }));
+  }
+
+  function __getOncomingSuggestions() {
+    window.__oncomingSuggestionDismissed = window.__oncomingSuggestionDismissed || {};
+
+    const prevMaps = __getPrevMapsForCycle();
+    const { prevRnByPid, prevPcaByPid } = prevMaps || buildPrevOwnerMaps();
+    const rnOwners = __getIncomingNursesReal();
+    const pcaOwners = __getIncomingPcasReal().filter((p) => !(p?.isSitter && String(p?.sitterRoomPair || "").trim()));
+
+    const rnSuggestions = __findBestSuggestionsForRole("nurse", rnOwners, prevRnByPid, 8);
+    const pcaSuggestions = __findBestSuggestionsForRole("pca", pcaOwners, prevPcaByPid, 8);
+    const rnDismissed = new Set(safeArray(window.__oncomingSuggestionDismissed.nurse));
+    const pcaDismissed = new Set(safeArray(window.__oncomingSuggestionDismissed.pca));
+
+    return {
+      nurse: rnSuggestions.filter((suggestion) => !rnDismissed.has(`${suggestion.patientId}:${suggestion.fromOwnerId}:${suggestion.toOwnerId}`)),
+      pca: pcaSuggestions.filter((suggestion) => !pcaDismissed.has(`${suggestion.patientId}:${suggestion.fromOwnerId}:${suggestion.toOwnerId}`))
+    };
+  }
+
+  function __applySuggestion(role, patientId, fromOwnerId, toOwnerId) {
+    const owners = role === "pca" ? __getIncomingPcasReal().filter((p) => !(p?.isSitter && String(p?.sitterRoomPair || "").trim())) : __getIncomingNursesReal();
+    const fromOwner = owners.find((owner) => Number(owner?.id) === Number(fromOwnerId));
+    const toOwner = owners.find((owner) => Number(owner?.id) === Number(toOwnerId));
+    if (!fromOwner || !toOwner) return false;
+
+    const applied = tryMovePatient(owners, role, fromOwner, toOwner, Number(patientId));
+    if (!applied) return false;
+
+    window.__oncomingSuggestionDismissed = window.__oncomingSuggestionDismissed || {};
+    window.__oncomingSuggestionDismissed[role] = null;
+    __suspendOncomingAutoPopulate(5000);
+    try { if (typeof window.saveState === "function") window.saveState(); } catch (_) {}
+    try { renderOncomingAll(); } catch (_) {}
+    __showOncomingRebalanceToast("ok", `Applied suggestion: ${__patientLabelForSuggestion(patientId)} to ${String(toOwner?.name || "new owner")}.`);
+    return true;
+  }
+
+  window.acceptOncomingSuggestion = function acceptOncomingSuggestion(role, patientId, fromOwnerId, toOwnerId) {
+    __applySuggestion(String(role || ""), Number(patientId), Number(fromOwnerId), Number(toOwnerId));
+  };
+
+  window.dismissOncomingSuggestion = function dismissOncomingSuggestion(role) {
+    const current = __getOncomingSuggestions();
+    const suggestion = String(role || "") === "pca" ? current.pca?.[0] : current.nurse?.[0];
+    window.__oncomingSuggestionDismissed = window.__oncomingSuggestionDismissed || {};
+    const key = String(role || "");
+    const existing = new Set(safeArray(window.__oncomingSuggestionDismissed[key]));
+    if (suggestion) existing.add(`${suggestion.patientId}:${suggestion.fromOwnerId}:${suggestion.toOwnerId}`);
+    window.__oncomingSuggestionDismissed[key] = Array.from(existing);
+    try { renderOncomingAll(); } catch (_) {}
+  };
+
+  window.dismissSpecificOncomingSuggestion = function dismissSpecificOncomingSuggestion(role, patientId, fromOwnerId, toOwnerId) {
+    window.__oncomingSuggestionDismissed = window.__oncomingSuggestionDismissed || {};
+    const key = String(role || "");
+    const existing = new Set(safeArray(window.__oncomingSuggestionDismissed[key]));
+    existing.add(`${Number(patientId)}:${Number(fromOwnerId)}:${Number(toOwnerId)}`);
+    window.__oncomingSuggestionDismissed[key] = Array.from(existing);
+    try { renderOncomingAll(); } catch (_) {}
+  };
+
+  window.refreshOncomingSuggestions = function refreshOncomingSuggestions() {
+    window.__oncomingSuggestionDismissed = { nurse: [], pca: [] };
+    try { renderOncomingAll(); } catch (_) {}
+  };
+
   function __isOncomingTabVisible() {
     const oncomingTab = document.getElementById("oncomingAssignmentTab");
     return !!(oncomingTab && oncomingTab.style.display !== "none");
@@ -1009,6 +1516,16 @@ if (window.__assignmentsRenderLoaded) {
     panel.style.display = "block";
   }
 
+  window.toggleOncomingRnSuggestionsPanel = function toggleOncomingRnSuggestionsPanel() {
+    window.__oncomingRnSuggestionsCollapsed = window.__oncomingRnSuggestionsCollapsed === false ? true : false;
+    try { __renderOncomingQualityPanel(); } catch (_) {}
+  };
+
+  window.toggleOncomingPcaSuggestionsPanel = function toggleOncomingPcaSuggestionsPanel() {
+    window.__oncomingPcaSuggestionsCollapsed = window.__oncomingPcaSuggestionsCollapsed === false ? true : false;
+    try { __renderOncomingQualityPanel(); } catch (_) {}
+  };
+
   function __renderOncomingQualityPanel() {
     const host = document.getElementById("globalAssignmentPrintActions");
     let panel = document.getElementById("oncomingQualityPanel");
@@ -1025,10 +1542,62 @@ if (window.__assignmentsRenderLoaded) {
       return;
     }
 
+    const legacySuggestions = __getOncomingSuggestions();
+    const rnCollapsed = window.__oncomingRnSuggestionsCollapsed === true;
+    const pcaCollapsed = window.__oncomingPcaSuggestionsCollapsed === true;
+
+    function renderSuggestionList(items, roleLabel) {
+      if (!safeArray(items).length) {
+        return `<div class="oncoming-quality-meta" style="margin-top:8px;">No ${escapeHtml(roleLabel)} suggestions right now.</div>`;
+      }
+      return safeArray(items).map((suggestion, idx) => `
+        <div style="margin-top:${idx === 0 ? "10px" : "8px"}; padding:10px; border:1px solid #e2e8f0; border-radius:10px; background:#f8fafc;">
+          <div class="oncoming-quality-line"><strong>Move ${idx + 1}:</strong> ${escapeHtml(suggestion.summary)}</div>
+          <div class="oncoming-quality-meta">Impact: ${escapeHtml(suggestion.impact)}</div>
+          <div class="oncoming-quality-meta">${escapeHtml(suggestion.metricLines.slice(0, 4).join(" | ") || "Improves board quality score")}</div>
+          <div style="display:flex; gap:8px; margin-top:8px; flex-wrap:wrap;">
+            <button type="button" onclick="window.acceptOncomingSuggestion && window.acceptOncomingSuggestion('${escapeHtml(suggestion.role)}', ${Number(suggestion.patientId)}, ${Number(suggestion.fromOwnerId)}, ${Number(suggestion.toOwnerId)})" style="padding:6px 10px; border-radius:8px; background:#111; color:#fff; border:1px solid #111; font-weight:800;">Accept</button>
+            <button type="button" onclick="window.dismissSpecificOncomingSuggestion && window.dismissSpecificOncomingSuggestion('${escapeHtml(suggestion.role)}', ${Number(suggestion.patientId)}, ${Number(suggestion.fromOwnerId)}, ${Number(suggestion.toOwnerId)})" style="padding:6px 10px; border-radius:8px; background:#fff; color:#0f172a; border:1px solid #cbd5e1; font-weight:800;">Dismiss</button>
+          </div>
+        </div>
+      `).join("");
+    }
+
+    panel.style.display = "block";
+    panel.style.width = "100%";
+    panel.innerHTML = `
+      <div class="oncoming-quality-card" style="display:block; width:100%; box-sizing:border-box; background:#fff; border:1px solid #d7dde8; border-radius:12px; padding:10px 12px; box-shadow:0 8px 18px rgba(15,23,42,0.08);">
+        <button type="button" class="oncoming-quality-toggle" aria-expanded="${rnCollapsed ? "false" : "true"}" onclick="window.toggleOncomingRnSuggestionsPanel && window.toggleOncomingRnSuggestionsPanel()">
+          <span>${rnCollapsed ? "▸" : "▾"}</span>
+          <span>Suggested RN Moves</span>
+        </button>
+        <div style="${rnCollapsed ? "display:none;" : "display:block;"}">
+          <div class="oncoming-quality-meta" style="margin-top:6px;">Review and apply RN improvements based on the current board.</div>
+          <div class="oncoming-quality-meta" style="margin-top:4px;">Candidates found: ${Number(safeArray(suggestions.nurse).length) || 0}</div>
+          ${renderSuggestionList(suggestions.nurse, "RN")}
+        </div>
+        <div style="margin-top:12px; padding-top:10px; border-top:1px solid #e5e7eb;">
+          <button type="button" class="oncoming-quality-toggle" aria-expanded="${pcaCollapsed ? "false" : "true"}" onclick="window.toggleOncomingPcaSuggestionsPanel && window.toggleOncomingPcaSuggestionsPanel()">
+            <span>${pcaCollapsed ? "▸" : "▾"}</span>
+            <span>Suggested PCA Moves</span>
+          </button>
+          <div style="${pcaCollapsed ? "display:none;" : "display:block;"}">
+            <div class="oncoming-quality-meta" style="margin-top:6px;">Review and apply PCA improvements based on the current board.</div>
+            <div class="oncoming-quality-meta" style="margin-top:4px;">Candidates found: ${Number(safeArray(suggestions.pca).length) || 0}</div>
+            ${renderSuggestionList(suggestions.pca, "PCA")}
+          </div>
+        </div>
+        <div style="margin-top:10px;">
+          <button type="button" onclick="window.refreshOncomingSuggestions && window.refreshOncomingSuggestions()" style="padding:6px 10px; border-radius:8px; background:#fff; color:#0f172a; border:1px solid #cbd5e1; font-weight:800;">Refresh Suggestions</button>
+        </div>
+      </div>
+    `;
+    return;
+
     const prevMaps = __getPrevMapsForCycle();
     const { prevRnByPid, prevPcaByPid } = prevMaps || buildPrevOwnerMaps();
-    const nurses = __getIncomingNurses();
-    const openPcas = __getIncomingPcas().filter((p) => !(p?.isSitter && String(p?.sitterRoomPair || "").trim()));
+    const nurses = __getIncomingNursesReal();
+    const openPcas = __getIncomingPcasReal().filter((p) => !(p?.isSitter && String(p?.sitterRoomPair || "").trim()));
     const rnScore = __nonIdealScore(nurses, "nurse", prevRnByPid);
     const pcaScore = __nonIdealScore(openPcas, "pca", prevPcaByPid);
     const lastDebug = window.__lastOncomingRebalanceDebug || {};
@@ -1052,6 +1621,27 @@ if (window.__assignmentsRenderLoaded) {
     const caret = collapsed ? "▸" : "▾";
     const rnCounts = rnNeeds;
     const pcaCounts = pcaNeeds;
+    const suggestions = __getOncomingSuggestions();
+    const suggestionsCollapsed = window.__oncomingSuggestionsCollapsed !== false;
+    const suggestionsCaret = suggestionsCollapsed ? "▸" : "▾";
+    const suggestionsDetailStyle = suggestionsCollapsed ? "display:none;" : "display:block;";
+
+    function renderSuggestionList(items, roleLabel) {
+      if (!safeArray(items).length) {
+        return `<div class="oncoming-quality-meta" style="margin-top:8px;">No ${escapeHtml(roleLabel)} suggestions right now.</div>`;
+      }
+      return safeArray(items).map((suggestion, idx) => `
+        <div style="margin-top:${idx === 0 ? "10px" : "8px"}; padding:10px; border:1px solid #e2e8f0; border-radius:10px; background:#f8fafc;">
+          <div class="oncoming-quality-line"><strong>Move ${idx + 1}:</strong> ${escapeHtml(suggestion.summary)}</div>
+          <div class="oncoming-quality-meta">Impact: ${escapeHtml(suggestion.impact)}</div>
+          <div class="oncoming-quality-meta">${escapeHtml(suggestion.metricLines.slice(0, 4).join(" | ") || "Improves board quality score")}</div>
+          <div style="display:flex; gap:8px; margin-top:8px; flex-wrap:wrap;">
+            <button type="button" onclick="window.acceptOncomingSuggestion && window.acceptOncomingSuggestion('${escapeHtml(suggestion.role)}', ${Number(suggestion.patientId)}, ${Number(suggestion.fromOwnerId)}, ${Number(suggestion.toOwnerId)})" style="padding:6px 10px; border-radius:8px; background:#111; color:#fff; border:1px solid #111; font-weight:800;">Accept</button>
+            <button type="button" onclick="window.dismissSpecificOncomingSuggestion && window.dismissSpecificOncomingSuggestion('${escapeHtml(suggestion.role)}', ${Number(suggestion.patientId)}, ${Number(suggestion.fromOwnerId)}, ${Number(suggestion.toOwnerId)})" style="padding:6px 10px; border-radius:8px; background:#fff; color:#0f172a; border:1px solid #cbd5e1; font-weight:800;">Dismiss</button>
+          </div>
+        </div>
+      `).join("");
+    }
 
     panel.style.display = "block";
     panel.style.width = "100%";
@@ -1073,6 +1663,20 @@ if (window.__assignmentsRenderLoaded) {
         <div class="oncoming-quality-meta">Last PCA after: ${escapeHtml(lastPcaAfterCounts || "none")}</div>
         <div class="oncoming-quality-meta">Last RN engine: ${escapeHtml(`${lastRnEngine}: ${String(lastRnReason || "none")}`)}</div>
         <div class="oncoming-quality-meta">Last PCA engine: ${escapeHtml(`${lastPcaEngine}: ${String(lastPcaReason || "none")}`)}</div>
+        <div style="margin-top:12px; padding-top:10px; border-top:1px solid #e5e7eb;">
+          <button type="button" class="oncoming-quality-toggle" aria-expanded="${suggestionsCollapsed ? "false" : "true"}" onclick="window.toggleOncomingSuggestionsPanel && window.toggleOncomingSuggestionsPanel()">
+            <span>${suggestionsCaret}</span>
+            <span>Suggested Moves</span>
+          </button>
+          <div style="${suggestionsDetailStyle}">
+            <div class="oncoming-quality-meta" style="margin-top:6px;">Review one move at a time based on the current board.</div>
+            ${renderSuggestionCard(legacySuggestions.nurse, "RN")}
+            ${renderSuggestionCard(legacySuggestions.pca, "PCA")}
+            <div style="margin-top:10px;">
+              <button type="button" onclick="window.refreshOncomingSuggestions && window.refreshOncomingSuggestions()" style="padding:6px 10px; border-radius:8px; background:#fff; color:#0f172a; border:1px solid #cbd5e1; font-weight:800;">Refresh Suggestions</button>
+            </div>
+          </div>
+        </div>
       </div>
     `;
   }
@@ -1658,15 +2262,17 @@ if (window.__assignmentsRenderLoaded) {
     const ptsAll = __getPatients();
     const active = ptsAll.filter(p => p && !p.isEmpty);
     const total = active.length;
+    const realNurses = __getIncomingNursesReal();
+    const realPcas = __getIncomingPcasReal();
 
     const rnSet = new Set();
     const pcaSet = new Set();
 
-    __getIncomingNurses().forEach(rn => {
+    realNurses.forEach(rn => {
       (rn?.patients || []).forEach(pid => rnSet.add(Number(pid)));
     });
 
-    __getIncomingPcas().forEach(pca => {
+    realPcas.forEach(pca => {
       (pca?.patients || []).forEach(pid => pcaSet.add(Number(pid)));
     });
 
@@ -1679,7 +2285,13 @@ if (window.__assignmentsRenderLoaded) {
     const allPopulated = total === 0 ? true : populatedCount === total;
     __setOncomingPopulateStatus(allPopulated ? "complete" : "populating", `${populatedCount}/${total}`);
 
-    const canAutoPopulate = !!(__getIncomingNurses().length && __getIncomingPcas().length && total > 0);
+    const assignedCount = active.reduce((sum, p) => {
+      const pid = Number(p?.id);
+      if (!Number.isFinite(pid)) return sum;
+      return sum + (rnSet.has(pid) || pcaSet.has(pid) ? 1 : 0);
+    }, 0);
+    const hasExistingLayout = assignedCount > 0;
+    const canAutoPopulate = !!(realNurses.length && realPcas.length && total > 0 && !hasExistingLayout);
     const suspendedUntil = Number(window.__oncomingAutoPopulateSuspendUntil || 0);
     const autoPopulateSuspended = Date.now() < suspendedUntil;
     if (canAutoPopulate && !autoPopulateSuspended && !allPopulated && !window.__oncomingPopulateInFlight && !window.__oncomingRebalanceBothInFlight) {
@@ -1808,7 +2420,9 @@ if (window.__assignmentsRenderLoaded) {
     if (typeof ensureDefaultPatients === "function") ensureDefaultPatients();
 
     let html = "";
-    const allOwners = __getIncomingNurses();
+    try {
+    const holdOwner = __syncOncomingHoldPatients("nurse");
+    const allOwners = __getIncomingNursesReal();
     const activeIdSet = new Set(
       __getPatients()
         .filter((p) => p && !p.isEmpty)
@@ -1824,7 +2438,7 @@ if (window.__assignmentsRenderLoaded) {
     allOwners.forEach(nurse => {
       const validAssignedIds = __sanitizeOwnerAssignmentsToActiveBeds(nurse, activeIdSet);
       const pts = validAssignedIds
-        .map(pid => getPatientById(pid))
+        .map(pid => (typeof window.getPatientById === "function" ? window.getPatientById(pid) : null))
         .filter(p => p && !p.isEmpty)
         .sort(safeSortPatientsForDisplay);
 
@@ -1892,7 +2506,7 @@ if (window.__assignmentsRenderLoaded) {
       }
 
       pts.forEach(p => {
-        const prevName = firstNameOnly(prevRnByPid.get(Number(p.id)) || "");
+        const prevName = firstNameOnly(__prevMapLookup(prevRnByPid, p.id));
 
         const pinned = isPatientPinnedToIncomingRn(p.id, nurse.id);
         const draggable = pinned ? "false" : "true";
@@ -1944,6 +2558,13 @@ if (window.__assignmentsRenderLoaded) {
       `;
     });
 
+    html += __buildOncomingHoldCard("nurse", holdOwner, prevRnByPid);
+
+    } catch (error) {
+      console.error("[oncoming render] RN render failed", error);
+      html = `<div class="assignment-card" style="border-left:6px solid rgba(239,68,68,0.85);"><div class="assignment-header"><strong>Unable to render incoming RN assignments</strong></div><div style="padding:12px; color:#7f1d1d; font-size:13px;">A rendering error occurred. Check the browser console for details.</div></div>`;
+    }
+
     container.innerHTML = html;
     if (window.bindOwnerCardControls) window.bindOwnerCardControls(container);
     container.ondragover = function (event) {
@@ -1966,7 +2587,9 @@ if (window.__assignmentsRenderLoaded) {
     if (typeof ensureDefaultPatients === "function") ensureDefaultPatients();
 
     let html = "";
-    const allOwners = __getIncomingPcas();
+    try {
+    const holdOwner = __syncOncomingHoldPatients("pca");
+    const allOwners = __getIncomingPcasReal();
     const activeIdSet = new Set(
       __getPatients()
         .filter((p) => p && !p.isEmpty)
@@ -1982,7 +2605,7 @@ if (window.__assignmentsRenderLoaded) {
     allOwners.forEach(pca => {
       const validAssignedIds = __sanitizeOwnerAssignmentsToActiveBeds(pca, activeIdSet);
       const pts = validAssignedIds
-        .map(pid => getPatientById(pid))
+        .map(pid => (typeof window.getPatientById === "function" ? window.getPatientById(pid) : null))
         .filter(p => p && !p.isEmpty)
         .sort(safeSortPatientsForDisplay);
 
@@ -2053,7 +2676,7 @@ if (window.__assignmentsRenderLoaded) {
       }
 
       pts.forEach(p => {
-        const prevName = firstNameOnly(prevPcaByPid.get(Number(p.id)) || "");
+        const prevName = firstNameOnly(__prevMapLookup(prevPcaByPid, p.id));
         const pinned = isPatientPinnedToIncomingPca(p.id, pca.id);
         const draggable = pinned ? "false" : "true";
         const pinControl = `
@@ -2102,6 +2725,13 @@ if (window.__assignmentsRenderLoaded) {
         </div>
       `;
     });
+
+    html += __buildOncomingHoldCard("pca", holdOwner, prevPcaByPid);
+
+    } catch (error) {
+      console.error("[oncoming render] PCA render failed", error);
+      html = `<div class="assignment-card" style="border-left:6px solid rgba(239,68,68,0.85);"><div class="assignment-header"><strong>Unable to render incoming PCA assignments</strong></div><div style="padding:12px; color:#7f1d1d; font-size:13px;">A rendering error occurred. Check the browser console for details.</div></div>`;
+    }
 
     container.innerHTML = html;
     if (window.bindOwnerCardControls) window.bindOwnerCardControls(container);
@@ -2163,8 +2793,8 @@ if (window.__assignmentsRenderLoaded) {
 
       if (typeof ensureDefaultPatients === "function") ensureDefaultPatients();
 
-      const nurses = __getIncomingNurses();
-      const pcas = __getIncomingPcas();
+      const nurses = __getIncomingNursesReal();
+      const pcas = __getIncomingPcasReal();
       const ptsAll = __getPatients();
 
       if (!nurses.length || !pcas.length) {
@@ -2269,8 +2899,8 @@ if (window.__assignmentsRenderLoaded) {
       __syncIncomingGlobals();
       __clearBanners();
 
-      const nurses = __getIncomingNurses();
-      const pcas = __getIncomingPcas();
+      const nurses = __getIncomingNursesReal();
+      const pcas = __getIncomingPcasReal();
       const ptsAll = __getPatients();
 
       // stats baseline (for visibility)

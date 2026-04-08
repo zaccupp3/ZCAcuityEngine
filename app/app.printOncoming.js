@@ -615,7 +615,8 @@
     const blocks = Array.from(wrap.querySelectorAll(".nurseBlock, .pcaBlock, .assignment-card, .liveCard"));
     return (blocks.length ? blocks : Array.from(wrap.children))
       .map((block) => parseCard(block, kind))
-      .filter(Boolean);
+      .filter(Boolean)
+      .filter((card) => !isHoldOwnerTitle(card?.title));
   }
 
   function computePcaTightness(pcaCards) {
