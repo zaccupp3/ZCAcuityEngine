@@ -44,6 +44,7 @@
       bg: !!p.bg,
       tf: !!p.tf,
       ciwa: !!p.ciwa,
+      emu: !!p.emu,
       restraint: !!p.restraint,
       sitter: !!p.sitter,
       vpo: !!p.vpo,
@@ -363,6 +364,7 @@
       ["profBg", "BG", !!(p.bg || p.bgChecks)],
       ["profTf", "TF", !!p.tf],
       ["profCiwa", "CIWA/COWS", !!(p.ciwa || p.cows || p.ciwaCows)],
+      ["profEmu", "EMU", !!p.emu],
       ["profRestraint", "Restraint", !!(p.restraint || p.restraints)],
       ["profSitter", "Sitter", !!p.sitter],
       ["profVpo", "VPO", !!p.vpo],
@@ -537,7 +539,50 @@
     window.__profileBeforePatientId = null;
   }
 
+  function markProfileStateDirty(reason) {
+    try {
+      if (typeof window.markDirty === "function") window.markDirty();
+      else if (typeof window.saveState === "function") window.saveState();
+    } catch (_) {}
+
+    try {
+      if (window.cloudSync && typeof window.cloudSync.publishUnitStateDebounced === "function") {
+        window.cloudSync.publishUnitStateDebounced(reason || "patient_profile");
+      }
+    } catch (_) {}
+
+    try {
+      window.dispatchEvent(new CustomEvent("cupp:state_dirty", {
+        detail: { reason: reason || "patient_profile", ts: Date.now() }
+      }));
+    } catch (_) {}
+  }
+
+  function refreshAfterProfileSave() {
+    try { if (typeof window.renderPatientList === "function") window.renderPatientList(); } catch (_) {}
+    try { if (typeof window.updateAcuityTiles === "function") window.updateAcuityTiles(); } catch (_) {}
+    try { if (typeof window.renderLiveAssignments === "function") window.renderLiveAssignments(); } catch (_) {}
+
+    try {
+      const oncomingVisible = (() => {
+        const tab = document.getElementById("oncomingAssignmentTab");
+        if (!tab) return false;
+        const cs = window.getComputedStyle(tab);
+        return cs && cs.display !== "none" && cs.visibility !== "hidden";
+      })();
+      if (oncomingVisible && typeof window.renderOncomingAll === "function") {
+        window.renderOncomingAll();
+      } else {
+        if (typeof window.renderAssignmentOutput === "function") window.renderAssignmentOutput();
+        if (typeof window.renderPcaAssignmentOutput === "function") window.renderPcaAssignmentOutput();
+      }
+    } catch (_) {}
+
+    try { if (typeof window.updateDischargeCount === "function") window.updateDischargeCount(); } catch (_) {}
+  }
+
   function savePatientProfile() {
+    const __perfT0 = (typeof performance !== "undefined" && performance.now) ? performance.now() : 0;
     if (currentProfilePatientId == null) return;
 
     const p = safeGetPatient(currentProfilePatientId);
@@ -566,6 +611,7 @@
     p.ciwa = getCheck("profCiwa");
     p.cows = p.ciwa;
     p.ciwaCows = p.ciwa;
+    p.emu = getCheck("profEmu");
 
     p.restraint = getCheck("profRestraint");
     p.sitter = getCheck("profSitter");
@@ -590,17 +636,17 @@
       console.warn("[eventLog] profile acuity logging failed", e);
     }
 
-    if (typeof window.saveState === "function") window.saveState();
+    markProfileStateDirty("patient_profile_save");
+    refreshAfterProfileSave();
 
-    if (typeof window.refreshUI === "function") {
-      try { window.refreshUI(); } catch {}
-    } else {
-      try { if (typeof window.updateAcuityTiles === "function") window.updateAcuityTiles(); } catch {}
-      try { if (typeof window.renderPatientList === "function") window.renderPatientList(); } catch {}
-      try { if (typeof window.renderLiveAssignments === "function") window.renderLiveAssignments(); } catch {}
-      try { if (typeof window.renderAssignmentOutput === "function") window.renderAssignmentOutput(); } catch {}
-      try { if (typeof window.renderPcaAssignmentOutput === "function") window.renderPcaAssignmentOutput(); } catch {}
-    }
+    try {
+      if (typeof window.perfRecord === "function" && __perfT0) {
+        window.perfRecord("savePatientProfile:direct", performance.now() - __perfT0);
+        requestAnimationFrame(() => {
+          try { window.perfRecord("savePatientProfile:direct_to_next_paint", performance.now() - __perfT0); } catch (_) {}
+        });
+      }
+    } catch (_) {}
 
     closePatientProfileModal();
   }
@@ -627,6 +673,23 @@
   }
 
   installOverrides();
+
+  document.addEventListener("change", (event) => {
+    const target = event.target;
+    if (!target || target.tagName !== "INPUT" || target.type !== "checkbox") return;
+    if (!String(target.id || "").startsWith("prof")) return;
+    const t0 = (typeof performance !== "undefined" && performance.now) ? performance.now() : 0;
+    try {
+      requestAnimationFrame(() => {
+        try {
+          if (typeof window.perfRecord === "function" && t0) {
+            window.perfRecord("patientProfileTagChange:to_next_paint", performance.now() - t0, { id: target.id });
+          }
+        } catch (_) {}
+      });
+    } catch (_) {}
+  }, true);
+
   window.__patientProfileUIReassert = reassert;
 
   // keep reasserting briefly (covers late script overwrites)

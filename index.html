@@ -743,7 +743,7 @@
         <button type="button" class="tab-info-btn" data-tab-help="patientDetails">i</button>
       </div>
       <p>
-        This grid shows all 32 rooms. Use the controls to set acuity tags
+        This grid shows all configured rooms. Use the controls to set acuity tags
         for each patient. These tags feed both the LIVE and Oncoming Assignment engines.
       </p>
 
@@ -772,7 +772,7 @@
           Clear All Text
         </button>
         <button type="button" onclick="window.printOncoming && window.printOncoming.openHighRiskOnly && window.printOncoming.openHighRiskOnly()">
-          Print High-Risk Hand-Off
+          Print Charge Report
         </button>
       </div>
 
@@ -921,7 +921,21 @@
   </main>
 
   <footer class="app-footer">
-    Charge Nurse Acuity and Workload Tracking Platform: Created by Zachary Cupp, BSN, RN
+    <div>Charge Nurse Acuity and Workload Tracking Platform: Created by Zachary Cupp, BSN, RN</div>
+    <button id="footerMiniMapToggle" class="footer-mini-map-toggle" type="button" onclick="window.toggleUnitMiniMap && window.toggleUnitMiniMap()">Unit Mini Map</button>
+    <div id="footerMiniMapPanel" class="footer-mini-map-panel" hidden>
+      <div class="footer-mini-map-title">6 North Room Flow</div>
+      <div class="footer-mini-map">
+        <div class="mini-strip mini-strip-e">52 51 50 49 48 47 46 45 44 43 42 41</div>
+        <div class="mini-strip mini-strip-mid">53 54 55 56 57 58 59</div>
+        <div class="mini-pod mini-pod-d">D</div>
+        <div class="mini-pod mini-pod-e">E</div>
+        <div class="mini-stack mini-stack-f">60 61 62 63 64 65 66</div>
+        <div class="mini-stack mini-stack-g">76 75 74 73 72 71 70 69 68 67</div>
+        <div class="mini-pod mini-pod-f">F</div>
+      </div>
+      <div class="footer-mini-map-note">Distance anchor: Pod E long hall, Pod F north run, Pod D west run. Use for room-spread decisions.</div>
+    </div>
   </footer>
 
   <!-- MODALS (unchanged) -->
@@ -941,6 +955,7 @@
             <label><input type="checkbox" id="profBg" /> BG</label>
             <label><input type="checkbox" id="profTf" /> TF</label>
             <label><input type="checkbox" id="profCiwa" /> CIWA/COWS</label>
+            <label><input type="checkbox" id="profEmu" /> EMU</label>
             <label><input type="checkbox" id="profRestraint" /> Restraint</label>
             <label><input type="checkbox" id="profSitter" /> Sitter</label>
             <label><input type="checkbox" id="profVpo" /> VPO</label>
@@ -1050,6 +1065,7 @@
             <label><input type="checkbox" id="adBg" /> BG</label>
             <label><input type="checkbox" id="adTf" /> TF</label>
             <label><input type="checkbox" id="adCiwa" /> CIWA/COWS</label>
+            <label><input type="checkbox" id="adEmu" /> EMU</label>
             <label><input type="checkbox" id="adRestraint" /> Restraint</label>
             <label><input type="checkbox" id="adSitter" /> Sitter</label>
             <label><input type="checkbox" id="adVpo" /> VPO</label>

@@ -143,10 +143,81 @@ function rerenderAllBoards() {
   if (typeof window.updateDischargeCount === "function") window.updateDischargeCount();
 }
 
+function scheduleNonCriticalRefresh(reason) {
+  try {
+    if (typeof window.requestIdleCallback === "function") {
+      window.requestIdleCallback(() => {
+        try { if (typeof window.renderUnitPulseTab === "function") window.renderUnitPulseTab(); } catch (_) {}
+      }, { timeout: 1500 });
+      return;
+    }
+  } catch (_) {}
+
+  setTimeout(() => {
+    try { if (typeof window.renderUnitPulseTab === "function") window.renderUnitPulseTab(); } catch (_) {}
+  }, 250);
+}
+
+function markStateDirty(reason) {
+  try {
+    if (typeof window.markDirty === "function") window.markDirty();
+    else if (typeof window.saveState === "function") window.saveState();
+  } catch (_) {}
+
+  try {
+    if (window.cloudSync && typeof window.cloudSync.publishUnitStateDebounced === "function") {
+      window.cloudSync.publishUnitStateDebounced(reason || "assignment_move");
+    }
+  } catch (_) {}
+
+  try {
+    window.dispatchEvent(new CustomEvent("cupp:state_dirty", {
+      detail: { reason: reason || "assignment_move", ts: Date.now() }
+    }));
+  } catch (_) {}
+}
+
+function rerenderTargetedBoard(context, role) {
+  const ctx = String(context || "");
+  const targetRole = String(role || "");
+
+  if (ctx === "incoming") {
+    window.__suspendOncomingQualityUntil = Date.now() + 1400;
+    if (targetRole === "nurse" && typeof window.renderAssignmentOutput === "function") {
+      window.renderAssignmentOutput();
+    } else if ((targetRole === "pca" || targetRole === "sitter") && typeof window.renderPcaAssignmentOutput === "function") {
+      window.renderPcaAssignmentOutput();
+    } else if (typeof window.renderOncomingAll === "function") {
+      window.renderOncomingAll();
+    } else {
+      if (typeof window.renderAssignmentOutput === "function") window.renderAssignmentOutput();
+      if (typeof window.renderPcaAssignmentOutput === "function") window.renderPcaAssignmentOutput();
+    }
+    if (targetRole === "sitter" && typeof window.renderSitterAssignmentOutput === "function") window.renderSitterAssignmentOutput();
+    return true;
+  }
+
+  if (ctx === "live") {
+    if (typeof window.renderLiveAssignments === "function") window.renderLiveAssignments();
+    if (targetRole === "sitter" && typeof window.renderSitterAssignmentOutput === "function") window.renderSitterAssignmentOutput();
+    if (typeof window.updateDischargeCount === "function") window.updateDischargeCount();
+    scheduleNonCriticalRefresh("live_assignment_move");
+    return true;
+  }
+
+  return false;
+}
+
 // Persist helper (centralized)
-function persistAndRefresh() {
+function persistAndRefresh(context, role, opts = {}) {
   syncWindowRefs();
-  if (typeof window.saveState === "function") window.saveState();
+  if (opts.immediateSave) {
+    try { if (typeof window.saveState === "function") window.saveState(); } catch (_) {}
+  } else {
+    markStateDirty(opts.reason || "assignment_move");
+  }
+
+  if (!opts.fullRefresh && rerenderTargetedBoard(context, role)) return;
   rerenderAllBoards();
 }
 
@@ -456,7 +527,7 @@ function onRowDrop(event, context, role, newOwnerId) {
   dragCtx = null;
 
   // ✅ Always persist after every drag/drop so refresh doesn't lose layout.
-  persistAndRefresh();
+  persistAndRefresh(context, role, { reason: "assignment_move" });
 }
 
 function onRowDragEnd() {
@@ -576,7 +647,7 @@ function onDischargeDrop(event) {
   dragCtx = null;
 
   // ✅ persist after discharge
-  persistAndRefresh();
+  persistAndRefresh("live", "nurse", { reason: "patient_discharge", fullRefresh: true });
 }
 
 // -----------------------------
@@ -648,7 +719,7 @@ function reinstateDischargedPatient(index) {
     history.splice(index, 1);
     if (typeof window.updateDischargeCount === "function") window.updateDischargeCount();
     openDischargeHistoryModal();
-    persistAndRefresh();
+    persistAndRefresh("live", "nurse", { reason: "patient_reinstate", fullRefresh: true });
     return;
   }
 
@@ -708,7 +779,7 @@ function reinstateDischargedPatient(index) {
 
   history.splice(index, 1);
 
-  persistAndRefresh();
+  persistAndRefresh("live", "nurse", { reason: "patient_reinstate", fullRefresh: true });
 
   if (typeof window.updateDischargeCount === "function") window.updateDischargeCount();
   openDischargeHistoryModal();
@@ -755,7 +826,7 @@ function clearRecentlyDischargedFlags() {
     }
 
     // 3) Persist + re-render
-    persistAndRefresh();
+    persistAndRefresh("live", "nurse", { reason: "discharge_session_reset", fullRefresh: true });
 
     console.log(
       `Cleared recently discharged flags for ${cleared} patient(s). Reset discharge session count/history.`

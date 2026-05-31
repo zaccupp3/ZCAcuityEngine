@@ -62,6 +62,17 @@
     return "Charge Nurse Assignment";
   }
 
+  function isSixNorthUnit() {
+    const label = String(getUnitLabel() || "").trim().toLowerCase();
+    if (label.includes("6 north") || label === "6n") return true;
+    const activeId = String(window.activeUnitId || "");
+    const row = (Array.isArray(window.availableUnits) ? window.availableUnits : [])
+      .find((entry) => String(entry?.unit_id || entry?.unit?.id || "") === activeId);
+    const name = String(row?.unit?.name || "").trim().toLowerCase();
+    const code = String(row?.unit?.code || "").trim().toLowerCase();
+    return name === "6 north" || code === "6n";
+  }
+
   function getPrintHeaderTitle(shift) {
     const unit = getUnitLabel();
     const shiftLabel = String(shift || "").trim();
@@ -516,7 +527,7 @@
   .ws-rn-card tbody tr:last-child td{ border-bottom:var(--ws-line); }
   .ws-rn-card td.room{ text-align:center; width:17%; }
   .ws-rn-card td.acty{ text-align:center; width:8%; }
-  .ws-rn-card td.notes{ font-size:9px; }
+  .ws-rn-card td.notes{ text-align:center; font-size:9px; }
   .ws-rn-card td.rn-name{ width:31%; text-align:center; font-weight:700; vertical-align:middle; }
   .num{ width:60px; text-align:center; font-weight:700; }
   .availability-room{ font-size:11px; line-height:1.2; padding:4px; }
@@ -680,13 +691,6 @@
       let mode = String(options.mode || "").toLowerCase();
       let orientation = String(options.orientation || "portrait").toLowerCase();
 
-      if (mode !== "new" && mode !== "traditional") {
-        const pick = await showLivePrintChooser();
-        if (!pick) return;
-        mode = pick.mode;
-        orientation = pick.orientation;
-      }
-
       const charge = firstNonEmpty([
         getValueById("currentChargeName"),
         getValueById("chargeName"),
@@ -718,11 +722,13 @@
         pcaOwners: Array.isArray(window.currentPcas) ? window.currentPcas : [],
       };
 
-      const html = mode === "traditional"
-        ? buildPrintHTMLTraditional(data, orientation)
-        : buildPrintHTMLNew(data, orientation);
+      const html = typeof window.__buildSixNorthAssignmentPrint === "function"
+        ? window.__buildSixNorthAssignmentPrint(data)
+        : mode === "traditional"
+          ? buildPrintHTMLTraditional(data, orientation)
+          : buildPrintHTMLNew(data, orientation);
 
-      const label = `${mode === "traditional" ? "Traditional" : "New / Expanded"} - Landscape (11x8.5)`;
+      const label = "6 North Worksheet - Portrait";
       openInAppPrintPreview(html, label);
     } catch (e) {
       console.error("[printLive] open() error:", e);

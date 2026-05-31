@@ -122,6 +122,7 @@
     bg: 2,
     tf: 2,
     ciwa: 1,
+    emu: 1,
     restraint: 1,
     sitter: 1,
     vpo: 1,
@@ -146,6 +147,7 @@
     bg: ["bg", "bgChecks"],
     tf: ["tf"],
     ciwa: ["ciwa", "cows", "ciwaCows"],
+    emu: ["emu"],
     restraint: ["restraint", "restraints"],
     sitter: ["sitter"],
     vpo: ["vpo"],
@@ -264,6 +266,7 @@
 
   // Would adding this patient to this owner create an avoidable violation?
   function wouldAddingPatientCauseAvoidableViolation(owner, patient, ownersAll, role, limitsOverride) {
+    if (role !== "pca" && rnRatioOverflowForOwner(owner, patient) > 0) return true;
     const limits = limitsOverride || (role === "pca" ? PCA_LIMITS : RN_LIMITS);
     const ownerCount = Math.max(1, safeArray(ownersAll).length);
     const ownerCounts = countTagsForOwner(owner, role);
@@ -413,6 +416,24 @@
     return Math.max(...counts) - Math.min(...counts);
   }
 
+  function patientNeedsFourToOne(patient) {
+    return !!(patient && (patient.tele || patient.nih));
+  }
+
+  function rnOwnerRatioCap(owner, extraPatientObj) {
+    const ids = safeArray(owner?.patients);
+    let needsFour = false;
+    for (const id of ids) {
+      const p = resolvePatient(id);
+      if (patientNeedsFourToOne(p)) {
+        needsFour = true;
+        break;
+      }
+    }
+    if (patientNeedsFourToOne(extraPatientObj)) needsFour = true;
+    return needsFour ? 4 : 5;
+  }
+
   function computeCountTargets(totalPatients, nOwners) {
     const safeOwners = Math.max(1, Number(nOwners) || 0);
     const base = Math.floor((Number(totalPatients) || 0) / safeOwners);
@@ -430,6 +451,12 @@
     return 0;
   }
 
+  function rnRatioOverflowForOwner(owner, extraPatientObj) {
+    const count = safeArray(owner?.patients).length + (extraPatientObj ? 1 : 0);
+    const cap = rnOwnerRatioCap(owner, extraPatientObj);
+    return Math.max(0, count - cap);
+  }
+
   function countOverflowTotal(ownersAll) {
     return safeArray(ownersAll).reduce((sum, owner) => sum + countOverflowForOwner(owner, ownersAll), 0);
   }
@@ -443,6 +470,35 @@
 
     const violations = [];
     const warnings = [];
+
+    if (role !== "pca") {
+      const count = safeArray(owner?.patients).length;
+      const cap = rnOwnerRatioCap(owner, null);
+      if (count > cap) {
+        violations.push({
+          tag: "rnRatio",
+          mine: count,
+          limit: cap,
+          unitTotal: safeArray(ownersAll).reduce((sum, o) => sum + safeArray(o?.patients).length, 0),
+          ownerCount,
+          unavoidable: false,
+          severity: "violation",
+          message: `RN ratio exceeds ${cap}:1 (${count} > ${cap})`
+        });
+      }
+      if (count > 5) {
+        violations.push({
+          tag: "rnAbsoluteMax",
+          mine: count,
+          limit: 5,
+          unitTotal: safeArray(ownersAll).reduce((sum, o) => sum + safeArray(o?.patients).length, 0),
+          ownerCount,
+          unavoidable: false,
+          severity: "violation",
+          message: `RN assignment exceeds absolute max (5)`
+        });
+      }
+    }
 
     for (const tag in limits) {
       const limit = limits[tag];
@@ -822,6 +878,10 @@
           ownerIdx === i ? { patients: tempPatients } : { patients: safeArray(owner?.patients) }
         )));
         if (causesViolation) score += REPORT_SOURCE_PENALTY * 2;
+        if (role === "nurse") {
+          const rnRatioOverflow = rnRatioOverflowForOwner(o, p);
+          if (rnRatioOverflow > 0) score += REPORT_SOURCE_PENALTY * 10 * rnRatioOverflow;
+        }
         if (dischargeOverflowAfter > 0) score += REPORT_SOURCE_PENALTY * 4 * dischargeOverflowAfter;
         if (countOverflowAfter > 0) score += REPORT_SOURCE_PENALTY * 5 * countOverflowAfter;
 

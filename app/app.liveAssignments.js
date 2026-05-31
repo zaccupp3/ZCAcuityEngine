@@ -203,6 +203,12 @@
     return `<span class="bed-chip${dischargeClass}">${escapeHtml(label)}${carBadge}</span>`;
   }
 
+  function teleLevelCellHtml(p) {
+    return p?.tele
+      ? `<span class="assignment-tele-heart" title="Tele" aria-label="Tele">&#10084;</span>`
+      : "";
+  }
+
   function getPatientByIdSafe(id) {
     try {
       if (typeof window.getPatientById === "function") return window.getPatientById(id);
@@ -1399,7 +1405,7 @@
             ondblclick="openPatientProfileFromRoom(${p.id})"
           >
             <td>${liveBedCellHtml(p)}</td>
-            <td>${p.tele ? "Tele" : "MS"}</td>
+            <td>${teleLevelCellHtml(p)}</td>
             <td>${typeof window.rnTagString === "function" ? window.rnTagString(p) : ""}</td>
           </tr>
         `;
@@ -1460,7 +1466,7 @@
             ondblclick="openPatientProfileFromRoom(${p.id})"
           >
             <td>${liveBedCellHtml(p)}</td>
-            <td>${p.tele ? "Tele" : "MS"}</td>
+            <td>${teleLevelCellHtml(p)}</td>
             <td>${typeof window.rnTagString === "function" ? window.rnTagString(p) : ""}</td>
           </tr>
         `;
@@ -1553,7 +1559,7 @@
             ondblclick="openPatientProfileFromRoom(${p.id})"
           >
             <td>${liveBedCellHtml(p)}</td>
-            <td>${p.tele ? "Tele" : "MS"}</td>
+            <td>${teleLevelCellHtml(p)}</td>
             <td>${typeof window.pcaTagString === "function" ? window.pcaTagString(p) : ""}</td>
           </tr>
         `;
@@ -1618,7 +1624,7 @@
             ondblclick="openPatientProfileFromRoom(${p.id})"
           >
             <td>${liveBedCellHtml(p)}</td>
-            <td>${p.tele ? "Tele" : "MS"}</td>
+            <td>${teleLevelCellHtml(p)}</td>
             <td>${typeof window.pcaTagString === "function" ? window.pcaTagString(p) : ""}</td>
           </tr>
         `;

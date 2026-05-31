@@ -499,7 +499,10 @@ window.addEventListener("DOMContentLoaded", async () => {
   window.__cloud = window.__cloud || {};
   window.__cloud.unitStateVersion =
     typeof window.__cloud.unitStateVersion === "number" ? window.__cloud.unitStateVersion : 0;
+  window.__cloud.unitStateUpdatedAt = window.__cloud.unitStateUpdatedAt || "";
   window.__cloud.unitStateChannel = window.__cloud.unitStateChannel || null;
+  window.__cloud.hydratedUnitId = window.__cloud.hydratedUnitId || null;
+  window.__cloud.seedAfterBoot = false;
 
   window.__cloud.sync = window.__cloud.sync || {
     status: "idle",        // idle | pending | syncing | synced | error
@@ -606,6 +609,9 @@ window.addEventListener("DOMContentLoaded", async () => {
       currentPcas: Array.isArray(window.currentPcas) ? window.currentPcas : [],
       incomingPcas: Array.isArray(window.incomingPcas) ? window.incomingPcas : [],
 
+      currentSitters: Array.isArray(window.currentSitters) ? window.currentSitters : [],
+      incomingSitters: Array.isArray(window.incomingSitters) ? window.incomingSitters : [],
+
       patients: Array.isArray(window.patients) ? window.patients : [],
 
       admitQueue: Array.isArray(window.admitQueue) ? window.admitQueue : [],
@@ -626,6 +632,9 @@ window.addEventListener("DOMContentLoaded", async () => {
 
     window.currentPcas = Array.isArray(s.currentPcas) ? s.currentPcas : [];
     window.incomingPcas = Array.isArray(s.incomingPcas) ? s.incomingPcas : [];
+
+    window.currentSitters = Array.isArray(s.currentSitters) ? s.currentSitters : [];
+    window.incomingSitters = Array.isArray(s.incomingSitters) ? s.incomingSitters : [];
 
     window.patients = Array.isArray(s.patients) ? s.patients : [];
 
@@ -660,6 +669,26 @@ window.addEventListener("DOMContentLoaded", async () => {
     try { return JSON.stringify(snapshotFromWindow()); } catch { return ""; }
   }
 
+  function isHydratedForActiveUnit() {
+    return !!(window.activeUnitId && String(window.__cloud.hydratedUnitId || "") === String(window.activeUnitId));
+  }
+
+  function markCloudHydrated(unitId) {
+    window.__cloud.hydratedUnitId = unitId ? String(unitId) : null;
+  }
+
+  function cloudRowTimestamp(row) {
+    const raw = row?.updated_at || row?.updatedAt || "";
+    const ms = raw ? Date.parse(raw) : 0;
+    return Number.isFinite(ms) ? ms : 0;
+  }
+
+  function localCloudTimestamp() {
+    const raw = window.__cloud.unitStateUpdatedAt || "";
+    const ms = raw ? Date.parse(raw) : 0;
+    return Number.isFinite(ms) ? ms : 0;
+  }
+
   // -----------------------------
   // Cloud sync plumbing
   // -----------------------------
@@ -670,6 +699,11 @@ window.addEventListener("DOMContentLoaded", async () => {
     if (!sbReady()) return;
     if (!window.activeUnitId) return;
     if (window.demoMode || window.__authSignedIn === false) return;
+    if (!isHydratedForActiveUnit()) {
+      console.warn("[cloud] publish blocked until unit_state is loaded for this unit", reason || "");
+      setSyncStatus("pending");
+      return;
+    }
 
     const role = window.activeUnitRole;
     if (!canWriteRole(role)) return;
@@ -688,6 +722,35 @@ window.addEventListener("DOMContentLoaded", async () => {
     }
 
     setSyncStatus("syncing");
+
+    try {
+      if (typeof window.sb?.getUnitState === "function") {
+        const { row: remoteRow, error: remoteError } = await window.sb.getUnitState(String(window.activeUnitId));
+        if (!remoteError && remoteRow) {
+          const remoteV = typeof remoteRow.version === "number" ? remoteRow.version : 0;
+          const localV = typeof window.__cloud.unitStateVersion === "number" ? window.__cloud.unitStateVersion : 0;
+          const remoteMs = cloudRowTimestamp(remoteRow);
+          const localMs = localCloudTimestamp();
+          if (remoteV > localV || (remoteV === localV && remoteMs > localMs + 1000)) {
+            const remoteState = remoteRow.state || remoteRow.state_json || remoteRow || {};
+            withPublishMuted(() => {
+              applySnapshotToWindow(remoteState.state || remoteState);
+              try { if (typeof window.saveState === "function") window.saveState(); } catch {}
+            });
+            window.__cloud.unitStateVersion = remoteV;
+            window.__cloud.unitStateUpdatedAt = remoteRow.updated_at || remoteRow.updatedAt || "";
+            window.__cloud.lastPublishedSnapshotStr = snapshotString();
+            window.__cloud.lastQueuedSnapshotStr = "";
+            setSyncStatus("synced", { lastSyncedAt: new Date() });
+            window.requestGlobalRefresh("cloud_pre_publish_pull");
+            console.warn("[cloud] local publish cancelled because cloud had newer unit_state");
+            return;
+          }
+        }
+      }
+    } catch (e) {
+      console.warn("[cloud] pre-publish freshness check failed; publishing local snapshot", e);
+    }
 
     let userId = null;
     try {
@@ -712,6 +775,7 @@ window.addEventListener("DOMContentLoaded", async () => {
       }
 
       window.__cloud.unitStateVersion = (row && typeof row.version === "number") ? row.version : nextVersion;
+      window.__cloud.unitStateUpdatedAt = row?.updated_at || row?.updatedAt || new Date().toISOString();
 
       if (snapStr) window.__cloud.lastPublishedSnapshotStr = snapStr;
       window.__cloud.lastPublishAt = Date.now();
@@ -728,6 +792,11 @@ window.addEventListener("DOMContentLoaded", async () => {
   function publishUnitStateDebounced(reason = "") {
     if (window.__cloud.mutePublishDepth > 0) return;
     if (window.demoMode || window.__authSignedIn === false) return;
+    if (!isHydratedForActiveUnit()) {
+      console.warn("[cloud] queued publish blocked until unit_state hydration", reason || "");
+      setSyncStatus("pending");
+      return;
+    }
 
     const snapStr = snapshotString();
     if (!snapStr) return;
@@ -768,15 +837,24 @@ window.addEventListener("DOMContentLoaded", async () => {
     const { row, error } = await window.sb.getUnitState(String(unitId));
     if (error) return { ok: false, error };
 
-    if (!row) return { ok: true, empty: true };
+    if (!row) {
+      window.__cloud.unitStateVersion = 0;
+      markCloudHydrated(unitId);
+      return { ok: true, empty: true };
+    }
 
     const cloudState = row.state || row.state_json || row || {};
 
     withPublishMuted(() => {
       applySnapshotToWindow(cloudState.state || cloudState);
+      try { if (typeof window.saveState === "function") window.saveState(); } catch {}
     });
 
     if (typeof row.version === "number") window.__cloud.unitStateVersion = row.version;
+    window.__cloud.unitStateUpdatedAt = row.updated_at || row.updatedAt || "";
+    window.__cloud.lastPublishedSnapshotStr = snapshotString();
+    window.__cloud.lastQueuedSnapshotStr = "";
+    markCloudHydrated(unitId);
     setSyncStatus("synced", { lastSyncedAt: new Date() });
 
     return { ok: true, row };
@@ -788,6 +866,7 @@ window.addEventListener("DOMContentLoaded", async () => {
       if (ch && typeof ch.unsubscribe === "function") ch.unsubscribe();
     } catch {}
     window.__cloud.unitStateChannel = null;
+    markCloudHydrated(null);
   }
 
   function cloudApplySuspended() {
@@ -805,6 +884,7 @@ window.addEventListener("DOMContentLoaded", async () => {
     }
 
     unsubscribeUnitState();
+    markCloudHydrated(unitId);
 
     window.__cloud.unitStateChannel = window.sb.subscribeUnitState(String(unitId), async () => {
       try {
@@ -818,19 +898,25 @@ window.addEventListener("DOMContentLoaded", async () => {
 
         const incomingV = typeof row.version === "number" ? row.version : 0;
         const localV = typeof window.__cloud.unitStateVersion === "number" ? window.__cloud.unitStateVersion : 0;
+        const incomingMs = cloudRowTimestamp(row);
+        const localMs = localCloudTimestamp();
 
-        if (incomingV > localV) {
+        if (incomingV > localV || (incomingV === localV && incomingMs > localMs + 1000)) {
           if (cloudApplySuspended()) {
             console.log("[cloud] newer snapshot ignored during local rebalance/edit window");
             return;
           }
           window.__cloud.unitStateVersion = incomingV;
+          window.__cloud.unitStateUpdatedAt = row.updated_at || row.updatedAt || "";
 
           const st = row.state || row.state_json || row || {};
 
           withPublishMuted(() => {
             applySnapshotToWindow(st.state || st);
+            try { if (typeof window.saveState === "function") window.saveState(); } catch {}
           });
+          window.__cloud.lastPublishedSnapshotStr = snapshotString();
+          window.__cloud.lastQueuedSnapshotStr = "";
 
           // ✅ batched refresh to avoid fan-out if multiple events land close together
           window.requestGlobalRefresh("cloud_realtime_apply");
@@ -914,7 +1000,7 @@ window.addEventListener("DOMContentLoaded", async () => {
 
       if (res?.ok && res?.empty) {
         console.log("[cloud] No unit_state row found yet; will publish initial state when eligible.");
-        publishUnitStateDebounced("seed-if-empty");
+        window.__cloud.seedAfterBoot = true;
       } else if (res?.ok) {
         __bootSource = "cloud";
       }
@@ -952,20 +1038,22 @@ window.addEventListener("DOMContentLoaded", async () => {
   const DEFAULT_CURRENT_PCA = 4;
   const DEFAULT_INCOMING_PCA = 4;
 
-  if (currentNurseCountSel) currentNurseCountSel.value = DEFAULT_CURRENT_RN;
-  if (!currentNurses.length || currentNurses.length !== DEFAULT_CURRENT_RN) setupCurrentNurses(DEFAULT_CURRENT_RN);
+  const bootedFromCloud = __bootSource === "cloud";
+
+  if (currentNurseCountSel) currentNurseCountSel.value = bootedFromCloud && currentNurses.length ? currentNurses.length : DEFAULT_CURRENT_RN;
+  if (!currentNurses.length || (!bootedFromCloud && currentNurses.length !== DEFAULT_CURRENT_RN)) setupCurrentNurses(DEFAULT_CURRENT_RN);
   else renderCurrentNurseList();
 
-  if (incomingNurseCountSel) incomingNurseCountSel.value = DEFAULT_INCOMING_RN;
-  if (!incomingNurses.length || incomingNurses.length !== DEFAULT_INCOMING_RN) setupIncomingNurses(DEFAULT_INCOMING_RN);
+  if (incomingNurseCountSel) incomingNurseCountSel.value = bootedFromCloud && incomingNurses.length ? incomingNurses.length : DEFAULT_INCOMING_RN;
+  if (!incomingNurses.length || (!bootedFromCloud && incomingNurses.length !== DEFAULT_INCOMING_RN)) setupIncomingNurses(DEFAULT_INCOMING_RN);
   else renderIncomingNurseList();
 
-  if (currentPcaCountSel) currentPcaCountSel.value = DEFAULT_CURRENT_PCA;
-  if (!currentPcas.length || currentPcas.length !== DEFAULT_CURRENT_PCA) setupCurrentPcas(DEFAULT_CURRENT_PCA);
+  if (currentPcaCountSel) currentPcaCountSel.value = bootedFromCloud && currentPcas.length ? currentPcas.length : DEFAULT_CURRENT_PCA;
+  if (!currentPcas.length || (!bootedFromCloud && currentPcas.length !== DEFAULT_CURRENT_PCA)) setupCurrentPcas(DEFAULT_CURRENT_PCA);
   else renderCurrentPcaList();
 
-  if (incomingPcaCountSel) incomingPcaCountSel.value = DEFAULT_INCOMING_PCA;
-  if (!incomingPcas.length || incomingPcas.length !== DEFAULT_INCOMING_PCA) setupIncomingPcas(DEFAULT_INCOMING_PCA);
+  if (incomingPcaCountSel) incomingPcaCountSel.value = bootedFromCloud && incomingPcas.length ? incomingPcas.length : DEFAULT_INCOMING_PCA;
+  if (!incomingPcas.length || (!bootedFromCloud && incomingPcas.length !== DEFAULT_INCOMING_PCA)) setupIncomingPcas(DEFAULT_INCOMING_PCA);
   else renderIncomingPcaList();
 
   // Sitter is modeled as PCA designation (no standalone sitter roster bootstrapping).
@@ -975,6 +1063,11 @@ window.addEventListener("DOMContentLoaded", async () => {
 
   if (typeof autoPopulateLiveAssignments === "function") {
     autoPopulateLiveAssignments();
+  }
+
+  if (window.__cloud.seedAfterBoot && isHydratedForActiveUnit()) {
+    window.__cloud.seedAfterBoot = false;
+    publishUnitStateDebounced("seed-if-empty-after-boot");
   }
 
   // Initial renders

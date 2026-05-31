@@ -20,7 +20,7 @@
   window.__shiftBackfillLoaded = true;
 
   const safeArray = (v) => (Array.isArray(v) ? v : []);
-  const ANALYTICS_TAG_KEYS = ["tele", "drip", "nih", "bg", "ciwa", "restraint", "sitter", "vpo", "isolation", "admit", "lateDc"];
+  const ANALYTICS_TAG_KEYS = ["tele", "drip", "nih", "bg", "ciwa", "emu", "restraint", "sitter", "vpo", "isolation", "admit", "lateDc"];
 
   function sbReady() {
     return !!(window.sb && window.sb.client && window.sb.__ready);

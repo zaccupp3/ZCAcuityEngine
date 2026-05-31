@@ -114,7 +114,7 @@
       name: "",
       gender: "",
 
-      tele: false, drip: false, nih: false, bg: false, tf: false, ciwa: false, restraint: false, sitter: false,
+      tele: false, drip: false, nih: false, bg: false, tf: false, ciwa: false, emu: false, restraint: false, sitter: false,
       vpo: false, isolation: false, admit: false, lateDc: false,
 
       chg: false, foley: false, q2turns: false, strictIo: false, heavy: false, feeder: false,
@@ -125,10 +125,57 @@
     };
   }
 
+  function getConfiguredBeds() {
+    function parseBeds(value) {
+      if (Array.isArray(value)) return value;
+      if (typeof value === "string") {
+        try {
+          const parsed = JSON.parse(value);
+          if (Array.isArray(parsed)) return parsed;
+          if (Array.isArray(parsed?.beds)) return parsed.beds;
+        } catch (_) {}
+      }
+      return null;
+    }
+
+    function parseSchema(value) {
+      if (value && typeof value === "object") return value;
+      if (typeof value === "string") {
+        try { return JSON.parse(value); } catch (_) {}
+      }
+      return null;
+    }
+
+    function activeUnitLooksLikeSixNorth() {
+      const activeId = String(window.activeUnitId || activeUnitId || "");
+      const row = (Array.isArray(window.availableUnits) ? window.availableUnits : [])
+        .find((entry) => String(entry?.unit_id || entry?.unit?.id || "") === activeId);
+      const name = String(row?.unit?.name || unitSettings?.name || unitSettings?.unit_name || "").trim().toLowerCase();
+      const code = String(row?.unit?.code || unitSettings?.code || unitSettings?.unit_code || "").trim().toLowerCase();
+      return name === "6 north" || code === "6n";
+    }
+
+    const schemaObj = parseSchema(unitSettings?.room_schema);
+    const direct = parseBeds(unitSettings?.beds);
+    const schema = parseBeds(schemaObj?.beds);
+    const source = direct && direct.length ? direct : (schema && schema.length ? schema : null);
+    if (source) return source.map(b => String(b).trim()).filter(Boolean);
+    if (activeUnitLooksLikeSixNorth()) {
+      return Array.from({ length: 36 }, (_, idx) => String(41 + idx));
+    }
+    return null;
+  }
+
+  function getTargetPatientCount() {
+    const beds = getConfiguredBeds();
+    return Math.max(1, beds?.length || 32);
+  }
+
   function ensureDefaultPatients() {
     syncFromWindow();
     if (!Array.isArray(patients)) patients = [];
-    if (patients.length >= 32) {
+    const targetCount = getTargetPatientCount();
+    if (patients.length >= targetCount) {
       syncToWindow();
       return;
     }
@@ -139,7 +186,7 @@
     });
 
     const next = [];
-    for (let i = 1; i <= 32; i++) {
+    for (let i = 1; i <= targetCount; i++) {
       if (existingById.has(i)) {
         const p = existingById.get(i);
         if (!p.room) p.room = String(i);
@@ -158,13 +205,13 @@
 
   function applyBedsToPatientRooms() {
     syncFromWindow();
-    const beds = Array.isArray(unitSettings?.beds) ? unitSettings.beds : null;
+    const beds = getConfiguredBeds();
     if (!beds || beds.length < 1) return;
 
     ensureDefaultPatients();
     syncFromWindow();
 
-    for (let i = 0; i < 32; i++) {
+    for (let i = 0; i < beds.length; i++) {
       const p = patients[i];
       if (!p) continue;
       const label = beds[i] != null ? String(beds[i]) : String(i + 1);
@@ -473,6 +520,19 @@
     return { ok: true, rows: mapped };
   }
 
+  async function createSixNorthUnit() {
+    if (!window.sb || typeof window.sb.ensureSixNorthUnit !== "function") {
+      return { ok: false, error: new Error("Supabase unit creation helper is not available.") };
+    }
+    const res = await window.sb.ensureSixNorthUnit();
+    if (!res?.ok) return res;
+
+    await refreshMyUnits();
+    const unitId = res.unit?.id;
+    if (unitId) await setActiveUnit(unitId, "owner");
+    return res;
+  }
+
   // ============ CLEAR “RECENTLY DISCHARGED” ============
   // NOTE: This is a legacy fallback. assignmentsDrag.js owns the canonical version now.
   function clearRecentlyDischargedFlags() {
@@ -642,6 +702,9 @@
   window.applyUnitSettings = applyUnitSettings;
   window.setActiveUnit = setActiveUnit;
   window.refreshMyUnits = refreshMyUnits;
+  window.createSixNorthUnit = createSixNorthUnit;
+  window.getConfiguredBedsForUnit = getConfiguredBeds;
+  window.getTargetPatientCountForUnit = getTargetPatientCount;
 
   // Also expose legacy bare global resetAllPatients if other scripts call it directly
   if (typeof resetAllPatients === "undefined") {

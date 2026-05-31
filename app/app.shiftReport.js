@@ -119,7 +119,7 @@
     // 3) Conservative fallback (only used if no canonical helpers exist)
     //    Keep this minimal and safe. (You can expand later.)
     const FALLBACK_SHARED = new Set(["tele", "isolation", "iso"]);
-    const FALLBACK_RN = new Set(["drip", "nih", "bg", "tf", "ciwa", "cows", "ciwacows", "restraint", "sitter", "vpo"]);
+    const FALLBACK_RN = new Set(["drip", "nih", "bg", "tf", "ciwa", "cows", "ciwacows", "emu", "restraint", "sitter", "vpo"]);
     const FALLBACK_PCA = new Set(["q2turns", "q2", "strictio", "heavy", "feeder", "foley", "chg", "latedc", "admit"]);
 
     if (FALLBACK_SHARED.has(key)) return "SHARED";
@@ -143,6 +143,7 @@
       ciwa: "CIWA/COWS",
       cows: "CIWA/COWS",
       ciwacows: "CIWA/COWS",
+      emu: "EMU",
       q2turns: "Totals",
       latedc: "Late DC",
       bg: "BG",

@@ -55,7 +55,7 @@
 
   function computeRoomSchemaKey() {
     try {
-      const beds = window.unitSettings?.room_schema?.beds;
+      const beds = window.getConfiguredBedsForUnit ? window.getConfiguredBedsForUnit() : (window.unitSettings?.room_schema?.beds || window.unitSettings?.beds);
       if (!Array.isArray(beds) || !beds.length) return null;
       return beds.map(b => String(b).trim()).filter(Boolean).join("|");
     } catch (_) {
@@ -69,7 +69,8 @@
     }
     window.patients = safeArray(window.patients);
 
-    if (window.patients.length !== 32) {
+    const targetCount = typeof window.getTargetPatientCountForUnit === "function" ? window.getTargetPatientCountForUnit() : 32;
+    if (window.patients.length < targetCount) {
       if (typeof window.resetAllPatients === "function") {
         window.resetAllPatients();
       } else if (typeof window.ensureDefaultPatients === "function") {
@@ -261,7 +262,7 @@
   // Tag impact mapping (RN vs PCA vs Shared)
   // =========================
 
-  const RN_ONLY_KEYS = new Set(["drip","nih","bg","tf","ciwa","restraint","sitter","vpo"]);
+  const RN_ONLY_KEYS = new Set(["drip","nih","bg","tf","ciwa","emu","restraint","sitter","vpo"]);
   const PCA_ONLY_KEYS = new Set(["chg","foley","q2turns","strictIo","heavy","feeder"]);
   const SHARED_KEYS = new Set(["tele","isolation","admit","lateDc"]); // shared meaning: affects both RN/PCA analytics
   const RN_META_KEYS = new Set(["gender"]);
@@ -362,7 +363,7 @@
   // =========================
 
   function getRoomSchemaBeds() {
-    const beds = window.unitSettings?.room_schema?.beds;
+    const beds = window.getConfiguredBedsForUnit ? window.getConfiguredBedsForUnit() : (window.unitSettings?.room_schema?.beds || window.unitSettings?.beds);
     if (!Array.isArray(beds) || !beds.length) return null;
     return beds.map(b => String(b).trim()).filter(Boolean);
   }
@@ -380,7 +381,7 @@
 
     const pArr = safeArray(window.patients).slice().sort((a, b) => Number(a?.id) - Number(b?.id));
 
-    for (let i = 0; i < 32; i++) {
+    for (let i = 0; i < beds.length; i++) {
       const p = pArr[i];
       if (!p) continue;
 
@@ -469,6 +470,7 @@
     p.bg = false;
     p.tf = false;
     p.ciwa = false;
+    p.emu = false;
     p.restraint = false;
     p.sitter = false;
     p.vpo = false;
@@ -667,6 +669,7 @@
       "bg",
       "tf",
       "ciwa",
+      "emu",
       "restraint",
       "sitter",
       "vpo",
@@ -749,7 +752,7 @@
     const ok = confirm("Add All Rooms: mark every bed In Use (active)?");
     if (!ok) return;
 
-    const rows = safeArray(window.patients).slice(0, 32);
+    const rows = safeArray(window.patients);
 
     rows.forEach(p => {
       if (!p) return;
@@ -768,7 +771,7 @@
     const ok = confirm("Empty All Rooms: set every bed EMPTY and clear LIVE + Oncoming assignments?");
     if (!ok) return;
 
-    const rows = safeArray(window.patients).slice(0, 32);
+    const rows = safeArray(window.patients);
 
     rows.forEach(p => {
       if (!p) return;
@@ -791,7 +794,7 @@
     const ok = confirm("Clear all RN/PCA acuity tags for all rooms? Occupancy and assignments will stay unchanged.");
     if (!ok) return;
 
-    const rows = safeArray(window.patients).slice(0, 32);
+    const rows = safeArray(window.patients);
     rows.forEach((p) => {
       if (!p) return;
       const keepGender = p.gender;
@@ -898,7 +901,7 @@
     const rows = safeArray(window.patients)
       .slice()
       .sort((a, b) => Number(a?.id) - Number(b?.id))
-      .slice(0, 32);
+      .slice(0, typeof window.getTargetPatientCountForUnit === "function" ? window.getTargetPatientCountForUnit() : 32);
 
     host.innerHTML = `
       <div class="patient-table-wrap">
@@ -954,6 +957,7 @@
                       ${rnTag(p, "bg", "BG")}
                       ${rnTag(p, "tf", "TF")}
                       ${rnTag(p, "ciwa", "CIWA/COWS")}
+                      ${rnTag(p, "emu", "EMU")}
                       ${rnTag(p, "restraint", "Restraint")}
                       ${rnTag(p, "sitter", "Sitter")}
                       ${rnTag(p, "vpo", "VPO")}
@@ -1027,6 +1031,7 @@
     if (p.bg) score += 2;
     if (p.tf) score += 2;
     if (p.ciwa) score += 4;
+    if (p.emu) score += 4;
     if (p.restraint) score += 6;
     if (p.sitter) score += 5;
     if (p.vpo) score += 4;
@@ -1051,6 +1056,7 @@
     if (p.bg) score += 2;
     if (p.tf) score += 2;
     if (p.ciwa) score += 5;
+    if (p.emu) score += 5;
     if (p.restraint) score += 6;
     if (p.sitter) score += 7;
     if (p.vpo) score += 4;
@@ -1067,7 +1073,9 @@
     let b = 0;
     if (p.sitter && p.restraint) b += 3;
     if (p.ciwa && p.sitter) b += 3;
+    if (p.emu && p.sitter) b += 3;
     if (p.drip && p.ciwa) b += 3;
+    if (p.drip && p.emu) b += 3;
     if (p.drip && p.sitter) b += 4;
     if (p.nih && p.bg) b += 2;
 
@@ -1078,7 +1086,7 @@
     const pts = safeArray(patientsInAssignment);
     if (!pts.length) return 0;
 
-    let bg = 0, iso = 0, drip = 0, ciwa = 0, sitter = 0, vpo = 0;
+    let bg = 0, iso = 0, drip = 0, ciwa = 0, emu = 0, sitter = 0, vpo = 0;
 
     pts.forEach(p => {
       if (!p || p.isEmpty) return;
@@ -1086,6 +1094,7 @@
       if (p.isolation) iso++;
       if (p.drip) drip++;
       if (p.ciwa) ciwa++;
+      if (p.emu) emu++;
       if (p.sitter) sitter++;
       if (p.vpo) vpo++;
     });
@@ -1095,7 +1104,9 @@
     if (iso >= 3) bonus += 4;
     if (drip >= 2) bonus += 6;
     if (ciwa >= 1 && sitter >= 1) bonus += 4;
+    if (emu >= 1 && sitter >= 1) bonus += 4;
     if (vpo >= 1 && ciwa >= 1) bonus += 3;
+    if (vpo >= 1 && emu >= 1) bonus += 3;
 
     return bonus;
   }
@@ -1193,13 +1204,14 @@
 
   function getRnDriversSummaryFromPatientIds(patientIds) {
     const ids = safeArray(patientIds);
-    const counts = { Drip:0, CIWA:0, Sitter:0, Restraint:0, VPO:0, NIH:0, BG:0, TF:0, ISO:0, Admit:0, "Late DC":0 };
+    const counts = { Drip:0, CIWA:0, EMU:0, Sitter:0, Restraint:0, VPO:0, NIH:0, BG:0, TF:0, ISO:0, Admit:0, "Late DC":0 };
 
     ids.forEach(id => {
       const p = getPatientById(id);
       if (!p || p.isEmpty) return;
       if (p.drip) counts.Drip++;
       if (p.ciwa) counts.CIWA++;
+      if (p.emu) counts.EMU++;
       if (p.sitter) counts.Sitter++;
       if (p.restraint) counts.Restraint++;
       if (p.vpo) counts.VPO++;
@@ -1211,7 +1223,7 @@
       if (p.lateDc) counts["Late DC"]++;
     });
 
-    const order = ["Drip","CIWA","Sitter","Restraint","VPO","NIH","BG","TF","ISO","Admit","Late DC"];
+    const order = ["Drip","CIWA","EMU","Sitter","Restraint","VPO","NIH","BG","TF","ISO","Admit","Late DC"];
     return fmtDriversFromCounts(order, counts);
   }
 
@@ -1240,6 +1252,7 @@
   function rnTagString(p) {
     const tags = [];
     if (p.ciwa) tags.push("CIWA/COWS");
+    if (p.emu) tags.push("EMU");
     if (p.vpo) tags.push("VPO");
     if (p.nih) tags.push("NIH");
     if (p.bg) tags.push("BG");
@@ -1284,6 +1297,7 @@
       { id: "bg", label: "BG Checks", key: "bg" },
       { id: "tf", label: "Tube Feeds", key: "tf" },
       { id: "ciwa", label: "CIWA/COWS", key: "ciwa" },
+      { id: "emu", label: "EMU", key: "emu" },
       { id: "restraint", label: "Restraints", key: "restraint" },
       { id: "sitter", label: "Sitters", key: "sitter" },
       { id: "vpo", label: "VPO", key: "vpo" },
@@ -1331,6 +1345,7 @@
       if (p.drip) tags.push("Drip");
       if (p.nih) tags.push("NIH");
       if (p.ciwa) tags.push("CIWA/COWS");
+      if (p.emu) tags.push("EMU");
       if (p.restraint) tags.push("Restraint");
       if (p.sitter) tags.push("Sitter");
       if (p.vpo) tags.push("VPO");
@@ -1485,6 +1500,7 @@
       ["profBg", "BG", !!(p.bg || p.bgChecks)],
       ["profTf", "TF", !!p.tf],
       ["profCiwa", "CIWA/COWS", !!(p.ciwa || p.cows || p.ciwaCows)],
+      ["profEmu", "EMU", !!p.emu],
       ["profRestraint", "Restraint", !!(p.restraint || p.restraints)],
       ["profSitter", "Sitter", !!p.sitter],
       ["profVpo", "VPO", !!p.vpo],
@@ -1558,7 +1574,7 @@
     const before = {
       gender: p.gender || "",
       tele: !!p.tele, drip: !!p.drip, nih: !!p.nih, bg: !!p.bg, tf: !!p.tf,
-      ciwa: !!p.ciwa, restraint: !!p.restraint, sitter: !!p.sitter, vpo: !!p.vpo,
+      ciwa: !!p.ciwa, emu: !!p.emu, restraint: !!p.restraint, sitter: !!p.sitter, vpo: !!p.vpo,
       isolation: !!p.isolation, admit: !!p.admit, lateDc: !!p.lateDc,
       chg: !!p.chg, foley: !!p.foley, q2turns: !!p.q2turns, strictIo: !!(p.strictIo || p.heavy), feeder: !!p.feeder
     };
@@ -1580,6 +1596,7 @@
     p.ciwa = getCheck("profCiwa");
     p.cows = p.ciwa;
     p.ciwaCows = p.ciwa;
+    p.emu = getCheck("profEmu");
 
     p.restraint = getCheck("profRestraint");
     p.restraints = p.restraint;
@@ -1616,7 +1633,7 @@
     const after = {
       gender: p.gender || "",
       tele: !!p.tele, drip: !!p.drip, nih: !!p.nih, bg: !!p.bg, tf: !!p.tf,
-      ciwa: !!p.ciwa, restraint: !!p.restraint, sitter: !!p.sitter, vpo: !!p.vpo,
+      ciwa: !!p.ciwa, emu: !!p.emu, restraint: !!p.restraint, sitter: !!p.sitter, vpo: !!p.vpo,
       isolation: !!p.isolation, admit: !!p.admit, lateDc: !!p.lateDc,
       chg: !!p.chg, foley: !!p.foley, q2turns: !!p.q2turns, strictIo: !!(p.strictIo || p.heavy), feeder: !!p.feeder
     };

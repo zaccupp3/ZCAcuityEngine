@@ -5,7 +5,7 @@
   window.__unitMetricsSingletonLoaded = true;
 
   const $ = (id) => document.getElementById(id);
-  const ACUITY_KEYS = ["tele","drip","nih","bg","ciwa","restraint","sitter","vpo","isolation","admit","lateDc"];
+  const ACUITY_KEYS = ["tele","drip","nih","bg","ciwa","emu","restraint","sitter","vpo","isolation","admit","lateDc"];
   const SHIFT_WINDOWS = { last_3_shifts: 3, last_6_shifts: 6, last_12_shifts: 12 };
   let __req = 0;
   let __last = null;

@@ -112,6 +112,12 @@ if (window.__assignmentsRenderLoaded) {
     return String(prevMap.get(Number(patientId)) || "");
   }
 
+  function assignmentTeleHeartHtml(patient) {
+    return patient?.tele
+      ? `<span class="assignment-tele-heart" title="Tele" aria-label="Tele">&#10084;</span>`
+      : "";
+  }
+
   function __getIncomingNursesReal() {
     return __getIncomingNurses().filter((owner) => owner && !__isOncomingHoldOwner(owner));
   }
@@ -206,7 +212,7 @@ if (window.__assignmentsRenderLoaded) {
           ondblclick="openPatientProfileFromRoom(${p.id})"
         >
           <td>${bedCellHtml(p)}</td>
-          <td>${p.tele ? "Tele" : "MS"}</td>
+          <td>${assignmentTeleHeartHtml(p)}</td>
           <td>${role === "pca" ? (typeof pcaTagString === "function" ? pcaTagString(p) : "") : (typeof rnTagString === "function" ? rnTagString(p) : "")}</td>
           <td>${escapeHtml(prevName || "-")}</td>
         </tr>
@@ -720,6 +726,125 @@ if (window.__assignmentsRenderLoaded) {
     return true;
   }
 
+  function isNihPatientId(patientId) {
+    try {
+      const p = (typeof window.getPatientById === "function") ? window.getPatientById(patientId) : null;
+      return !!(p && !p.isEmpty && p.nih);
+    } catch {
+      return false;
+    }
+  }
+
+  function countNihForOwner(owner) {
+    return safeArray(owner?.patients).filter((pid) => isNihPatientId(pid)).length;
+  }
+
+  function rnRatioCapLocal(owner) {
+    const hasTeleOrNih = safeArray(owner?.patients).some((pid) => {
+      const p = (typeof window.getPatientById === "function") ? window.getPatientById(pid) : null;
+      return !!(p && !p.isEmpty && (p.tele || p.nih));
+    });
+    return hasTeleOrNih ? 4 : 5;
+  }
+
+  function rnRatioOverflowLocal(owner) {
+    return Math.max(0, safeArray(owner?.patients).length - rnRatioCapLocal(owner));
+  }
+
+  function nihDistributionScore(owners) {
+    const list = safeArray(owners).filter(Boolean);
+    const totalNih = list.reduce((sum, owner) => sum + countNihForOwner(owner), 0);
+    const targetMax = Math.max(1, Math.ceil(totalNih / Math.max(1, list.length)));
+    const counts = list.map((owner) => countNihForOwner(owner));
+    return {
+      totalNih,
+      targetMax,
+      overflow: counts.reduce((sum, count) => sum + Math.max(0, count - targetMax), 0),
+      max: counts.length ? Math.max(...counts) : 0,
+      spread: counts.length ? Math.max(...counts) - Math.min(...counts) : 0,
+      ratioOverflow: list.reduce((sum, owner) => sum + rnRatioOverflowLocal(owner), 0)
+    };
+  }
+
+  function compareNihScore(a, b) {
+    const left = [Number(a?.overflow) || 0, Number(a?.ratioOverflow) || 0, Number(a?.max) || 0, Number(a?.spread) || 0];
+    const right = [Number(b?.overflow) || 0, Number(b?.ratioOverflow) || 0, Number(b?.max) || 0, Number(b?.spread) || 0];
+    for (let i = 0; i < left.length; i++) {
+      if (left[i] !== right[i]) return left[i] - right[i];
+    }
+    return 0;
+  }
+
+  function rebalanceNihDistribution(owners, opts = {}) {
+    const list = safeArray(owners).filter(Boolean);
+    if (list.length < 2) return { changed: false, moves: 0, reason: "Not enough RN owners." };
+    let changed = false;
+    let moves = 0;
+    const maxPasses = Number(opts.maxPasses) || 32;
+
+    for (let pass = 0; pass < maxPasses; pass++) {
+      const baseScore = nihDistributionScore(list);
+      if (baseScore.totalNih <= 1 || baseScore.overflow <= 0) break;
+
+      let best = null;
+      const sources = list
+        .filter((owner) => countNihForOwner(owner) > baseScore.targetMax)
+        .sort((a, b) => countNihForOwner(b) - countNihForOwner(a));
+      const targets = list
+        .filter((owner) => countNihForOwner(owner) < baseScore.targetMax)
+        .sort((a, b) => countNihForOwner(a) - countNihForOwner(b) || safeArray(a?.patients).length - safeArray(b?.patients).length);
+
+      for (const fromOwner of sources) {
+        const movableNih = getMovablePatientIdsFromOwner(fromOwner, "nurse").filter((pid) => isNihPatientId(pid));
+        for (const patientId of movableNih) {
+          for (const toOwner of targets) {
+            if (!toOwner || toOwner === fromOwner) continue;
+            const beforeSnap = __snapshotSingleOwnerArrays(list);
+            const did = tryMovePatient(list, "nurse", fromOwner, toOwner, patientId);
+            if (did) {
+              const directScore = nihDistributionScore(list);
+              if (compareNihScore(directScore, baseScore) < 0) {
+                best = { fromOwner, toOwner, patientId, swapPatientId: null, score: directScore };
+              }
+            }
+            __restoreSingleOwnerArrays(list, beforeSnap);
+            if (best) break;
+
+            const swapCandidates = getMovablePatientIdsFromOwner(toOwner, "nurse").filter((pid) => !isNihPatientId(pid));
+            for (const swapPatientId of swapCandidates) {
+              const swapSnap = __snapshotSingleOwnerArrays(list);
+              const didNih = tryMovePatient(list, "nurse", fromOwner, toOwner, patientId);
+              const didSwap = didNih && tryMovePatient(list, "nurse", toOwner, fromOwner, swapPatientId);
+              if (didSwap) {
+                const swapScore = nihDistributionScore(list);
+                if (compareNihScore(swapScore, baseScore) < 0) {
+                  best = { fromOwner, toOwner, patientId, swapPatientId, score: swapScore };
+                }
+              }
+              __restoreSingleOwnerArrays(list, swapSnap);
+              if (best) break;
+            }
+            if (best) break;
+          }
+          if (best) break;
+        }
+        if (best) break;
+      }
+
+      if (!best) break;
+      const applied = tryMovePatient(list, "nurse", best.fromOwner, best.toOwner, best.patientId);
+      if (!applied) break;
+      if (best.swapPatientId != null) {
+        tryMovePatient(list, "nurse", best.toOwner, best.fromOwner, best.swapPatientId);
+      }
+      changed = true;
+      moves += 1;
+    }
+
+    const finalScore = nihDistributionScore(list);
+    return { changed, moves, score: finalScore, reason: changed ? `Spread NIH patients across RN groups (${moves} move${moves === 1 ? "" : "s"}).` : "No better NIH distribution found." };
+  }
+
   function isExpectedDischargePatientId(patientId) {
     try {
       const p = (typeof window.getPatientById === "function") ? window.getPatientById(patientId) : null;
@@ -1065,6 +1190,7 @@ if (window.__assignmentsRenderLoaded) {
         if (patient.drip || patient.drips) score += 5;
         if (patient.bg || patient.bgChecks) score += 2;
         if (patient.ciwa || patient.cows || patient.ciwaCows) score += 4;
+        if (patient.emu) score += 4;
         if (patient.sitter) score += 4;
         if (patient.isolation || patient.iso) score += 2;
         if (patient.admit) score += 4;
@@ -1413,6 +1539,8 @@ if (window.__assignmentsRenderLoaded) {
     }
 
     candidates.sort((a, b) => {
+      const learnDiff = __suggestionLearningScore(b) - __suggestionLearningScore(a);
+      if (learnDiff !== 0) return learnDiff;
       const violationDeltaA = (Number(a.beforeScore?.violations) || 0) - (Number(a.afterScore?.violations) || 0);
       const violationDeltaB = (Number(b.beforeScore?.violations) || 0) - (Number(b.afterScore?.violations) || 0);
       if (violationDeltaA !== violationDeltaB) return violationDeltaB - violationDeltaA;
@@ -1452,15 +1580,117 @@ if (window.__assignmentsRenderLoaded) {
     };
   }
 
+  const SUGGESTION_FEEDBACK_KEY = "zca_oncoming_suggestion_feedback_v1";
+
+  function __suggestionActionKey(role, patientId, fromOwnerId, toOwnerId) {
+    return `${String(role || "")}:${Number(patientId)}:${Number(fromOwnerId)}:${Number(toOwnerId)}`;
+  }
+
+  function __suggestionPatternKey(suggestion) {
+    const p = typeof window.getPatientById === "function" ? window.getPatientById(suggestion?.patientId) : null;
+    const tagParts = [];
+    if (p) {
+      [
+        "tele", "drip", "drips", "nih", "bg", "bgChecks", "ciwa", "cows", "ciwaCows", "emu",
+        "sitter", "isolation", "iso", "admit", "lateDc", "expectedDischarge",
+        "chg", "foley", "q2turns", "q2Turns", "feeder", "heavy"
+      ].forEach((key) => {
+        if (p[key]) tagParts.push(key);
+      });
+    }
+    const benefits = safeArray(suggestion?.benefits).slice(0, 4).sort();
+    return [
+      String(suggestion?.role || ""),
+      tagParts.sort().join(",") || "no-tags",
+      benefits.join(",") || "generic"
+    ].join("|");
+  }
+
+  function __readSuggestionFeedback() {
+    try {
+      const raw = localStorage.getItem(SUGGESTION_FEEDBACK_KEY);
+      const parsed = raw ? JSON.parse(raw) : null;
+      if (parsed && typeof parsed === "object") {
+        parsed.records = safeArray(parsed.records);
+        parsed.patterns = parsed.patterns && typeof parsed.patterns === "object" ? parsed.patterns : {};
+        return parsed;
+      }
+    } catch (_) {}
+    return { records: [], patterns: {} };
+  }
+
+  function __writeSuggestionFeedback(store) {
+    try {
+      const next = {
+        records: safeArray(store?.records).slice(-250),
+        patterns: store?.patterns && typeof store.patterns === "object" ? store.patterns : {}
+      };
+      localStorage.setItem(SUGGESTION_FEEDBACK_KEY, JSON.stringify(next));
+    } catch (_) {}
+  }
+
+  function __feedbackValue(action) {
+    const a = String(action || "");
+    if (a === "accepted") return 1;
+    if (a === "helpful") return 3;
+    if (a === "not_helpful") return -4;
+    return 0;
+  }
+
+  function __recordSuggestionFeedback(suggestion, action) {
+    if (!suggestion) return;
+    const store = __readSuggestionFeedback();
+    const patternKey = __suggestionPatternKey(suggestion);
+    const value = __feedbackValue(action);
+    const pattern = store.patterns[patternKey] || { score: 0, accepted: 0, declined: 0, helpful: 0, not_helpful: 0 };
+    pattern.score = Number(pattern.score || 0) + value;
+    if (action === "accepted") pattern.accepted = Number(pattern.accepted || 0) + 1;
+    if (action === "declined") pattern.declined = Number(pattern.declined || 0) + 1;
+    if (action === "helpful") pattern.helpful = Number(pattern.helpful || 0) + 1;
+    if (action === "not_helpful") pattern.not_helpful = Number(pattern.not_helpful || 0) + 1;
+    store.patterns[patternKey] = pattern;
+    store.records.push({
+      at: new Date().toISOString(),
+      action: String(action || ""),
+      patternKey,
+      actionKey: __suggestionActionKey(suggestion.role, suggestion.patientId, suggestion.fromOwnerId, suggestion.toOwnerId),
+      role: suggestion.role,
+      patientId: Number(suggestion.patientId),
+      fromOwnerId: Number(suggestion.fromOwnerId),
+      toOwnerId: Number(suggestion.toOwnerId),
+      impact: suggestion.impact || "",
+      benefits: safeArray(suggestion.benefits)
+    });
+    __writeSuggestionFeedback(store);
+  }
+
+  function __suggestionLearningScore(suggestion) {
+    const store = __readSuggestionFeedback();
+    const pattern = store.patterns[__suggestionPatternKey(suggestion)];
+    return pattern ? Number(pattern.score || 0) : 0;
+  }
+
+  function __findCurrentSuggestion(role, patientId, fromOwnerId, toOwnerId) {
+    const activeSuggestions = __getOncomingSuggestions();
+    const list = String(role || "") === "pca" ? activeSuggestions.pca : activeSuggestions.nurse;
+    return safeArray(list).find((s) =>
+      Number(s?.patientId) === Number(patientId) &&
+      Number(s?.fromOwnerId) === Number(fromOwnerId) &&
+      Number(s?.toOwnerId) === Number(toOwnerId)
+    ) || null;
+  }
+
   function __applySuggestion(role, patientId, fromOwnerId, toOwnerId) {
     const owners = role === "pca" ? __getIncomingPcasReal().filter((p) => !(p?.isSitter && String(p?.sitterRoomPair || "").trim())) : __getIncomingNursesReal();
     const fromOwner = owners.find((owner) => Number(owner?.id) === Number(fromOwnerId));
     const toOwner = owners.find((owner) => Number(owner?.id) === Number(toOwnerId));
     if (!fromOwner || !toOwner) return false;
 
+    const suggestion = __findCurrentSuggestion(role, patientId, fromOwnerId, toOwnerId);
     const applied = tryMovePatient(owners, role, fromOwner, toOwner, Number(patientId));
     if (!applied) return false;
 
+    if (suggestion) __recordSuggestionFeedback(suggestion, "accepted");
     window.__oncomingSuggestionDismissed = window.__oncomingSuggestionDismissed || {};
     window.__oncomingSuggestionDismissed[role] = null;
     __suspendOncomingAutoPopulate(5000);
@@ -1486,6 +1716,8 @@ if (window.__assignmentsRenderLoaded) {
   };
 
   window.dismissSpecificOncomingSuggestion = function dismissSpecificOncomingSuggestion(role, patientId, fromOwnerId, toOwnerId) {
+    const suggestion = __findCurrentSuggestion(role, patientId, fromOwnerId, toOwnerId);
+    if (suggestion) __recordSuggestionFeedback(suggestion, "declined");
     window.__oncomingSuggestionDismissed = window.__oncomingSuggestionDismissed || {};
     const key = String(role || "");
     const existing = new Set(safeArray(window.__oncomingSuggestionDismissed[key]));
@@ -1494,9 +1726,23 @@ if (window.__assignmentsRenderLoaded) {
     try { renderOncomingAll(); } catch (_) {}
   };
 
+  window.rateOncomingSuggestion = function rateOncomingSuggestion(role, patientId, fromOwnerId, toOwnerId, rating) {
+    const suggestion = __findCurrentSuggestion(role, patientId, fromOwnerId, toOwnerId);
+    if (!suggestion) return;
+    const action = String(rating || "") === "down" ? "not_helpful" : "helpful";
+    __recordSuggestionFeedback(suggestion, action);
+    if (action === "not_helpful") {
+      window.dismissSpecificOncomingSuggestion(role, patientId, fromOwnerId, toOwnerId);
+    } else {
+      __showOncomingRebalanceToast("ok", "Feedback saved. Similar suggestions will be prioritized when they fit.");
+    }
+  };
+
   window.refreshOncomingSuggestions = function refreshOncomingSuggestions() {
     window.__oncomingSuggestionDismissed = { nurse: [], pca: [] };
-    try { renderOncomingAll(); } catch (_) {}
+    window.__lastOncomingSuggestions = null;
+    window.__oncomingSuggestionsCollapsed = false;
+    try { __renderOncomingQualityPanel({ force: true, forceSuggestions: true, reason: "manual_refresh_suggestions" }); } catch (_) {}
   };
 
   function __isOncomingTabVisible() {
@@ -1526,7 +1772,457 @@ if (window.__assignmentsRenderLoaded) {
     try { __renderOncomingQualityPanel(); } catch (_) {}
   };
 
-  function __renderOncomingQualityPanel() {
+  window.toggleOncomingSuggestionsPanel = function toggleOncomingSuggestionsPanel() {
+    window.__oncomingSuggestionsCollapsed = window.__oncomingSuggestionsCollapsed === false ? true : false;
+    try { __renderOncomingQualityPanel({ forceSuggestions: window.__oncomingSuggestionsCollapsed === false, reason: "suggestions_toggle" }); } catch (_) {}
+  };
+
+  function __shouldDeferOncomingQualityPanel() {
+    return Date.now() < Number(window.__suspendOncomingQualityUntil || 0);
+  }
+
+  function __scheduleOncomingQualityPanel(reason) {
+    if (window.__oncomingQualityPanelTimer) clearTimeout(window.__oncomingQualityPanelTimer);
+    window.__oncomingQualityPanelTimer = setTimeout(() => {
+      window.__oncomingQualityPanelTimer = null;
+      if (__shouldDeferOncomingQualityPanel()) {
+        __scheduleOncomingQualityPanel(reason || "deferred");
+        return;
+      }
+      try { __renderOncomingQualityPanel({ force: true, reason: reason || "deferred" }); } catch (_) {}
+    }, 260);
+  }
+
+  function __roomsForAssistant(key) {
+    return __getPatients()
+      .filter((p) => p && !p.isEmpty && (
+        key === "tele" ? !!p.tele :
+        key === "nih" ? !!p.nih :
+        key === "isolation" ? !!(p.isolation || p.iso) :
+        key === "feeder" ? !!(p.feeder || p.feeders) :
+        key === "totalCare" ? !!(p.strictIo || p.heavy) :
+        false
+      ))
+      .map((p) => String(typeof window.getRoomLabelForPatient === "function" ? window.getRoomLabelForPatient(p) : (p.room || p.id || "")).replace(/[^\dA-Za-z]/g, ""))
+      .filter(Boolean)
+      .sort((a, b) => {
+        const na = Number((String(a).match(/\d+/) || [9999])[0]);
+        const nb = Number((String(b).match(/\d+/) || [9999])[0]);
+        return na - nb || String(a).localeCompare(String(b));
+      });
+  }
+
+  function __ownerMetricLines(owners, role) {
+    return safeArray(owners).map((owner) => {
+      const pts = safeArray(owner?.patients)
+        .map((pid) => (typeof window.getPatientById === "function" ? window.getPatientById(pid) : null))
+        .filter((p) => p && !p.isEmpty);
+      const tele = pts.filter((p) => p.tele).length;
+      const nih = pts.filter((p) => p.nih).length;
+      const rooms = pts.map((p) => String(typeof window.getRoomLabelForPatient === "function" ? window.getRoomLabelForPatient(p) : (p.room || p.id || ""))).join(", ");
+      return `${owner?.name || role}: ${pts.length} patients${tele ? `, ${tele} tele` : ""}${nih ? `, ${nih} NIH` : ""}${rooms ? ` (${rooms})` : ""}`;
+    });
+  }
+
+  function __nihAssignmentInsight(nurses) {
+    const list = safeArray(nurses);
+    const nihRows = list.map((owner) => ({
+      owner,
+      count: countNihForOwner(owner),
+      total: safeArray(owner?.patients).length,
+      rooms: safeArray(owner?.patients)
+        .filter((pid) => isNihPatientId(pid))
+        .map((pid) => {
+          const p = typeof window.getPatientById === "function" ? window.getPatientById(pid) : null;
+          return p ? String(typeof window.getRoomLabelForPatient === "function" ? window.getRoomLabelForPatient(p) : (p.room || p.id || "")) : "";
+        })
+        .filter(Boolean)
+    }));
+    const totalNih = nihRows.reduce((sum, row) => sum + row.count, 0);
+    const targetMax = Math.max(1, Math.ceil(totalNih / Math.max(1, list.length)));
+    const overloaded = nihRows.filter((row) => row.count > targetMax);
+    const available = nihRows.filter((row) => row.count < targetMax && row.total < 4);
+    if (!totalNih) return "I do not see any NIH patients marked right now.";
+    if (!overloaded.length) {
+      return `NIH distribution looks acceptable: ${totalNih} NIH patient${totalNih === 1 ? "" : "s"} across ${list.length} RN groups, target max ${targetMax} per RN. I would still keep any Tele/NIH RN at 4:1.`;
+    }
+    const overloadText = overloaded.map((row) => `${row.owner?.name || "RN"} has ${row.count} NIH (${row.rooms.join(", ")})`).join("; ");
+    const availableText = available.length
+      ? `Good receiving groups: ${available.slice(0, 4).map((row) => `${row.owner?.name || "RN"} (${row.total} pts)`).join(", ")}.`
+      : "I do not see an obvious RN under 4 patients without NIH, so I would look for a med-surg swap rather than a simple add.";
+    return `I would rebalance the NIH load. ${overloadText}. With ${totalNih} NIH and ${list.length} RNs, the target is no more than ${targetMax} NIH per RN unless staffing makes that impossible. ${availableText} A good move is to move one NIH from the overloaded RN to an RN with no NIH while keeping both groups at 4:1.`;
+  }
+
+  function __assistantPatientRows(owner, role) {
+    return safeArray(owner?.patients)
+      .map((pid) => (typeof window.getPatientById === "function" ? window.getPatientById(pid) : null))
+      .filter((p) => p && !p.isEmpty)
+      .map((p) => {
+        const room = String(typeof window.getRoomLabelForPatient === "function" ? window.getRoomLabelForPatient(p) : (p.room || p.id || "")).trim();
+        const score = role === "pca"
+          ? ((p.isolation || p.iso ? 3 : 0) + (p.admit || p.admitPca ? 3 : 0) + (p.lateDc || p.lateDcPca ? 2 : 0) + (p.chg ? 3 : 0) + (p.foley ? 3 : 0) + (p.q2turns || p.q2Turns ? 4 : 0) + (p.feeder ? 3 : 0))
+          : ((p.tele ? 1 : 0) + (p.nih ? 4 : 0) + (p.drip || p.drips ? 5 : 0) + (p.bg || p.bgChecks ? 2 : 0) + (p.ciwa || p.cows || p.ciwaCows ? 4 : 0) + (p.emu ? 4 : 0) + (p.sitter ? 4 : 0) + (p.isolation || p.iso ? 2 : 0) + (p.admit ? 4 : 0) + (p.lateDc ? 2 : 0));
+        const roomNo = roomNumberLocal(p.id);
+        return { patient: p, room, roomNo, score };
+      })
+      .sort((a, b) => (a.roomNo || 9999) - (b.roomNo || 9999) || String(a.room).localeCompare(String(b.room)));
+  }
+
+  function __assistantOwnerStats(owners, role) {
+    return safeArray(owners).map((owner) => {
+      const rows = __assistantPatientRows(owner, role);
+      const rooms = rows.map((row) => row.room).filter(Boolean);
+      const roomNumbers = rows.map((row) => row.roomNo).filter(Number.isFinite);
+      const acuity = rows.reduce((sum, row) => sum + (Number(row.score) || 0), 0);
+      const span = roomNumbers.length > 1 ? Math.max(...roomNumbers) - Math.min(...roomNumbers) : 0;
+      const tele = rows.filter((row) => row.patient.tele).length;
+      const nih = rows.filter((row) => row.patient.nih).length;
+      const discharges = rows.filter((row) => row.patient.expectedDischarge).length;
+      const tags = {};
+      rows.forEach((row) => {
+        __assistantPatientTags(row.patient, role).forEach((tag) => {
+          tags[tag] = (tags[tag] || 0) + 1;
+        });
+      });
+      return {
+        owner,
+        name: String(owner?.name || role || "Owner"),
+        count: rows.length,
+        acuity,
+        span,
+        rooms,
+        roomNumbers,
+        rows,
+        tags,
+        tele,
+        nih,
+        discharges
+      };
+    });
+  }
+
+  function __assistantPatientTags(p, role) {
+    if (!p) return [];
+    if (role === "pca") {
+      return [
+        p.isolation || p.iso ? "ISO" : "",
+        p.admit || p.admitPca ? "Admit" : "",
+        p.lateDc || p.lateDcPca ? "Late DC" : "",
+        p.chg ? "CHG" : "",
+        p.foley ? "Foley" : "",
+        p.q2turns || p.q2Turns ? "Q2 Turns" : "",
+        p.strictIo || p.heavy ? "Total Care" : "",
+        p.feeder ? "Feeder" : ""
+      ].filter(Boolean);
+    }
+    return [
+      p.tele ? "Tele" : "",
+      p.nih ? "NIH" : "",
+      p.drip || p.drips ? "Drip" : "",
+      p.bg || p.bgChecks ? "BG" : "",
+      p.tf ? "TF" : "",
+      p.ciwa || p.cows || p.ciwaCows ? "CIWA/COWS" : "",
+      p.emu ? "EMU" : "",
+      p.restraint || p.restraints ? "Restraint" : "",
+      p.sitter ? "Sitter" : "",
+      p.vpo ? "VPO" : "",
+      p.isolation || p.iso ? "ISO" : "",
+      p.admit ? "Admit" : "",
+      p.lateDc ? "Late DC" : ""
+    ].filter(Boolean);
+  }
+
+  function __assistantTagSummary(tags, limit = 4) {
+    const rows = Object.keys(tags || {})
+      .map((key) => ({ key, n: Number(tags[key]) || 0 }))
+      .filter((row) => row.n > 0)
+      .sort((a, b) => b.n - a.n || a.key.localeCompare(b.key))
+      .slice(0, limit);
+    return rows.map((row) => `${row.key} x${row.n}`).join(", ");
+  }
+
+  function __assistantTopUnitNeeds(stats) {
+    const totals = {};
+    safeArray(stats).forEach((s) => {
+      Object.keys(s.tags || {}).forEach((key) => {
+        totals[key] = (totals[key] || 0) + (Number(s.tags[key]) || 0);
+      });
+    });
+    return __assistantTagSummary(totals, 6) || "routine care needs";
+  }
+
+  function __assistantOwnerOneLine(stat, role, ruleEval) {
+    const label = role === "pca" ? "PCA" : "RN";
+    const rooms = stat.rooms.length ? stat.rooms.join(", ") : "no rooms";
+    const tagText = __assistantTagSummary(stat.tags, 5) || "no high-risk tags";
+    const ruleText = buildRuleTooltip(ruleEval);
+    const ratioNote = role === "nurse" && (stat.tele || stat.nih)
+      ? "keep near 4:1"
+      : role === "nurse"
+        ? "med-surg cap 5"
+        : "watch turns/feeders/ISO";
+    return `${stat.name}: ${stat.count} ${label} pts, acuity ${stat.acuity}, rooms ${rooms}, span ${stat.span}; ${tagText}; ${ratioNote}${ruleText ? `; flags: ${ruleText}` : ""}.`;
+  }
+
+  function __assistantGroupByGroup(owners, role, ruleMap) {
+    const stats = __assistantOwnerStats(owners, role);
+    if (!stats.length) return role === "pca" ? "No PCA groups are built yet." : "No RN groups are built yet.";
+    return stats
+      .slice()
+      .sort((a, b) => String(a.name).localeCompare(String(b.name)))
+      .map((stat) => __assistantOwnerOneLine(stat, role, getOwnerRuleEvalFromMap(stat.owner, ruleMap)))
+      .join(" ");
+  }
+
+  function __assistantCompareNamedGroups(rawQuestion, nurses, pcas, rnRuleMap, pcaRuleMap) {
+    const q = String(rawQuestion || "").toLowerCase();
+    const all = __assistantOwnerStats(nurses, "nurse").map((s) => ({ ...s, role: "nurse", ruleMap: rnRuleMap }))
+      .concat(__assistantOwnerStats(pcas, "pca").map((s) => ({ ...s, role: "pca", ruleMap: pcaRuleMap })));
+    const genericNames = new Set(["rn", "nurse", "pca", "tech", "assistant"]);
+    const named = all.filter((s) => {
+      const first = firstNameOnly(s.name).toLowerCase();
+      const full = String(s.name || "").toLowerCase();
+      if (genericNames.has(first) || genericNames.has(full)) return false;
+      return (first && q.includes(first)) || (full && q.includes(full));
+    });
+    const picks = named.length >= 2 ? named.slice(0, 3) : [];
+    if (!picks.length) return "";
+    const sorted = picks.slice().sort((a, b) => b.acuity - a.acuity || b.count - a.count);
+    const high = sorted[0];
+    const low = sorted[sorted.length - 1];
+    const details = picks.map((s) => __assistantOwnerOneLine(s, s.role, getOwnerRuleEvalFromMap(s.owner, s.ruleMap))).join(" ");
+    return `Comparing those groups directly: ${details} My read is that ${high.name} is heavier than ${low.name} by ${Math.max(0, high.acuity - low.acuity)} acuity point(s) and ${Math.max(0, high.count - low.count)} patient(s). If you are choosing one adjustment, move the lowest-disruption patient from ${high.name} toward ${low.name} only if it does not create a new hard-rule flag or widen the room run.`;
+  }
+
+  function __assistantRuleBookText() {
+    return [
+      "Here are the rules I am using as my charge-nurse lens:",
+      "RN counts should stay within one patient when possible.",
+      "Any RN group with Tele or NIH should generally stay at 4:1; med-surg-only groups can go to 5:1, but not past 5.",
+      "Avoid stacking RN limit-one tags unless unavoidable: Drip, NIH, CIWA/COWS, EMU, restraint, sitter, and VPO. BG and TF should be spread instead of clustered.",
+      "PCA balance looks at isolation, admits, late discharges, CHG, Foley, Q2 turns, total care, and feeders.",
+      "Expected discharges should not all land on the same group.",
+      "Room spread matters: a numerically fair assignment can still feel bad when one person is stretched across a wide hallway run.",
+      "Continuity matters too: when two moves are otherwise similar, prefer fewer report-source changes."
+    ].join(" ");
+  }
+
+  function __assistantUnitSnapshot(nurses, pcas, rnRuleMap, pcaRuleMap, prevMaps) {
+    const pts = __getPatients().filter((p) => p && !p.isEmpty);
+    const rnStats = __assistantOwnerStats(nurses, "nurse");
+    const pcaStats = __assistantOwnerStats(pcas, "pca");
+    const rnScore = __nonIdealScore(nurses, "nurse", prevMaps?.prevRnByPid);
+    const pcaScore = __nonIdealScore(pcas, "pca", prevMaps?.prevPcaByPid);
+    const rnWarnings = rnStats.reduce((sum, s) => sum + visibleRuleCounts(getOwnerRuleEvalFromMap(s.owner, rnRuleMap)).violations, 0);
+    const pcaWarnings = pcaStats.reduce((sum, s) => sum + visibleRuleCounts(getOwnerRuleEvalFromMap(s.owner, pcaRuleMap)).violations, 0);
+    const rnNeeds = __assistantTopUnitNeeds(rnStats);
+    const pcaNeeds = __assistantTopUnitNeeds(pcaStats);
+    const rnCounts = rnStats.map((s) => s.count);
+    const pcaCounts = pcaStats.map((s) => s.count);
+    const rnSpread = rnCounts.length ? `${Math.min(...rnCounts)}-${Math.max(...rnCounts)}` : "none";
+    const pcaSpread = pcaCounts.length ? `${Math.min(...pcaCounts)}-${Math.max(...pcaCounts)}` : "none";
+    const rnLoad = rnStats.map((s) => s.acuity);
+    const pcaLoad = pcaStats.map((s) => s.acuity);
+    const rnLoadSpread = rnLoad.length ? `${Math.min(...rnLoad)}-${Math.max(...rnLoad)}` : "none";
+    const pcaLoadSpread = pcaLoad.length ? `${Math.min(...pcaLoad)}-${Math.max(...pcaLoad)}` : "none";
+    return `Unit read: ${pts.length} active patients across ${rnStats.length} RN group(s) and ${pcaStats.length} PCA group(s). RN count spread ${rnSpread}, RN acuity spread ${rnLoadSpread}, top RN needs: ${rnNeeds}. PCA count spread ${pcaSpread}, PCA workload spread ${pcaLoadSpread}, top PCA needs: ${pcaNeeds}. Visible rule flags: RN ${rnWarnings}, PCA ${pcaWarnings}. Board-quality score is RN ${Number(rnScore?.total || 0).toFixed(0)} and PCA ${Number(pcaScore?.total || 0).toFixed(0)}; lower is better.`;
+  }
+
+  function __assistantPrioritizedFeedback(nurses, pcas, rnRuleMap, pcaRuleMap, prevMaps) {
+    const issues = [];
+    const rnStats = __assistantOwnerStats(nurses, "nurse");
+    const pcaStats = __assistantOwnerStats(pcas, "pca");
+    rnStats.forEach((s) => {
+      const flags = visibleRuleCounts(getOwnerRuleEvalFromMap(s.owner, rnRuleMap));
+      if (flags.violations) issues.push({ weight: 100 + flags.violations, text: `${s.name} has ${flags.violations} RN hard-rule flag(s); fix this before fine-tuning fairness.` });
+      if ((s.tele || s.nih) && s.count > 4) issues.push({ weight: 90, text: `${s.name} has Tele/NIH plus ${s.count} patients, so I would bring that group back toward 4:1.` });
+      if (s.span > 10) issues.push({ weight: 50 + s.span, text: `${s.name} has the widest RN room run (${s.rooms.join(", ")}), which may feel inefficient even if acuity is acceptable.` });
+    });
+    pcaStats.forEach((s) => {
+      const flags = visibleRuleCounts(getOwnerRuleEvalFromMap(s.owner, pcaRuleMap));
+      if (flags.violations) issues.push({ weight: 80 + flags.violations, text: `${s.name} has ${flags.violations} PCA hard-rule flag(s); spread care-heavy tasks before polishing room geography.` });
+      if (s.span > 14) issues.push({ weight: 45 + s.span, text: `${s.name} has a wide PCA room run (${s.rooms.join(", ")}), so call-light response may feel stretched.` });
+    });
+    const rnMove = __assistantSuggestedMove(nurses, "nurse");
+    const pcaMove = __assistantSuggestedMove(pcas, "pca");
+    const top = issues.sort((a, b) => b.weight - a.weight).slice(0, 3).map((x) => x.text);
+    if (rnMove) top.push(rnMove);
+    else if (pcaMove) top.push(pcaMove);
+    if (!top.length) top.push("I do not see a major rule problem. I would preserve the current board, make only small swaps, and avoid chasing perfect symmetry.");
+    return top.join(" ");
+  }
+
+  function __assistantConversationalClose(rawQuestion) {
+    const q = String(rawQuestion || "").toLowerCase();
+    if (q.includes("should") || q.includes("would you") || q.includes("recommend")) {
+      return "My recommendation is deliberately practical: solve hard safety constraints first, then make the board feel humane.";
+    }
+    if (q.includes("why")) {
+      return "The reason I am weighting it this way is that staff satisfaction usually tracks felt workload, not just patient count.";
+    }
+    return "I would treat this as a huddle read, not a command: use it to decide where your next human check should go.";
+  }
+
+  function __assistantStylePrefix(seedText) {
+    const options = [
+      "Charge read:",
+      "My take:",
+      "Board sense:",
+      "Quick charge lens:",
+      "Acuity huddle note:"
+    ];
+    const raw = String(seedText || "") + "|" + safeArray(window.patients).filter((p) => p && !p.isEmpty).length + "|" + Number(window.__chargeAssistantTurn || 0);
+    let seed = 0;
+    for (let i = 0; i < raw.length; i++) seed = (seed + raw.charCodeAt(i) * (i + 3)) % 997;
+    return options[seed % options.length];
+  }
+
+  function __assistantBalanceSummary(owners, role, prevMap) {
+    const label = role === "pca" ? "PCA" : "RN";
+    const stats = __assistantOwnerStats(owners, role);
+    if (!stats.length) return `No ${label} groups are available yet.`;
+
+    const counts = stats.map((s) => s.count);
+    const acuities = stats.map((s) => s.acuity);
+    const maxCount = Math.max(...counts);
+    const minCount = Math.min(...counts);
+    const maxAcuity = Math.max(...acuities);
+    const minAcuity = Math.min(...acuities);
+    const heavy = stats.slice().sort((a, b) => b.acuity - a.acuity || b.count - a.count)[0];
+    const light = stats.slice().sort((a, b) => a.acuity - b.acuity || a.count - b.count)[0];
+    const wide = stats.slice().sort((a, b) => b.span - a.span)[0];
+    const score = __nonIdealScore(owners, role, prevMap);
+    const lines = [
+      `${label} count spread is ${minCount}-${maxCount}; acuity spread is ${minAcuity}-${maxAcuity}.`,
+      heavy && light && heavy !== light ? `${heavy.name} is carrying the heavier clinical weight (${heavy.acuity}) while ${light.name} is lighter (${light.acuity}).` : "",
+      wide && wide.span > (role === "pca" ? 14 : 10) ? `${wide.name} has the widest room run (${wide.rooms.join(", ")}), so that group may feel choppy even if the count looks fair.` : "",
+      Number(score?.violations || 0) > 0 ? `There are ${Number(score.violations)} avoidable rule flag(s) to resolve before I would call this balanced.` : "",
+      Number(score?.reportOverflow || 0) > 0 ? `Report-source drag is elevated (${Number(score.reportOverflow)} overflow), so continuity may feel fragmented.` : ""
+    ].filter(Boolean);
+    return lines.join(" ");
+  }
+
+  function __assistantSuggestedMove(owners, role) {
+    const stats = __assistantOwnerStats(owners, role);
+    if (stats.length < 2) return "";
+    const heavy = stats.slice().sort((a, b) => b.acuity - a.acuity || b.count - a.count)[0];
+    const light = stats.slice().sort((a, b) => a.acuity - b.acuity || a.count - b.count)[0];
+    if (!heavy || !light || heavy === light) return "";
+    const candidates = __assistantPatientRows(heavy.owner, role)
+      .filter((row) => Number(row.score) > 0)
+      .sort((a, b) => Math.abs((heavy.acuity - row.score) - (light.acuity + row.score)) - Math.abs((heavy.acuity) - (light.acuity)));
+    const best = candidates[0];
+    if (!best) return "";
+    const wouldImprove = Math.abs((heavy.acuity - best.score) - (light.acuity + best.score)) < Math.abs(heavy.acuity - light.acuity);
+    if (!wouldImprove && heavy.count - light.count < 2) return "";
+    return `Creative move to consider: trial ${best.room || "one higher-acuity room"} from ${heavy.name} to ${light.name}, then recheck count, rule flags, and room run before locking it.`;
+  }
+
+  function __assistantRoomSpreadSummary(owners, role) {
+    const label = role === "pca" ? "PCA" : "RN";
+    const limit = role === "pca" ? 14 : 10;
+    const stats = __assistantOwnerStats(owners, role);
+    const wide = stats.filter((s) => s.span > limit).sort((a, b) => b.span - a.span);
+    if (!wide.length) return `${label} room spread looks contained. No group is over the ${limit}-room spread target.`;
+    return wide.slice(0, 3).map((s) => `${s.name}: span ${s.span} across ${s.rooms.join(", ")}`).join(" | ");
+  }
+
+  function __chargeAssistantAnswer(rawQuestion) {
+    const q = String(rawQuestion || "").trim().toLowerCase();
+    if (!q) return "Ask me to compare groups, review the whole unit, explain the balancing rules, find room-spread problems, or suggest the next safest move.";
+    const nurses = __getIncomingNursesReal();
+    const pcas = __getIncomingPcasReal().filter((p) => !(p?.isSitter && String(p?.sitterRoomPair || "").trim()));
+    const pts = __getPatients().filter((p) => p && !p.isEmpty);
+    const prevMaps = __getPrevMapsForCycle();
+    const prefix = __assistantStylePrefix(rawQuestion);
+    const rnRuleMap = safeGetRuleEvalMap(nurses, "nurse");
+    const pcaRuleMap = safeGetRuleEvalMap(pcas, "pca");
+    const unitSnapshot = () => __assistantUnitSnapshot(nurses, pcas, rnRuleMap, pcaRuleMap, prevMaps);
+    const nextSteps = () => __assistantPrioritizedFeedback(nurses, pcas, rnRuleMap, pcaRuleMap, prevMaps);
+
+    if (q.includes("rule") || q.includes("logic") || q.includes("criteria") || q.includes("how are you") || q.includes("why did")) {
+      return `${prefix} ${__assistantRuleBookText()} In this exact board: ${unitSnapshot()} ${nextSteps()}`;
+    }
+    if (q.includes("compare")) {
+      const named = __assistantCompareNamedGroups(rawQuestion, nurses, pcas, rnRuleMap, pcaRuleMap);
+      if (named) return `${prefix} ${named}`;
+      return `${prefix} Group-by-group comparison. RN: ${__assistantGroupByGroup(nurses, "nurse", rnRuleMap)} PCA: ${__assistantGroupByGroup(pcas, "pca", pcaRuleMap)} ${nextSteps()}`;
+    }
+    if (q.includes("whole unit") || q.includes("unit as a whole") || q.includes("unit needs") || q.includes("huddle") || q.includes("overall")) {
+      return `${prefix} ${unitSnapshot()} ${nextSteps()} ${__assistantConversationalClose(rawQuestion)}`;
+    }
+    if (q.includes("what should") || q.includes("next move") || q.includes("recommend") || q.includes("fix") || q.includes("improve") || q.includes("change")) {
+      return `${prefix} ${unitSnapshot()} ${nextSteps()} ${__assistantConversationalClose(rawQuestion)}`;
+    }
+
+    if (q.includes("balance") || q.includes("fair") || q.includes("spread") || q.includes("acuity") || q.includes("flow")) {
+      const rnSummary = __assistantBalanceSummary(nurses, "nurse", prevMaps?.prevRnByPid);
+      const pcaSummary = __assistantBalanceSummary(pcas, "pca", prevMaps?.prevPcaByPid);
+      const rnMove = __assistantSuggestedMove(nurses, "nurse");
+      const pcaMove = __assistantSuggestedMove(pcas, "pca");
+      return `${prefix} ${unitSnapshot()} ${rnSummary} ${pcaSummary} ${rnMove || pcaMove || nextSteps()} ${__assistantConversationalClose(rawQuestion)}`;
+    }
+    if (q.includes("room")) {
+      return `${prefix} ${__assistantRoomSpreadSummary(nurses, "nurse")} ${__assistantRoomSpreadSummary(pcas, "pca")} ${nextSteps()}`;
+    }
+    if ((q.includes("nih") || q.includes("csc")) && (q.includes("balance") || q.includes("distribut") || q.includes("improve") || q.includes("way") || q.includes("can i") || q.includes("should"))) {
+      return `${prefix} ${__nihAssignmentInsight(nurses)}`;
+    }
+    if (q.includes("tele")) {
+      const rooms = __roomsForAssistant("tele");
+      return rooms.length ? `Tele rooms: ${rooms.join(", ")}.` : "No tele rooms are currently marked.";
+    }
+    if (q.includes("nih") || q.includes("csc")) {
+      const rooms = __roomsForAssistant("nih");
+      return rooms.length ? `CSC/NIH rooms: ${rooms.join(", ")}.` : "No NIH rooms are currently marked.";
+    }
+    if (q.includes("iso")) {
+      const rooms = __roomsForAssistant("isolation");
+      return rooms.length ? `Isolation rooms: ${rooms.join(", ")}.` : "No isolation rooms are currently marked.";
+    }
+    if (q.includes("feed")) {
+      const rooms = __roomsForAssistant("feeder");
+      return rooms.length ? `Feeder rooms: ${rooms.join(", ")}.` : "No feeder rooms are currently marked.";
+    }
+    if (q.includes("total") || q.includes("care") || q.includes("strict")) {
+      const rooms = __roomsForAssistant("totalCare");
+      return rooms.length ? `Total care / strict I&O rooms: ${rooms.join(", ")}.` : "No total care rooms are currently marked.";
+    }
+    if (q.includes("warning") || q.includes("rule") || q.includes("break")) {
+      const flagged = nurses.concat(pcas).map((owner) => {
+        const role = nurses.includes(owner) ? "RN" : "PCA";
+        const ruleEval = getOwnerRuleEvalFromMap(owner, role === "RN" ? rnRuleMap : pcaRuleMap);
+        const tip = buildRuleTooltip(ruleEval);
+        return tip ? `${owner.name}: ${tip}` : "";
+      }).filter(Boolean);
+      return flagged.length ? `${prefix} ${flagged.join(" ")} ${nextSteps()}` : `${prefix} No visible assignment warnings are currently showing. ${unitSnapshot()}`;
+    }
+    if (q.includes("pca")) {
+      return `${prefix} ${__assistantBalanceSummary(pcas, "pca", prevMaps?.prevPcaByPid)} ${__assistantGroupByGroup(pcas, "pca", pcaRuleMap)} ${__assistantSuggestedMove(pcas, "pca") || nextSteps()}`.trim();
+    }
+    if (q.includes("rn") || q.includes("nurse") || q.includes("load") || q.includes("assignment")) {
+      return `${prefix} ${__assistantBalanceSummary(nurses, "nurse", prevMaps?.prevRnByPid)} ${__assistantGroupByGroup(nurses, "nurse", rnRuleMap)} ${__assistantSuggestedMove(nurses, "nurse") || nextSteps()}`.trim();
+    }
+    return `${prefix} Current census is ${pts.length}. Tele: ${__roomsForAssistant("tele").length}. NIH/CSC: ${__roomsForAssistant("nih").length}. Isolation: ${__roomsForAssistant("isolation").length}. Feeders: ${__roomsForAssistant("feeder").length}. ${unitSnapshot()} ${nextSteps()} ${__assistantConversationalClose(rawQuestion)}`;
+  }
+
+  window.askChargeAssistant = function askChargeAssistant() {
+    const input = document.getElementById("chargeAssistantInput");
+    const output = document.getElementById("chargeAssistantOutput");
+    const question = input?.value || "";
+    window.__chargeAssistantTurn = Number(window.__chargeAssistantTurn || 0) + 1;
+    const answer = __chargeAssistantAnswer(question);
+    window.__chargeAssistantLast = { question, answer };
+    if (output) output.innerHTML = `<strong>Assistant:</strong> ${escapeHtml(answer)}`;
+  };
+
+  window.toggleChargeAssistantPanel = function toggleChargeAssistantPanel() {
+    window.__chargeAssistantCollapsed = window.__chargeAssistantCollapsed === false ? true : false;
+    try { __renderOncomingQualityPanel(); } catch (_) {}
+  };
+
+  function __renderOncomingQualityPanel(opts = {}) {
+    const __perfT0 = (typeof performance !== "undefined" && performance.now) ? performance.now() : 0;
     const host = document.getElementById("globalAssignmentPrintActions");
     let panel = document.getElementById("oncomingQualityPanel");
     if (!panel && host) {
@@ -1536,28 +2232,55 @@ if (window.__assignmentsRenderLoaded) {
     }
     if (!panel) return;
 
+    if (!opts.force && __shouldDeferOncomingQualityPanel()) {
+      __scheduleOncomingQualityPanel(opts.reason || "quality_deferred");
+      return;
+    }
+
     if (!__isOncomingTabVisible()) {
       panel.style.display = "none";
       panel.innerHTML = "";
       return;
     }
 
-    const legacySuggestions = __getOncomingSuggestions();
-    const rnCollapsed = window.__oncomingRnSuggestionsCollapsed === true;
-    const pcaCollapsed = window.__oncomingPcaSuggestionsCollapsed === true;
+    const suggestionDrawerCollapsed = window.__oncomingSuggestionsCollapsed !== false;
+    const chargeAssistantCollapsed = window.__chargeAssistantCollapsed !== false;
+    const shouldComputeSuggestions = !suggestionDrawerCollapsed || !!opts.forceSuggestions;
+    let activeSuggestions = window.__lastOncomingSuggestions || { nurse: [], pca: [] };
+    let topSuggestions = [];
+    let totalSuggestions = safeArray(activeSuggestions.nurse).length + safeArray(activeSuggestions.pca).length;
 
-    function renderSuggestionList(items, roleLabel) {
+    if (shouldComputeSuggestions) {
+      const tSuggest = (typeof performance !== "undefined" && performance.now) ? performance.now() : 0;
+      activeSuggestions = __getOncomingSuggestions();
+      window.__lastOncomingSuggestions = activeSuggestions;
+      topSuggestions = safeArray(activeSuggestions.nurse)
+        .map((suggestion) => ({ ...suggestion, roleLabel: "RN" }))
+        .concat(safeArray(activeSuggestions.pca).map((suggestion) => ({ ...suggestion, roleLabel: "PCA" })))
+        .sort((a, b) => (Number(b.weightedDelta) || 0) - (Number(a.weightedDelta) || 0))
+        .slice(0, 5);
+      totalSuggestions = safeArray(activeSuggestions.nurse).length + safeArray(activeSuggestions.pca).length;
+      try {
+        if (typeof window.perfRecord === "function" && tSuggest) {
+          window.perfRecord("oncomingSuggestionsCompute", performance.now() - tSuggest);
+        }
+      } catch (_) {}
+    }
+
+    function renderSuggestionList(items) {
       if (!safeArray(items).length) {
-        return `<div class="oncoming-quality-meta" style="margin-top:8px;">No ${escapeHtml(roleLabel)} suggestions right now.</div>`;
+        return `<div class="oncoming-quality-meta" style="margin-top:8px;">No suggestions right now.</div>`;
       }
       return safeArray(items).map((suggestion, idx) => `
-        <div style="margin-top:${idx === 0 ? "10px" : "8px"}; padding:10px; border:1px solid #e2e8f0; border-radius:10px; background:#f8fafc;">
-          <div class="oncoming-quality-line"><strong>Move ${idx + 1}:</strong> ${escapeHtml(suggestion.summary)}</div>
+        <div class="oncoming-suggestion-item">
+          <div class="oncoming-quality-line"><strong>${escapeHtml(suggestion.roleLabel || "Move")} ${idx + 1}:</strong> ${escapeHtml(suggestion.summary)}</div>
           <div class="oncoming-quality-meta">Impact: ${escapeHtml(suggestion.impact)}</div>
           <div class="oncoming-quality-meta">${escapeHtml(suggestion.metricLines.slice(0, 4).join(" | ") || "Improves board quality score")}</div>
           <div style="display:flex; gap:8px; margin-top:8px; flex-wrap:wrap;">
-            <button type="button" onclick="window.acceptOncomingSuggestion && window.acceptOncomingSuggestion('${escapeHtml(suggestion.role)}', ${Number(suggestion.patientId)}, ${Number(suggestion.fromOwnerId)}, ${Number(suggestion.toOwnerId)})" style="padding:6px 10px; border-radius:8px; background:#111; color:#fff; border:1px solid #111; font-weight:800;">Accept</button>
-            <button type="button" onclick="window.dismissSpecificOncomingSuggestion && window.dismissSpecificOncomingSuggestion('${escapeHtml(suggestion.role)}', ${Number(suggestion.patientId)}, ${Number(suggestion.fromOwnerId)}, ${Number(suggestion.toOwnerId)})" style="padding:6px 10px; border-radius:8px; background:#fff; color:#0f172a; border:1px solid #cbd5e1; font-weight:800;">Dismiss</button>
+            <button type="button" onclick="window.acceptOncomingSuggestion && window.acceptOncomingSuggestion('${escapeHtml(suggestion.role)}', ${Number(suggestion.patientId)}, ${Number(suggestion.fromOwnerId)}, ${Number(suggestion.toOwnerId)})" style="padding:6px 10px; border-radius:8px; background:#111; color:#fff; border:1px solid #111; font-weight:800;">Apply</button>
+            <button type="button" onclick="window.dismissSpecificOncomingSuggestion && window.dismissSpecificOncomingSuggestion('${escapeHtml(suggestion.role)}', ${Number(suggestion.patientId)}, ${Number(suggestion.fromOwnerId)}, ${Number(suggestion.toOwnerId)})" style="padding:6px 10px; border-radius:8px; background:#fff; color:#0f172a; border:1px solid #cbd5e1; font-weight:800;">Decline</button>
+            <button type="button" title="Good suggestion" onclick="window.rateOncomingSuggestion && window.rateOncomingSuggestion('${escapeHtml(suggestion.role)}', ${Number(suggestion.patientId)}, ${Number(suggestion.fromOwnerId)}, ${Number(suggestion.toOwnerId)}, 'up')" style="width:32px; height:32px; border-radius:8px; background:#ecfdf5; color:#065f46; border:1px solid #a7f3d0; font-weight:900;">+</button>
+            <button type="button" title="Poor suggestion" onclick="window.rateOncomingSuggestion && window.rateOncomingSuggestion('${escapeHtml(suggestion.role)}', ${Number(suggestion.patientId)}, ${Number(suggestion.fromOwnerId)}, ${Number(suggestion.toOwnerId)}, 'down')" style="width:32px; height:32px; border-radius:8px; background:#fff1f2; color:#9f1239; border:1px solid #fecdd3; font-weight:900;">-</button>
           </div>
         </div>
       `).join("");
@@ -1566,6 +2289,42 @@ if (window.__assignmentsRenderLoaded) {
     panel.style.display = "block";
     panel.style.width = "100%";
     panel.innerHTML = `
+      <div class="oncoming-quality-card">
+        <button type="button" class="oncoming-quality-toggle" aria-expanded="${suggestionDrawerCollapsed ? "false" : "true"}" onclick="window.toggleOncomingSuggestionsPanel && window.toggleOncomingSuggestionsPanel()">
+          <span>${suggestionDrawerCollapsed ? ">" : "v"}</span>
+          <span>Suggestions (${shouldComputeSuggestions ? (totalSuggestions ? `${Math.min(totalSuggestions, 5)}${totalSuggestions > 5 ? "+" : ""}` : "0") : "open to refresh"})</span>
+        </button>
+        <div style="${suggestionDrawerCollapsed ? "display:none;" : "display:block;"}">
+          <div class="oncoming-quality-meta" style="margin-top:6px;">Top ${Number(topSuggestions.length) || 0} current move candidates.</div>
+          ${renderSuggestionList(topSuggestions)}
+          <div style="margin-top:10px;">
+            <button type="button" onclick="window.refreshOncomingSuggestions && window.refreshOncomingSuggestions()" style="padding:6px 10px; border-radius:8px; background:#fff; color:#0f172a; border:1px solid #cbd5e1; font-weight:800;">Refresh Suggestions</button>
+          </div>
+        </div>
+      </div>
+      <div class="oncoming-quality-card" style="margin-top:8px;">
+        <button type="button" class="oncoming-quality-toggle" aria-expanded="${chargeAssistantCollapsed ? "false" : "true"}" onclick="window.toggleChargeAssistantPanel && window.toggleChargeAssistantPanel()">
+          <span>${chargeAssistantCollapsed ? ">" : "v"}</span>
+          <span>Virtual Charge Nurse Assistant</span>
+        </button>
+        <div style="${chargeAssistantCollapsed ? "display:none;" : "display:block;"}">
+          <div class="oncoming-quality-meta" style="margin-top:6px;">Ask for a whole-unit read, group-by-group comparison, balancing rules, room spread, warnings, or the next safest move.</div>
+          <div style="display:flex; gap:6px; margin-top:8px;">
+            <input id="chargeAssistantInput" type="text" placeholder="Ask about this assignment..." onkeydown="if(event.key==='Enter'){ window.askChargeAssistant && window.askChargeAssistant(); }" style="flex:1; min-width:0; padding:7px 9px; border:1px solid #cbd5e1; border-radius:8px; font-size:13px;" />
+            <button type="button" onclick="window.askChargeAssistant && window.askChargeAssistant()" style="padding:7px 10px; border-radius:8px; background:#111; color:#fff; border:1px solid #111; font-weight:800;">Ask</button>
+          </div>
+          <div id="chargeAssistantOutput" class="oncoming-quality-meta" style="margin-top:8px; line-height:1.35;">${window.__chargeAssistantLast?.answer ? `<strong>Assistant:</strong> ${escapeHtml(window.__chargeAssistantLast.answer)}` : "Assistant ready."}</div>
+        </div>
+      </div>
+    `;
+    try {
+      if (typeof window.perfRecord === "function" && __perfT0) {
+        window.perfRecord("oncomingQualityPanel", performance.now() - __perfT0, { reason: opts.reason || "" });
+      }
+    } catch (_) {}
+    return;
+
+    panel.innerHTML = `
       <div class="oncoming-quality-card" style="display:block; width:100%; box-sizing:border-box; background:#fff; border:1px solid #d7dde8; border-radius:12px; padding:10px 12px; box-shadow:0 8px 18px rgba(15,23,42,0.08);">
         <button type="button" class="oncoming-quality-toggle" aria-expanded="${rnCollapsed ? "false" : "true"}" onclick="window.toggleOncomingRnSuggestionsPanel && window.toggleOncomingRnSuggestionsPanel()">
           <span>${rnCollapsed ? "▸" : "▾"}</span>
@@ -1573,8 +2332,8 @@ if (window.__assignmentsRenderLoaded) {
         </button>
         <div style="${rnCollapsed ? "display:none;" : "display:block;"}">
           <div class="oncoming-quality-meta" style="margin-top:6px;">Review and apply RN improvements based on the current board.</div>
-          <div class="oncoming-quality-meta" style="margin-top:4px;">Candidates found: ${Number(safeArray(suggestions.nurse).length) || 0}</div>
-          ${renderSuggestionList(suggestions.nurse, "RN")}
+          <div class="oncoming-quality-meta" style="margin-top:4px;">Candidates found: ${Number(safeArray(activeSuggestions.nurse).length) || 0}</div>
+          ${renderSuggestionList(activeSuggestions.nurse, "RN")}
         </div>
         <div style="margin-top:12px; padding-top:10px; border-top:1px solid #e5e7eb;">
           <button type="button" class="oncoming-quality-toggle" aria-expanded="${pcaCollapsed ? "false" : "true"}" onclick="window.toggleOncomingPcaSuggestionsPanel && window.toggleOncomingPcaSuggestionsPanel()">
@@ -1583,8 +2342,8 @@ if (window.__assignmentsRenderLoaded) {
           </button>
           <div style="${pcaCollapsed ? "display:none;" : "display:block;"}">
             <div class="oncoming-quality-meta" style="margin-top:6px;">Review and apply PCA improvements based on the current board.</div>
-            <div class="oncoming-quality-meta" style="margin-top:4px;">Candidates found: ${Number(safeArray(suggestions.pca).length) || 0}</div>
-            ${renderSuggestionList(suggestions.pca, "PCA")}
+            <div class="oncoming-quality-meta" style="margin-top:4px;">Candidates found: ${Number(safeArray(activeSuggestions.pca).length) || 0}</div>
+            ${renderSuggestionList(activeSuggestions.pca, "PCA")}
           </div>
         </div>
         <div style="margin-top:10px;">
@@ -1726,6 +2485,37 @@ if (window.__assignmentsRenderLoaded) {
       __restoreSingleOwnerArrays(list, before);
       return { changed: false, avoidable: getAvoidableViolationCount(list, role), error: e };
     }
+  }
+
+  function __assignMissingPatientsBestEffort(owners, role, activePatients) {
+    const list = Array.isArray(owners) ? owners.filter(Boolean) : [];
+    const pts = Array.isArray(activePatients) ? activePatients.filter((p) => p && !p.isEmpty) : [];
+    if (!list.length || !pts.length || typeof window.distributePatientsEvenly !== "function") {
+      return { changed: false, added: 0 };
+    }
+
+    const assigned = new Set();
+    list.forEach((owner) => {
+      owner.patients = safeArray(owner?.patients).filter((pid) => {
+        const n = Number(pid);
+        if (!Number.isFinite(n) || assigned.has(n)) return false;
+        assigned.add(n);
+        return true;
+      });
+    });
+
+    const missing = pts.filter((p) => !assigned.has(Number(p?.id)));
+    if (!missing.length) return { changed: false, added: 0 };
+
+    if (role === "pca") {
+      const { unlockedPool } = applyPcaPinsBeforeDistribute(missing, list);
+      window.distributePatientsEvenly(list, unlockedPool, { randomize: false, role: "pca", preserveExisting: true });
+    } else {
+      const { unlockedPool } = applyRnPinsBeforeDistribute(missing);
+      window.distributePatientsEvenly(list, unlockedPool, { randomize: false, role: "nurse", preserveExisting: true });
+    }
+
+    return { changed: true, added: missing.length };
   }
 
   function __prevMapToObject(prevMap) {
@@ -2021,13 +2811,47 @@ if (window.__assignmentsRenderLoaded) {
     return null;
   }
 
+  function visibleRuleCounts(ruleEval) {
+    const hiddenTags = new Set(["expecteddischarge", "countbalance", "chg", "foley", "q2turns", "feeder"]);
+    const isVisible = (x) => !hiddenTags.has(String(x?.tag || "").toLowerCase());
+    return {
+      violations: (Array.isArray(ruleEval?.violations) ? ruleEval.violations : []).filter(isVisible).length,
+      warnings: (Array.isArray(ruleEval?.warnings) ? ruleEval.warnings : []).filter(isVisible).length
+    };
+  }
+
   function buildRuleTooltip(ruleEval) {
     if (!ruleEval) return "";
-    const v = Array.isArray(ruleEval.violations) ? ruleEval.violations : [];
-    const w = Array.isArray(ruleEval.warnings) ? ruleEval.warnings : [];
+    const hiddenTags = new Set(["expecteddischarge", "countbalance", "chg", "foley", "q2turns", "feeder"]);
+    const isHidden = (x) => hiddenTags.has(String(x?.tag || "").toLowerCase());
+    const v = (Array.isArray(ruleEval.violations) ? ruleEval.violations : []).filter((x) => !isHidden(x));
+    const w = (Array.isArray(ruleEval.warnings) ? ruleEval.warnings : []).filter((x) => !isHidden(x));
     if (!v.length && !w.length) return "";
 
+    const plainRuleLabel = (x) => {
+      const tag = String(x?.tag || "").toLowerCase();
+      if (tag === "rnratio") return "Tele/NIH group exceeds 4 patients";
+      if (tag === "rnabsolutemax") return "Med-Surg group exceeds 5 patients";
+      if (tag === "nih") return "Multiple NIH patients assigned together";
+      if (tag === "drip") return "Multiple drip patients assigned together";
+      if (tag === "bg") return "Blood glucose checks are concentrated";
+      if (tag === "tf") return "Tube feeds are concentrated";
+      if (tag === "ciwa") return "Multiple CIWA/COWS patients assigned together";
+      if (tag === "emu") return "Multiple EMU patients assigned together";
+      if (tag === "restraint") return "Multiple restraint patients assigned together";
+      if (tag === "sitter") return "Multiple sitter patients assigned together";
+      if (tag === "vpo") return "Multiple VPO patients assigned together";
+      if (tag === "isolation") return "Isolation load is concentrated";
+      if (tag === "admit") return "Multiple new admits assigned together";
+      if (tag === "latedc") return "Multiple late discharges assigned together";
+      if (tag === "report_sources") return "Too many report sources for this assignment";
+      return String(x?.message || x?.tag || "Assignment warning");
+    };
+
     const parts = [];
+    v.forEach(x => parts.push(`! ${plainRuleLabel(x)}`));
+    w.forEach(x => parts.push(`Warning: ${plainRuleLabel(x)}`));
+    return parts.join(" | ");
     v.forEach(x => parts.push(`❗ ${x.tag}: ${x.mine} > ${x.limit}`));
     w.forEach(x => parts.push(`⚠ ${x.tag}: ${x.mine} > ${x.limit} (may be unavoidable)`));
     return parts.join(" • ");
@@ -2412,6 +3236,7 @@ if (window.__assignmentsRenderLoaded) {
   // RN Oncoming Render
   // =========================================================
   function __renderAssignmentOutputWithCache(prevMaps) {
+    const __perfT0 = (typeof performance !== "undefined" && performance.now) ? performance.now() : 0;
     __syncIncomingGlobals();
 
     const container = document.getElementById("assignmentOutput");
@@ -2448,8 +3273,9 @@ if (window.__assignmentsRenderLoaded) {
       const reportSources = uniqueCountFromMap(nurse.patients || [], prevRnByPid);
 
       const ruleEval = getOwnerRuleEvalFromMap(nurse, rnRuleMap);
-      const vCount = ruleEval?.violations?.length || 0;
-      const wCount = ruleEval?.warnings?.length || 0;
+      const visibleRules = visibleRuleCounts(ruleEval);
+      const vCount = visibleRules.violations;
+      const wCount = visibleRules.warnings;
       const ruleTip = buildRuleTooltip(ruleEval);
 
       html += `
@@ -2544,7 +3370,7 @@ if (window.__assignmentsRenderLoaded) {
             style="${pinned ? "opacity:0.98;" : ""}"
           >
             <td>${bedCellHtml(p, pinControl)}</td>
-            <td>${p.tele ? "Tele" : "MS"}</td>
+            <td>${assignmentTeleHeartHtml(p)}</td>
             <td>${typeof rnTagString === "function" ? rnTagString(p) : ""}</td>
             <td>${escapeHtml(prevName || "-")}</td>
           </tr>
@@ -2573,12 +3399,18 @@ if (window.__assignmentsRenderLoaded) {
     container.ondrop = function (event) {
       if (window.onOwnerTileContainerDrop) window.onOwnerTileContainerDrop(event, "incoming", "nurse");
     };
+    try {
+      if (typeof window.perfRecord === "function" && __perfT0) {
+        window.perfRecord("renderAssignmentOutput:board_only", performance.now() - __perfT0);
+      }
+    } catch (_) {}
   }
 
   // =========================================================
   // PCA Oncoming Render
   // =========================================================
   function __renderPcaAssignmentOutputWithCache(prevMaps) {
+    const __perfT0 = (typeof performance !== "undefined" && performance.now) ? performance.now() : 0;
     __syncIncomingGlobals();
 
     const container = document.getElementById("pcaAssignmentOutput");
@@ -2615,8 +3447,9 @@ if (window.__assignmentsRenderLoaded) {
       const reportSources = uniqueCountFromMap(pca.patients || [], prevPcaByPid);
 
       const ruleEval = getOwnerRuleEvalFromMap(pca, pcaRuleMap);
-      const vCount = ruleEval?.violations?.length || 0;
-      const wCount = ruleEval?.warnings?.length || 0;
+      const visibleRules = visibleRuleCounts(ruleEval);
+      const vCount = visibleRules.violations;
+      const wCount = visibleRules.warnings;
       const ruleTip = buildRuleTooltip(ruleEval);
       const sitterPair = String(pca?.sitterRoomPair || "").trim();
       const isSitterPca = !!pca?.isSitter && !!sitterPair;
@@ -2656,13 +3489,13 @@ if (window.__assignmentsRenderLoaded) {
             ${__ownerHeaderControlsHtml("incoming", "pca", pca)}
           </div>
 
-          <table class="assignment-table">
+          <table class="assignment-table pca-oncoming-table">
             <thead>
               <tr>
                 <th>Bed</th>
                 <th>Level</th>
                 <th>Acuity Notes</th>
-                <th>Prev. PCA</th>
+                <th title="Previous PCA">Prev.</th>
               </tr>
             </thead>
             <tbody
@@ -2712,7 +3545,7 @@ if (window.__assignmentsRenderLoaded) {
             style="${pinned ? "opacity:0.98;" : ""}"
           >
             <td>${bedCellHtml(p, pinControl)}</td>
-            <td>${p.tele ? "Tele" : "MS"}</td>
+            <td>${assignmentTeleHeartHtml(p)}</td>
             <td>${typeof pcaTagString === "function" ? pcaTagString(p) : ""}</td>
             <td>${escapeHtml(prevName || "-")}</td>
           </tr>
@@ -2741,36 +3574,67 @@ if (window.__assignmentsRenderLoaded) {
     container.ondrop = function (event) {
       if (window.onOwnerTileContainerDrop) window.onOwnerTileContainerDrop(event, "incoming", "pca");
     };
+    try {
+      if (typeof window.perfRecord === "function" && __perfT0) {
+        window.perfRecord("renderPcaAssignmentOutput:board_only", performance.now() - __perfT0);
+      }
+    } catch (_) {}
   }
 
   // Batch render (RN + PCA share the same prev maps)
   function renderOncomingAll() {
+    window.__oncomingRenderStats = window.__oncomingRenderStats || { all: 0, rn: 0, pca: 0, quality: 0 };
+    window.__oncomingRenderStats.all += 1;
+    window.__oncomingRenderStats.lastAllAt = new Date().toISOString();
     __beginRenderCycle();
     __syncOncomingDischargeVisualToggle();
     const prevMaps = __getPrevMapsForCycle();
     __renderAssignmentOutputWithCache(prevMaps);
+    window.__oncomingRenderStats.rn += 1;
     __renderPcaAssignmentOutputWithCache(prevMaps);
+    window.__oncomingRenderStats.pca += 1;
     __refreshOncomingPopulateStatus();
-    __renderOncomingQualityPanel();
+    if (__shouldDeferOncomingQualityPanel()) {
+      __scheduleOncomingQualityPanel("renderOncomingAll");
+    } else {
+      __renderOncomingQualityPanel();
+      window.__oncomingRenderStats.quality += 1;
+    }
   }
 
   // Public render fns (keep API stable)
   function renderAssignmentOutput() {
+    window.__oncomingRenderStats = window.__oncomingRenderStats || { all: 0, rn: 0, pca: 0, quality: 0 };
+    window.__oncomingRenderStats.rn += 1;
+    window.__oncomingRenderStats.lastRnAt = new Date().toISOString();
     __beginRenderCycle();
     __syncOncomingDischargeVisualToggle();
     const prevMaps = __getPrevMapsForCycle();
     __renderAssignmentOutputWithCache(prevMaps);
     __refreshOncomingPopulateStatus();
-    __renderOncomingQualityPanel();
+    if (__shouldDeferOncomingQualityPanel()) {
+      __scheduleOncomingQualityPanel("renderAssignmentOutput");
+    } else {
+      __renderOncomingQualityPanel();
+      window.__oncomingRenderStats.quality += 1;
+    }
   }
 
   function renderPcaAssignmentOutput() {
+    window.__oncomingRenderStats = window.__oncomingRenderStats || { all: 0, rn: 0, pca: 0, quality: 0 };
+    window.__oncomingRenderStats.pca += 1;
+    window.__oncomingRenderStats.lastPcaAt = new Date().toISOString();
     __beginRenderCycle();
     __syncOncomingDischargeVisualToggle();
     const prevMaps = __getPrevMapsForCycle();
     __renderPcaAssignmentOutputWithCache(prevMaps);
     __refreshOncomingPopulateStatus();
-    __renderOncomingQualityPanel();
+    if (__shouldDeferOncomingQualityPanel()) {
+      __scheduleOncomingQualityPanel("renderPcaAssignmentOutput");
+    } else {
+      __renderOncomingQualityPanel();
+      window.__oncomingRenderStats.quality += 1;
+    }
   }
 
   function renderSitterAssignmentOutput() {
@@ -2829,6 +3693,7 @@ if (window.__assignmentsRenderLoaded) {
         if (openPcas.length) {
           window.distributePatientsEvenly(openPcas, pcaPool, { randomize, role: "pca", preserveExisting: true });
         }
+        const populateNihBalance = rebalanceNihDistribution(nurses, { maxPasses: 36 });
         rebalanceSingleMovesStrict(nurses, "nurse", { maxPasses: 120 });
         if (openPcas.length) rebalanceSingleMovesStrict(openPcas, "pca", { maxPasses: 120 });
         rebalanceExpectedDischarges(nurses, "nurse", { maxPasses: 80 });
@@ -2850,6 +3715,7 @@ if (window.__assignmentsRenderLoaded) {
         window.repairAssignmentsInPlace(nurses, "nurse", null, { maxIters: 35 });
         window.repairAssignmentsInPlace(openPcasForBalance, "pca", null, { maxIters: 35 });
       }
+      rebalanceNihDistribution(nurses, { maxPasses: 36 });
       __enforceSitterAssignmentsExclusive(pcas, list);
       const populatePrevMaps = buildPrevOwnerMaps();
       __applyEngineV2Solution(nurses, activePatients, "nurse", populatePrevMaps.prevRnByPid, { maxPasses: 160, forceApply: true });
@@ -2945,6 +3811,48 @@ if (window.__assignmentsRenderLoaded) {
 
       const openPcas = pcas.filter((p) => !(p?.isSitter && String(p?.sitterRoomPair || "").trim()));
       const activePatients = ptsAll.filter((p) => p && !p.isEmpty);
+      const initialAssignedRn = Array.from(beforeSnapRn.values()).reduce((sum, row) => sum + safeArray(row).length, 0);
+      const initialAssignedPca = Array.from(beforeSnapPca.values()).reduce((sum, row) => sum + safeArray(row).length, 0);
+      const rnQueueFill = __assignMissingPatientsBestEffort(nurses, "nurse", activePatients);
+      const pcaPoolForInitialFill = activePatients.filter((p) => !(__getIncomingPcas().some((owner) => owner?.isSitter && String(owner?.sitterRoomPair || "").trim() && safeArray(owner?.patients).includes(Number(p?.id)))));
+      const pcaQueueFill = __assignMissingPatientsBestEffort(openPcas, "pca", pcaPoolForInitialFill);
+      const filledUnassignedPatients =
+        rnQueueFill.added > 0 ||
+        pcaQueueFill.added > 0 ||
+        initialAssignedRn < activePatients.length ||
+        (openPcas.length && initialAssignedPca < pcaPoolForInitialFill.length);
+      const fastFillMode = !!filledUnassignedPatients;
+      const alreadyBalancedEnough =
+        !filledUnassignedPatients &&
+        baselinePreventableRn <= 0 &&
+        baselinePreventablePca <= 0 &&
+        countSpreadLocal(nurses) <= 1 &&
+        countSpreadLocal(openPcas) <= 1 &&
+        roomSpreadOverflowLocal(nurses, "nurse") <= 0 &&
+        roomSpreadOverflowLocal(openPcas, "pca") <= 0;
+      if (alreadyBalancedEnough) {
+        __setBanner(
+          "assignmentOutput",
+          "oncomingStatusRn",
+          "ok",
+          `Assignments already meet the core balance rules. No full rebalance was needed. Counts: ${__formatOwnerCounts(window.__lastOncomingRebalanceDebug?.before?.rn)}.`
+        );
+        __setBanner(
+          "pcaAssignmentOutput",
+          "oncomingStatusPca",
+          "ok",
+          `PCA assignments already meet the core balance rules. No full rebalance was needed. Counts: ${__formatOwnerCounts(window.__lastOncomingRebalanceDebug?.before?.pca)}.`
+        );
+        __showOncomingRebalanceToast("ok", "Assignments already meet core balance rules. No full rebalance was needed.");
+        renderOncomingAll();
+        if (typeof window.saveState === "function") window.saveState();
+        return;
+      }
+      const strictPasses = fastFillMode ? 28 : 36;
+      const dischargePassesRn = fastFillMode ? 36 : 44;
+      const dischargePassesPca = fastFillMode ? 30 : 38;
+      const countPasses = fastFillMode ? 18 : 22;
+      const enginePasses = fastFillMode ? 45 : 55;
       let v2Rn = { applied: false, reason: "Engine V2 deferred to final pass." };
       let v2Pca = { applied: false, reason: "Engine V2 deferred to final pass." };
       window.__lastOncomingRebalanceDebug.v2 = {
@@ -2956,41 +3864,55 @@ if (window.__assignmentsRenderLoaded) {
         }
       };
 
-      const strictMoveRn = rebalanceSingleMovesStrict(nurses, "nurse", { maxPasses: 140 });
-      const strictMovePca = rebalanceSingleMovesStrict(openPcas, "pca", { maxPasses: 140 });
-      const dischargePassRn = rebalanceExpectedDischarges(nurses, "nurse", { maxPasses: 160 });
-      const dischargePassPca = rebalanceExpectedDischarges(openPcas, "pca", { maxPasses: 120 });
-      let rnRes = __runSafeRebalance(nurses, "nurse");
-      let pcaRes = __runSafeRebalance(openPcas, "pca");
-      rebalanceSingleMovesStrict(nurses, "nurse", { maxPasses: 140 });
-      rebalanceSingleMovesStrict(openPcas, "pca", { maxPasses: 140 });
-      const rnCountFallback = balanceCountsWithoutCreatingNewAvoidableViolations(nurses, "nurse", { maxPasses: 80 });
-      const pcaCountFallback = balanceCountsWithoutCreatingNewAvoidableViolations(openPcas, "pca", { maxPasses: 80 });
-      rebalanceSingleMovesStrict(nurses, "nurse", { maxPasses: 140 });
-      rebalanceSingleMovesStrict(openPcas, "pca", { maxPasses: 140 });
-      rebalanceExpectedDischarges(nurses, "nurse", { maxPasses: 160 });
-      rebalanceExpectedDischarges(openPcas, "pca", { maxPasses: 120 });
+      const nihBalanceRn = rebalanceNihDistribution(nurses, { maxPasses: 36 });
+      const strictMoveRn = rebalanceSingleMovesStrict(nurses, "nurse", { maxPasses: strictPasses });
+      const strictMovePca = rebalanceSingleMovesStrict(openPcas, "pca", { maxPasses: strictPasses });
+      const dischargePassRn = rebalanceExpectedDischarges(nurses, "nurse", { maxPasses: dischargePassesRn });
+      const dischargePassPca = rebalanceExpectedDischarges(openPcas, "pca", { maxPasses: dischargePassesPca });
+      const rnCountFallback = balanceCountsWithoutCreatingNewAvoidableViolations(nurses, "nurse", { maxPasses: countPasses });
+      const pcaCountFallback = balanceCountsWithoutCreatingNewAvoidableViolations(openPcas, "pca", { maxPasses: countPasses });
       let afterPrimaryPreventableRn = getAvoidableViolationCount(nurses, "nurse");
       let afterPrimaryPreventablePca = getAvoidableViolationCount(openPcas, "pca");
       let emergencyRnRebuild = { changed: false, improved: false };
       let emergencyPcaRebuild = { changed: false, improved: false };
+      let rnRes = { applied: false, reason: "Heavy rebalance pass skipped; light pass was sufficient." };
+      let pcaRes = { applied: false, reason: "Heavy rebalance pass skipped; light pass was sufficient." };
       const pcaPoolForRebuild = activePatients.filter((p) => !(__getIncomingPcas().some((owner) => owner?.isSitter && String(owner?.sitterRoomPair || "").trim() && safeArray(owner?.patients).includes(Number(p?.id)))));
 
       if (afterPrimaryPreventableRn > 0) {
         emergencyRnRebuild = __fullRebuildOwnersForRole(nurses, "nurse", activePatients);
         rnRes = __runSafeRebalance(nurses, "nurse");
-        rebalanceExpectedDischarges(nurses, "nurse", { maxPasses: 180 });
+        rebalanceExpectedDischarges(nurses, "nurse", { maxPasses: fastFillMode ? 44 : 60 });
         afterPrimaryPreventableRn = getAvoidableViolationCount(nurses, "nurse");
       }
       if (afterPrimaryPreventablePca > 0 && openPcas.length) {
         emergencyPcaRebuild = __fullRebuildOwnersForRole(openPcas, "pca", pcaPoolForRebuild);
         pcaRes = __runSafeRebalance(openPcas, "pca");
-        rebalanceExpectedDischarges(openPcas, "pca", { maxPasses: 140 });
+        rebalanceExpectedDischarges(openPcas, "pca", { maxPasses: fastFillMode ? 38 : 52 });
         afterPrimaryPreventablePca = getAvoidableViolationCount(openPcas, "pca");
       }
       __enforceSitterAssignmentsExclusive(pcas, ptsAll.filter((p) => p && !p.isEmpty));
-      v2Rn = __applyEngineV2Solution(nurses, activePatients, "nurse", prevRnByPid, { maxPasses: 220, reseedOwners: true, forceApply: true });
-      v2Pca = __applyEngineV2Solution(openPcas, activePatients, "pca", prevPcaByPid, { maxPasses: 220, reseedOwners: true, forceApply: true });
+      const needsEngineRn =
+        afterPrimaryPreventableRn > 0 ||
+        countSpreadLocal(nurses) > 1 ||
+        roomSpreadOverflowLocal(nurses, "nurse") > 0;
+      const needsEnginePca =
+        openPcas.length &&
+        (
+          afterPrimaryPreventablePca > 0 ||
+          countSpreadLocal(openPcas) > 1 ||
+          roomSpreadOverflowLocal(openPcas, "pca") > 0
+        );
+      if (needsEngineRn) {
+        v2Rn = __applyEngineV2Solution(nurses, activePatients, "nurse", prevRnByPid, { maxPasses: enginePasses, reseedOwners: false, forceApply: true });
+      } else {
+        v2Rn = { applied: false, reason: "Engine skipped; RN light balance met core rules." };
+      }
+      if (needsEnginePca) {
+        v2Pca = __applyEngineV2Solution(openPcas, activePatients, "pca", prevPcaByPid, { maxPasses: enginePasses, reseedOwners: false, forceApply: true });
+      } else {
+        v2Pca = { applied: false, reason: "Engine skipped; PCA light balance met core rules." };
+      }
       window.__lastOncomingRebalanceDebug.v2 = {
         rn: v2Rn,
         pca: v2Pca,
@@ -3029,10 +3951,14 @@ if (window.__assignmentsRenderLoaded) {
         finalCountSpreadPca <= 1 &&
         finalRoomOverflowRn <= 0 &&
         finalRoomOverflowPca <= 0;
-      const boardImproved = __compareNonIdealScore(afterBoardScore, beforeBoardScore) < 0;
+      const boardCompare = __compareNonIdealScore(afterBoardScore, beforeBoardScore);
+      const boardImproved = boardCompare < 0;
+      const boardWorse = boardCompare > 0;
       const countStillImbalanced = finalCountSpreadRn > 1 || finalCountSpreadPca > 1;
       const roomStillWide = finalRoomOverflowRn > 0 || finalRoomOverflowPca > 0;
-      const shouldRollback = countStillImbalanced || roomStillWide || (!perfectRuleClean && !boardImproved);
+      const sparseBoard = activePatients.length <= Math.max(1, Math.min(nurses.length || 1, openPcas.length || nurses.length || 1));
+      const bestEffortRetained = !boardImproved && !boardWorse && !perfectRuleClean;
+      const shouldRollback = boardWorse && !sparseBoard && !filledUnassignedPatients;
       if (shouldRollback) {
         __restoreOwnersFromSnapshot(nurses, beforeSnapRn);
         __restoreOwnersFromSnapshot(pcas, beforeSnapPca);
@@ -3051,12 +3977,15 @@ if (window.__assignmentsRenderLoaded) {
 
       const movesRn = __countMovesFromSnapshots(beforeSnapRn, nurses);
       const movesPca = __countMovesFromSnapshots(beforeSnapPca, pcas);
-      const rnApplied = !shouldRollback && !!(v2Rn?.applied || strictMoveRn?.changed || dischargePassRn?.changed || rnRes.applied || rnCountFallback?.changed || emergencyRnRebuild?.changed || movesRn > 0);
+      const rnApplied = !shouldRollback && !!(nihBalanceRn?.changed || v2Rn?.applied || strictMoveRn?.changed || dischargePassRn?.changed || rnRes.applied || rnCountFallback?.changed || emergencyRnRebuild?.changed || movesRn > 0);
       const pcaApplied = !shouldRollback && !!(v2Pca?.applied || strictMovePca?.changed || dischargePassPca?.changed || pcaRes.applied || pcaCountFallback?.changed || emergencyPcaRebuild?.changed || movesPca > 0);
+      const rnBestEffort = !rnApplied && !shouldRollback && (bestEffortRetained || filledUnassignedPatients);
+      const pcaBestEffort = !pcaApplied && !shouldRollback && (bestEffortRetained || filledUnassignedPatients);
 
       const msgOkRn = [
         `Applied ${movesRn} move${movesRn === 1 ? "" : "s"}.`,
         v2Rn?.applied ? "Engine V2 final pass applied." : "",
+        nihBalanceRn?.changed ? nihBalanceRn.reason : "",
         strictMoveRn?.changed ? "Direct one-patient RN moves applied." : "",
         emergencyRnRebuild?.changed ? "Escalated to a full discharge-aware RN rebuild." : "",
         (rnCountFallback?.changed && !rnRes.applied) ? "Count-priority balancing applied." : "",
@@ -3085,8 +4014,10 @@ if (window.__assignmentsRenderLoaded) {
       __setBanner(
         "assignmentOutput",
         "oncomingStatusRn",
-        rnApplied ? "ok" : "warn",
-        rnApplied ? msgOkRn : (
+        (rnApplied || rnBestEffort) ? "ok" : "warn",
+        rnApplied ? msgOkRn : rnBestEffort ? (
+          `Best available RN distribution retained. No safer improvement was needed for the current board. Score ${__formatNonIdealScore(beforeScoreRn)} -> ${__formatNonIdealScore(afterScoreRn)}. Counts: ${afterCountsRnText}.`
+        ) : (
           shouldRollback
             ? (baselinePreventablePresent
                 ? `No board-quality improvement was found. Existing preventable RN/PCA rule breaks remain unchanged. Score ${__formatNonIdealScore(beforeScoreRn)} -> ${__formatNonIdealScore(afterScoreRn)}. Before: ${beforeCountsRnText}. After attempt: ${afterCountsRnText}. Engine V2: ${v2RnReason}.`
@@ -3098,8 +4029,10 @@ if (window.__assignmentsRenderLoaded) {
       __setBanner(
         "pcaAssignmentOutput",
         "oncomingStatusPca",
-        pcaApplied ? "ok" : "warn",
-        pcaApplied ? msgOkPca : (
+        (pcaApplied || pcaBestEffort) ? "ok" : "warn",
+        pcaApplied ? msgOkPca : pcaBestEffort ? (
+          `Best available PCA distribution retained. No safer improvement was needed for the current board. Score ${__formatNonIdealScore(beforeScorePca)} -> ${__formatNonIdealScore(afterScorePca)}. Counts: ${afterCountsPcaText}.`
+        ) : (
           shouldRollback
             ? (baselinePreventablePresent
                 ? `No board-quality improvement was found. Existing preventable RN/PCA rule breaks remain unchanged. Score ${__formatNonIdealScore(beforeScorePca)} -> ${__formatNonIdealScore(afterScorePca)}. Before: ${beforeCountsPcaText}. After attempt: ${afterCountsPcaText}. Engine V2: ${v2PcaReason}.`
@@ -3108,9 +4041,11 @@ if (window.__assignmentsRenderLoaded) {
         )
       );
       __showOncomingRebalanceToast(
-        (rnApplied || pcaApplied) ? "ok" : "warn",
+        (rnApplied || pcaApplied || rnBestEffort || pcaBestEffort) ? "ok" : "warn",
         (rnApplied || pcaApplied)
           ? `Rebalance complete. RN moves: ${movesRn}. PCA moves: ${movesPca}.`
+          : (rnBestEffort || pcaBestEffort)
+            ? `Best available distribution retained. No safer move was needed for the current board.`
           : (
               shouldRollback
                 ? (baselinePreventablePresent

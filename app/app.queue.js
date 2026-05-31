@@ -153,6 +153,7 @@
         bg: !!item.preAdmit.bg,
         tf: !!item.preAdmit.tf,
         ciwa: !!item.preAdmit.ciwa,
+        emu: !!item.preAdmit.emu,
         restraint: !!item.preAdmit.restraint,
         sitter: !!item.preAdmit.sitter,
         vpo: !!item.preAdmit.vpo,
@@ -181,6 +182,7 @@
       bg: !!legacyTags.bg,
       tf: !!legacyTags.tf,
       ciwa: !!legacyTags.ciwa,
+      emu: !!legacyTags.emu,
       restraint: !!legacyTags.restraint,
       sitter: !!legacyTags.sitter,
       vpo: !!legacyTags.vpo,
@@ -201,7 +203,7 @@
     if (!draft) return "";
     const out = [];
     const map = [
-      ["tele","Tele"],["drip","Drip"],["nih","NIH"],["bg","BG"],["tf","TF"],["ciwa","CIWA/COWS"],
+      ["tele","Tele"],["drip","Drip"],["nih","NIH"],["bg","BG"],["tf","TF"],["ciwa","CIWA/COWS"],["emu","EMU"],
       ["restraint","Restraint"],["sitter","Sitter"],["vpo","VPO"],["isolation","ISO"],["admit","Admit"],["lateDc","Late DC"],
       ["chg","CHG"],["foley","Foley"],["q2turns","Totals"],["strictIo","Strict I/O"],["feeder","Feeder"]
     ];
@@ -233,6 +235,7 @@
     targetPatient.ciwa = !!d.ciwa;
     targetPatient.cows = !!d.ciwa;
     targetPatient.ciwaCows = !!d.ciwa;
+    targetPatient.emu = !!d.emu;
     targetPatient.restraint = !!d.restraint;
     targetPatient.sitter = !!d.sitter;
     targetPatient.vpo = !!d.vpo;
@@ -329,7 +332,7 @@
       preAdmit: {
         gender: "",
         tele: false,
-        drip: false, nih: false, bg: false, tf: false, ciwa: false, restraint: false, sitter: false, vpo: false,
+        drip: false, nih: false, bg: false, tf: false, ciwa: false, emu: false, restraint: false, sitter: false, vpo: false,
         isolation: false,
         admit: false,
         lateDc: false,
@@ -669,6 +672,7 @@
               ${tagItem("__padBg", "BG", !!d.bg)}
               ${tagItem("__padTf", "TF", !!d.tf)}
               ${tagItem("__padCiwa", "CIWA/COWS", !!d.ciwa)}
+              ${tagItem("__padEmu", "EMU", !!d.emu)}
               ${tagItem("__padRestraint", "Restraint", !!d.restraint)}
               ${tagItem("__padSitter", "Sitter", !!d.sitter)}
               ${tagItem("__padVpo", "VPO", !!d.vpo)}
@@ -764,6 +768,7 @@
     d.bg = getCheck("#__padBg");
     d.tf = getCheck("#__padTf");
     d.ciwa = getCheck("#__padCiwa");
+    d.emu = getCheck("#__padEmu");
     d.restraint = getCheck("#__padRestraint");
     d.sitter = getCheck("#__padSitter");
     d.vpo = getCheck("#__padVpo");

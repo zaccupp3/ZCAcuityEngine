@@ -335,7 +335,7 @@
     const discharges = activePatients.filter(p => p.recentlyDischarged).length;
 
     const tagList = [
-      "tele","drip","nih","bg","ciwa","restraint","sitter","vpo","isolation","admit","lateDc",
+      "tele","drip","nih","bg","ciwa","emu","restraint","sitter","vpo","isolation","admit","lateDc",
       "chg","foley","q2turns","heavy","feeder"
     ];
 
@@ -641,6 +641,16 @@
       await loadPulse();
     });
   }
+
+  window.toggleUnitMiniMap = function toggleUnitMiniMap() {
+    const panel = document.getElementById("footerMiniMapPanel");
+    const btn = document.getElementById("footerMiniMapToggle");
+    if (!panel) return;
+    const show = panel.hasAttribute("hidden");
+    if (show) panel.removeAttribute("hidden");
+    else panel.setAttribute("hidden", "");
+    if (btn) btn.setAttribute("aria-expanded", show ? "true" : "false");
+  };
 
   // -----------------------------
   // Membership refresh hook (so UI updates after auth)

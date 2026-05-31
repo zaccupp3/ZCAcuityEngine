@@ -45,6 +45,7 @@
     if (p.drip || p.drips) score += 5;
     if (p.bg || p.bgChecks) score += 2;
     if (p.ciwa || p.cows || p.ciwaCows) score += 4;
+    if (p.emu) score += 4;
     if (p.sitter) score += 4;
     if (p.isolation || p.iso) score += 2;
     if (p.admit) score += 4;
@@ -58,6 +59,7 @@
       nih: { keys: ["nih"], limit: 1 },
       bg: { keys: ["bg", "bgChecks"], limit: 2 },
       ciwa: { keys: ["ciwa", "cows", "ciwaCows"], limit: 1 },
+      emu: { keys: ["emu"], limit: 1 },
       sitter: { keys: ["sitter"], limit: 1 },
       isolation: { keys: ["isolation", "iso"], limit: 2 },
       admit: { keys: ["admit"], limit: 1 },
@@ -80,6 +82,14 @@
     const minTarget = Math.floor(total / ownerCount);
     const remainder = total % ownerCount;
     return { total, ownerCount, minTarget, maxTarget: minTarget + (remainder > 0 ? 1 : 0) };
+  }
+
+  function rnRatioCap(owner, patientMap) {
+    const needsFour = safeArray(owner?.patients).some((pid) => {
+      const patient = patientMap.get(Number(pid));
+      return !!(patient && (patient.tele || patient.nih));
+    });
+    return needsFour ? 4 : 5;
   }
 
   function dischargeLimit(owner, owners, role) {
@@ -110,6 +120,11 @@
     const violations = [];
     const count = safeArray(owner?.patients).length;
     const targets = countTargets(owners);
+    if (role !== "pca") {
+      const ratioCap = rnRatioCap(owner, patientMap);
+      if (count > ratioCap) violations.push({ tag: "rnRatio", mine: count, limit: ratioCap });
+      if (count > 5) violations.push({ tag: "rnAbsoluteMax", mine: count, limit: 5 });
+    }
     if (count < targets.minTarget || count > targets.maxTarget) {
       violations.push({ tag: "countBalance", mine: count, limit: `${targets.minTarget}-${targets.maxTarget}` });
     }

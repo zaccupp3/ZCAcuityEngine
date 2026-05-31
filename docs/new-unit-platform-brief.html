@@ -1,0 +1,425 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Charge Nurse Platform New Unit Brief</title>
+  <style>
+    :root{
+      --ink:#102033;
+      --muted:#536273;
+      --line:#d8e0ea;
+      --panel:#ffffff;
+      --soft:#f4f8fb;
+      --blue:#1f5f99;
+      --green:#256f55;
+      --amber:#8a5a13;
+      --red:#9f2d2d;
+    }
+    *{box-sizing:border-box}
+    @page{size:letter;margin:0}
+    body{
+      margin:0;
+      background:#e9eef5;
+      color:var(--ink);
+      font-family:Arial, Helvetica, sans-serif;
+      -webkit-print-color-adjust:exact;
+      print-color-adjust:exact;
+    }
+    .page{
+      width:8.5in;
+      min-height:11in;
+      margin:0 auto;
+      padding:.48in .52in;
+      background:linear-gradient(180deg,#ffffff 0%,#f6f9fc 100%);
+      page-break-after:always;
+      position:relative;
+    }
+    .page:last-child{page-break-after:auto}
+    h1,h2,h3,p{margin:0}
+    h1{font-size:30px;line-height:1.08;letter-spacing:0;color:#0b1f33}
+    h2{font-size:20px;line-height:1.2;margin-bottom:10px;color:#0b1f33}
+    h3{font-size:13px;line-height:1.25;margin-bottom:5px;color:#102033}
+    p,li{font-size:11.5px;line-height:1.45;color:var(--muted)}
+    ul{margin:7px 0 0 18px;padding:0}
+    li{margin:4px 0}
+    .eyebrow{
+      font-size:11px;
+      font-weight:800;
+      letter-spacing:.09em;
+      text-transform:uppercase;
+      color:var(--blue);
+      margin-bottom:8px;
+    }
+    .hero{
+      border:1px solid var(--line);
+      background:#fff;
+      border-radius:14px;
+      padding:22px 24px;
+      margin-bottom:15px;
+      box-shadow:0 12px 28px rgba(16,32,51,.08);
+    }
+    .hero p{font-size:13px;max-width:6.9in;margin-top:10px;color:#415066}
+    .band{
+      display:grid;
+      grid-template-columns:repeat(3,1fr);
+      gap:10px;
+      margin:12px 0 14px;
+    }
+    .metric{
+      border:1px solid var(--line);
+      background:#fff;
+      border-radius:10px;
+      padding:11px 12px;
+      min-height:.95in;
+    }
+    .metric strong{display:block;font-size:18px;color:#0b1f33;margin-bottom:3px}
+    .metric span{font-size:10.5px;line-height:1.35;color:var(--muted)}
+    .section{
+      border:1px solid var(--line);
+      background:rgba(255,255,255,.94);
+      border-radius:12px;
+      padding:15px 16px;
+      margin-bottom:12px;
+    }
+    .grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+    .grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+    .card{
+      border:1px solid var(--line);
+      background:linear-gradient(180deg,#fff 0%,#f8fbfe 100%);
+      border-radius:10px;
+      padding:11px 12px;
+      min-height:1.05in;
+    }
+    .tag{
+      display:inline-block;
+      border-radius:999px;
+      padding:3px 8px;
+      margin-bottom:7px;
+      font-size:9.5px;
+      font-weight:800;
+      color:#fff;
+      background:var(--blue);
+    }
+    .tag.green{background:var(--green)}
+    .tag.amber{background:var(--amber)}
+    .tag.red{background:var(--red)}
+    .quote{
+      border-left:5px solid var(--blue);
+      background:#eef6ff;
+      padding:12px 14px;
+      border-radius:10px;
+      margin-top:10px;
+    }
+    .quote p{font-size:12px;color:#24384d}
+    .footer{
+      position:absolute;
+      left:.52in;
+      right:.52in;
+      bottom:.28in;
+      display:flex;
+      justify-content:space-between;
+      gap:12px;
+      border-top:1px solid var(--line);
+      padding-top:8px;
+      color:#66758a;
+      font-size:9.5px;
+    }
+    .small{font-size:10px;color:#66758a}
+    .refs p{font-size:9.5px;line-height:1.35;margin-bottom:5px;color:#526176}
+    .flow{
+      display:grid;
+      grid-template-columns:1fr 1fr 1fr 1fr;
+      gap:8px;
+      margin-top:10px;
+    }
+    .step{
+      border:1px solid #cbd8e6;
+      border-radius:10px;
+      background:#fff;
+      padding:10px;
+      min-height:.88in;
+    }
+    .step b{display:block;font-size:11px;color:#0b1f33;margin-bottom:4px}
+    .step span{font-size:10px;line-height:1.35;color:#536273}
+    .note{
+      background:#fff7e8;
+      border:1px solid #efd59f;
+      border-radius:10px;
+      padding:10px 12px;
+      margin-top:8px;
+    }
+    .note p{font-size:10.5px;color:#66502a}
+  </style>
+</head>
+<body>
+  <main>
+    <section class="page">
+      <div class="hero">
+        <div class="eyebrow">New Unit Brief</div>
+        <h1>Charge Nurse Acuity and Assignment Platform</h1>
+        <p>
+          The platform gives a charge nurse one live workspace for staffing, acuity tags, patient movement,
+          assignment balance, sitter coverage, discharge expectations, and shift handoff. It is built for
+          the ordinary pressure of a hospital unit: rapid changes, incomplete information, interruptions,
+          staffing variability, and the need to make fair decisions quickly.
+        </p>
+      </div>
+
+      <div class="band">
+        <div class="metric">
+          <strong>One board</strong>
+          <span>Current and oncoming assignments, patient details, room status, and acuity indicators in a shared view.</span>
+        </div>
+        <div class="metric">
+          <strong>Faster balancing</strong>
+          <span>Rebalance support for count fairness, acuity spread, room clustering, expected discharges, and continuity.</span>
+        </div>
+        <div class="metric">
+          <strong>Safer handoff</strong>
+          <span>Visible flags help reduce missed workload patterns before finalizing the next shift assignment.</span>
+        </div>
+      </div>
+
+      <div class="section">
+        <h2>What the platform is</h2>
+        <p>
+          This is an operational decision-support tool for charge nurses and unit leaders. It does not replace
+          clinical judgment, staffing policy, or escalation pathways. Instead, it makes the assignment logic visible:
+          which patients are high workload, where rooms are spread out, which nurses or PCAs may be stacked with
+          discharges or acuity, and where a small adjustment may improve fairness.
+        </p>
+        <div class="flow">
+          <div class="step"><b>1. Maintain beds</b><span>Room occupancy, acuity tags, expected discharges, sitter needs, and patient profile details.</span></div>
+          <div class="step"><b>2. Build assignments</b><span>Populate RN/PCA boards using active patients, staffing, rules, and continuity locks.</span></div>
+          <div class="step"><b>3. Rebalance safely</b><span>Find cleaner distributions while preserving pinned patients, sitter constraints, and role-specific rules.</span></div>
+          <div class="step"><b>4. Handoff clearly</b><span>Print or review a charge report with workload patterns, room spread, and acuity summaries.</span></div>
+        </div>
+      </div>
+
+      <div class="section">
+        <h2>Why it matters on a new unit</h2>
+        <div class="grid2">
+          <div class="card">
+            <span class="tag">Consistency</span>
+            <h3>New units need shared mental models.</h3>
+            <p>
+              Early in a rollout, staff are learning local workflows, room geography, handoff norms, and each
+              other's strengths. A visible assignment system helps the unit standardize how workload is discussed.
+            </p>
+          </div>
+          <div class="card">
+            <span class="tag green">Fairness</span>
+            <h3>Fairness is more than patient count.</h3>
+            <p>
+              A group with four patients can be heavier than a group with five if it holds NIH checks, drips,
+              isolation, sitter needs, strict I/O, feeders, or multiple expected discharges.
+            </p>
+          </div>
+        </div>
+        <div class="quote">
+          <p>
+            The goal is not to make the "perfect" assignment. The goal is to make the tradeoffs visible enough
+            that the charge nurse can make a better, faster, more explainable decision.
+          </p>
+        </div>
+      </div>
+
+      <div class="footer">
+        <span>Charge Nurse Platform Brief</span>
+        <span>Page 1 of 3</span>
+      </div>
+    </section>
+
+    <section class="page">
+      <div class="hero">
+        <div class="eyebrow">Capabilities</div>
+        <h1>What it can do for daily unit flow</h1>
+        <p>
+          The platform supports high-frequency operational decisions: patient moves, profile edits, new admits,
+          discharges, sitter assignments, staffing changes, and oncoming shift preparation.
+        </p>
+      </div>
+
+      <div class="section">
+        <h2>Core functions</h2>
+        <div class="grid3">
+          <div class="card">
+            <span class="tag">Acuity</span>
+            <h3>Structured patient tags</h3>
+            <p>Track RN and PCA-relevant workload drivers such as tele, NIH, drips, BG checks, isolation, sitter, total care, CHG, Foley, feeder, admit, and late discharge.</p>
+          </div>
+          <div class="card">
+            <span class="tag">Assignments</span>
+            <h3>Live and oncoming boards</h3>
+            <p>Build current and next-shift RN/PCA assignments, drag patients between staff, and preserve continuity when clinically or operationally appropriate.</p>
+          </div>
+          <div class="card">
+            <span class="tag">Rebalance</span>
+            <h3>Workload review</h3>
+            <p>Review count spread, load spread, room spread, report-source fragmentation, expected discharge stacking, and rule flags.</p>
+          </div>
+          <div class="card">
+            <span class="tag green">Sitter</span>
+            <h3>Sitter constraints</h3>
+            <p>Support sitter room-pair logic and prevent sitter-tagged patients from drifting into unsafe or confusing coverage patterns.</p>
+          </div>
+          <div class="card">
+            <span class="tag green">Handoff</span>
+            <h3>Charge report</h3>
+            <p>Create a concise report for the next shift showing patient distribution, relevant acuity clusters, discharge expectations, and assignment concerns.</p>
+          </div>
+          <div class="card">
+            <span class="tag green">Assistant</span>
+            <h3>Virtual charge nurse lens</h3>
+            <p>Ask about balance, room spread, acuity distribution, warning flags, tele/NIH rooms, feeder rooms, total care, and possible move ideas.</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="section">
+        <h2>Operational value for staff</h2>
+        <div class="grid2">
+          <div class="card">
+            <span class="tag amber">Less hidden work</span>
+            <h3>Reduces the mental math burden.</h3>
+            <p>
+              Charge nurses often hold the entire assignment in working memory while also handling calls,
+              admissions, staffing changes, and escalation. The platform externalizes that logic so the unit can
+              see the same risk patterns.
+            </p>
+          </div>
+          <div class="card">
+            <span class="tag amber">Better conversations</span>
+            <h3>Makes fairness explainable.</h3>
+            <p>
+              When staff ask why an assignment changed, the charge nurse can point to count spread, acuity load,
+              room geography, discharge stacking, or continuity instead of relying on a subjective explanation.
+            </p>
+          </div>
+          <div class="card">
+            <span class="tag green">Smoother starts</span>
+            <h3>Improves shift-start clarity.</h3>
+            <p>
+              A cleaner oncoming board can reduce last-minute reshuffling, repeated report sources, and confusion
+              about which staff member owns which patient.
+            </p>
+          </div>
+          <div class="card">
+            <span class="tag green">Learning tool</span>
+            <h3>Supports new charge nurses.</h3>
+            <p>
+              The system provides a repeatable framework for thinking through assignments, making it easier to
+              teach charge decision-making without relying only on informal memory.
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <div class="note">
+        <p>
+          Implementation note: the platform should be introduced as a charge-nurse support tool, not as a punitive
+          productivity tracker. Adoption is strongest when staff see it as a fairness, visibility, and safety aid.
+        </p>
+      </div>
+
+      <div class="footer">
+        <span>Charge Nurse Platform Brief</span>
+        <span>Page 2 of 3</span>
+      </div>
+    </section>
+
+    <section class="page">
+      <div class="hero">
+        <div class="eyebrow">Safety and Satisfaction Rationale</div>
+        <h1>Why it can help reduce preventable risk</h1>
+        <p>
+          Preventable harm is rarely caused by one assignment decision alone. It often comes from accumulated
+          operational friction: uneven workload, repeated interruptions, unclear ownership, long room runs,
+          missed high-risk tags, and rushed handoff. The platform targets those upstream conditions.
+        </p>
+      </div>
+
+      <div class="section">
+        <h2>How the platform supports staff satisfaction</h2>
+        <div class="grid2">
+          <div class="card">
+            <span class="tag green">Fair workload</span>
+            <h3>Balances visible and invisible workload.</h3>
+            <p>
+              Staff satisfaction improves when assignments feel explainable and when high-burden tasks are not
+              repeatedly stacked on the same person. The platform helps show that fairness is being actively reviewed.
+            </p>
+          </div>
+          <div class="card">
+            <span class="tag green">Psychological safety</span>
+            <h3>Creates a neutral reference point.</h3>
+            <p>
+              Instead of debating personalities or preferences, the unit can discuss the board: acuity tags,
+              room spread, discharge load, patient count, and handoff complexity.
+            </p>
+          </div>
+          <div class="card">
+            <span class="tag amber">Reduced friction</span>
+            <h3>Decreases repeated rework.</h3>
+            <p>
+              Faster reassignment and clearer oncoming boards can reduce the time staff spend renegotiating
+              ownership after report has started.
+            </p>
+          </div>
+          <div class="card">
+            <span class="tag amber">Charge support</span>
+            <h3>Protects the charge nurse's bandwidth.</h3>
+            <p>
+              By organizing assignment facts, the tool can reduce cognitive load and free the charge nurse to focus
+              on escalation, coaching, patient flow, and real-time safety concerns.
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <div class="section">
+        <h2>How it can reduce preventable hospital-acquired injuries</h2>
+        <ul>
+          <li><strong>Falls and sitter risk:</strong> sitter tags, room-pair logic, and visible coverage reduce ambiguity around who is watching high-risk patients.</li>
+          <li><strong>Pressure injury prevention:</strong> PCA workload tags such as total care, turns, feeder, Foley, CHG, and strict I/O make hands-on care burden easier to distribute.</li>
+          <li><strong>Infection prevention support:</strong> isolation, Foley, CHG, line/drip, and high-care tags can keep infection-prevention workload visible during assignment building.</li>
+          <li><strong>Failure-to-rescue risk:</strong> acuity stacking, high patient counts, and fragmented handoff can make subtle deterioration harder to recognize. The platform helps identify stacked risk before the shift starts.</li>
+          <li><strong>Handoff reliability:</strong> fewer report sources and clearer ownership can reduce missed details during shift change.</li>
+        </ul>
+        <div class="note">
+          <p>
+            These are operational risk-reduction mechanisms. They should be validated with local measures such as
+            staff surveys, assignment-change time, falls, pressure injuries, CAUTI/CLABSI-related process measures,
+            delayed response events, and handoff defects.
+          </p>
+        </div>
+      </div>
+
+      <div class="section refs">
+        <h2>Evidence anchors</h2>
+        <p>
+          CDC reports that on any given day about 1 in 31 hospital patients has at least one healthcare-associated
+          infection, supporting the need for reliable infection-prevention workflows and visibility.
+          Source: https://www.cdc.gov/healthcare-associated-infections/php/data/
+        </p>
+        <p>
+          Aiken et al. found that each additional patient per nurse was associated with a 7% increase in odds of
+          30-day mortality and a 7% increase in odds of failure-to-rescue among surgical patients, and was also
+          associated with burnout and job dissatisfaction. Source: JAMA, "Hospital Nurse Staffing and Patient
+          Mortality, Nurse Burnout, and Job Dissatisfaction" (2002), doi:10.1001/jama.288.16.1987
+        </p>
+        <p>
+          AHRQ describes hospital-acquired conditions as a major patient safety focus and maintains national
+          scorecard resources for tracking reductions in preventable harm. Source: https://www.ahrq.gov/hai/pfp/index.html
+        </p>
+      </div>
+
+      <div class="footer">
+        <span>Charge Nurse Platform Brief</span>
+        <span>Page 3 of 3</span>
+      </div>
+    </section>
+  </main>
+</body>
+</html>

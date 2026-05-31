@@ -174,6 +174,7 @@
 
     // CIWA/COWS variants
     if (l.includes("ciwa") || l.includes("cows")) return "CIWA/COWS";
+    if (l.includes("emu")) return "EMU";
 
     // ISO variants
     if (l === "ISO" || l.includes("isolation")) return "ISO";

@@ -81,6 +81,7 @@
     if (/\bADMIT\b/.test(joined) || /\bADM\b/.test(joined)) tags.add("ADMIT");
     if (/\bLATE\s*D\/?C\b/.test(joined) || /\bLATE\s*DC\b/.test(joined)) tags.add("LATE_DC");
     if (/\bCIWA\b/.test(joined)) tags.add("CIWA");
+    if (/\bEMU\b/.test(joined)) tags.add("EMU");
     if (/\bVPO\b/.test(joined)) tags.add("VPO");
     if (/\bRESTRAINTS?\b/.test(joined)) tags.add("RESTRAINT");
     if (/\bGTT\b/.test(joined) || /\bDRIP\b/.test(joined)) tags.add("GTT");
@@ -731,6 +732,7 @@
       "ciwa",
       "cows",
       "ciwaCows",
+      "emu",
       "restraint",
       "restraints",
       "sitter",
@@ -805,6 +807,7 @@
     setFlagViaUiHandler(p, "admit", tagSet.has("ADMIT"));
     setFlagViaUiHandler(p, "lateDc", tagSet.has("LATE_DC"));
     setFlagViaUiHandler(p, "ciwa", tagSet.has("CIWA"));
+    setFlagViaUiHandler(p, "emu", tagSet.has("EMU"));
     setFlagViaUiHandler(p, "vpo", tagSet.has("VPO"));
     setFlagViaUiHandler(p, "restraint", tagSet.has("RESTRAINT"));
     setFlagViaUiHandler(p, "drip", tagSet.has("GTT"));
@@ -832,6 +835,7 @@
     if (tagSet.has("ADMIT")) notes.push("ADMIT");
     if (tagSet.has("LATE_DC")) notes.push("LATE DC");
     if (tagSet.has("CIWA")) notes.push("CIWA");
+    if (tagSet.has("EMU")) notes.push("EMU");
     if (tagSet.has("VPO")) notes.push("VPO");
     if (tagSet.has("RESTRAINT")) notes.push("RESTRAINT");
     if (tagSet.has("GTT")) notes.push("GTT");

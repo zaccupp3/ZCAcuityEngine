@@ -133,6 +133,75 @@
     return { ok: !error, error: error || null };
   }
 
+  async function sbEnsureSixNorthUnit() {
+    const beds = Array.from({ length: 36 }, (_, idx) => String(41 + idx));
+    const { data: userData, error: userError } = await client.auth.getUser();
+    const user = userData?.user || null;
+    if (userError || !user) return { ok: false, error: userError || new Error("Sign in before creating 6 North.") };
+
+    let unit = null;
+    const existing = await client
+      .from("units")
+      .select("id, name, code")
+      .eq("code", "6N")
+      .limit(1);
+    if (existing.error) return { ok: false, error: existing.error };
+    unit = Array.isArray(existing.data) ? existing.data[0] : null;
+
+    if (!unit) {
+      const byName = await client
+        .from("units")
+        .select("id, name, code")
+        .eq("name", "6 North")
+        .limit(1);
+      if (byName.error) return { ok: false, error: byName.error };
+      unit = Array.isArray(byName.data) ? byName.data[0] : null;
+    }
+
+    if (!unit) {
+      const created = await client
+        .from("units")
+        .insert([{ name: "6 North", code: "6N" }])
+        .select("id, name, code")
+        .single();
+      if (created.error) return { ok: false, error: created.error };
+      unit = created.data;
+    }
+
+    const membership = { unit_id: unit.id, user_id: user.id, role: "owner" };
+    let memberResult = await client
+      .from("unit_members")
+      .upsert(membership, { onConflict: "unit_id,user_id" });
+    if (memberResult.error) {
+      memberResult = await client.from("unit_members").insert([membership]);
+      const msg = String(memberResult.error?.message || "");
+      if (memberResult.error && !/duplicate|violates unique/i.test(msg)) {
+        return { ok: false, error: memberResult.error, unit };
+      }
+    }
+
+    const settingsFull = {
+      unit_id: unit.id,
+      beds,
+      room_schema: {
+        kind: "single_rooms",
+        beds,
+        sharedRooms: false,
+        label: "6 North"
+      }
+    };
+    let settings = await sbUpsertUnitSettings(settingsFull);
+    if (!settings.ok && /room_schema/i.test(String(settings.error?.message || ""))) {
+      settings = await sbUpsertUnitSettings({ unit_id: unit.id, beds });
+    }
+    if (!settings.ok && /beds/i.test(String(settings.error?.message || ""))) {
+      settings = await sbUpsertUnitSettings({ unit_id: unit.id, room_schema: settingsFull.room_schema });
+    }
+    if (!settings.ok) return { ok: false, error: settings.error, unit };
+
+    return { ok: true, unit, beds };
+  }
+
   // ------------------------
   // Shift publishing + analytics
   // Unique constraints:
@@ -401,6 +470,7 @@
     // settings
     getUnitSettings: sbGetUnitSettings,
     upsertUnitSettings: sbUpsertUnitSettings,
+    ensureSixNorthUnit: sbEnsureSixNorthUnit,
 
     // publishing + analytics (UPSERT; no select)
     upsertShiftSnapshot: sbUpsertShiftSnapshot,

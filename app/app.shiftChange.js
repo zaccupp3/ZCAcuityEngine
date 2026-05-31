@@ -17,7 +17,7 @@
 (function () {
   const $ = (id) => document.getElementById(id);
   const safeArray = (v) => (Array.isArray(v) ? v : []);
-  const ANALYTICS_TAG_KEYS = ["tele", "drip", "nih", "bg", "ciwa", "restraint", "sitter", "vpo", "isolation", "admit", "lateDc"];
+  const ANALYTICS_TAG_KEYS = ["tele", "drip", "nih", "bg", "ciwa", "emu", "restraint", "sitter", "vpo", "isolation", "admit", "lateDc"];
 
   const VERSION = "shiftChange_v2026-03-20_live_finalize_profiles";
   function log(...args) { console.log("[shiftChange]", ...args); }
