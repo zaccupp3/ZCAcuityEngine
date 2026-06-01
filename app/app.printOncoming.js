@@ -172,7 +172,7 @@
 
   function roomsLine(tagKey) {
     const rooms = roomsForTag(tagKey);
-    return rooms.length ? rooms.join(", ") : "None";
+    return rooms.length ? rooms.join(", ") : "";
   }
 
   function roomsLineForAnyTag(tagKeys) {
@@ -404,7 +404,7 @@
 
   function countRoomsForTag(tagKey) {
     const rooms = roomsForTag(tagKey);
-    return rooms.length ? String(rooms.length) : "None";
+    return rooms.length ? String(rooms.length) : "";
   }
 
   function getTargetBedCountForReport() {
@@ -429,7 +429,7 @@
       charge,
       leader,
       dateShift: `${getShiftDateLabel()} ${shift && shift !== "-" ? shift : ""}`.trim(),
-      census: census || "None",
+      census: census || "",
       remote_tele: countRoomsForTag("tele"),
       csc_nih: roomsLine("nih"),
       isolation: roomsLine("isolation"),
@@ -482,7 +482,7 @@
           <div class="hr-charge-label">${escapeHtml(row.label)}</div>
           <div class="hr-charge-value">
             ${autoValue != null
-              ? `<div class="hr-auto-value">${escapeHtml(autoValue || "None")}</div>`
+              ? `<div class="hr-auto-value">${escapeHtml(autoValue || "")}</div>`
               : renderRichField(row.id, { tall: row.tall })}
           </div>
         </div>
@@ -573,7 +573,7 @@
     const auto = getChargeReportAutoValues();
     const richValue = (id) => {
       const html = sanitizeRichHtml(draft.details?.[id]);
-      return html || "None";
+      return html || "";
     };
 
     const reportRows = [
@@ -589,7 +589,7 @@
 
     const rowHtml = reportRows.map((row) => {
       const value = Object.prototype.hasOwnProperty.call(auto, row.id)
-        ? escapeHtml(auto[row.id] || "None")
+        ? escapeHtml(auto[row.id] || "")
         : richValue(row.id);
       return `
         <div class="hr-report-row ${row.tall ? "hr-row-tall" : ""}">
@@ -1022,7 +1022,7 @@
   .map-room-horizontal{ text-anchor:middle; }
   .map-pod{ font-size:24px; font-weight:900; fill:#000; text-anchor:middle; dominant-baseline:middle; }
   .map-heart{ font-size:18px; fill:#000; text-anchor:middle; dominant-baseline:middle; }
-  .six-unit{ position:absolute; left:-0.06in; top:5.2in; transform:rotate(-90deg); transform-origin:center; font-weight:700; font-size:16px; white-space:nowrap; }
+  .six-unit{ position:absolute; left:-0.18in; top:5.2in; transform:rotate(-90deg); transform-origin:center; font-weight:700; font-size:16px; white-space:nowrap; }
   .pca-rounds{ margin:0.12in auto 0; border:1px solid #111; width:0.68in; height:0.48in; display:flex; align-items:center; justify-content:center; text-align:center; font-weight:700; font-size:13px; }
   @media print{ .six-wrap{ margin:0; } }
 </style>
@@ -1111,10 +1111,14 @@
   function configuredSitterAssignments(pcaOwners) {
     return (Array.isArray(pcaOwners) ? pcaOwners : [])
       .filter((pca) => pca && pca.isSitter && String(pca.sitterRoomPair || "").trim())
-      .map((pca) => ({
-        room: String(pca.sitterRoomPair || "").trim(),
-        label: `${String(pca.sitterRoomPair || "").trim()} - ${String(pca.name || "Sitter PCA").trim()}`
-      }))
+      .flatMap((pca) => String(pca.sitterRoomPair || "")
+        .split(/[,\s]+/)
+        .map((room) => room.trim())
+        .filter(Boolean)
+        .map((room) => ({
+          room,
+          label: `${room} - ${String(pca.name || "Sitter PCA").trim()}`
+        })))
       .sort((a, b) => roomSortKey(a.room).localeCompare(roomSortKey(b.room)));
   }
 

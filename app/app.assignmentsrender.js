@@ -484,6 +484,13 @@ if (window.__assignmentsRenderLoaded) {
     });
   }
 
+  function __pcaSpecialRoomPairs(owner) {
+    return String(owner?.sitterRoomPair || "")
+      .split(/[,\s]+/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+  }
+
   function __sitterRoomGroupKey(p) {
     const bed = getBedLabel(p);
     const m = String(bed || "").trim().match(/^(\d+)/);
@@ -498,16 +505,17 @@ if (window.__assignmentsRenderLoaded) {
     const claimedPatientIds = new Set();
 
     owners.forEach((pca) => {
-      const pair = String(pca?.sitterRoomPair || "").trim();
-      if (!__isPcaSpecialOwner(pca) || !pair) return;
-      if (claimedPairs.has(pair)) {
+      const pairs = __pcaSpecialRoomPairs(pca);
+      if (!__isPcaSpecialOwner(pca) || !pairs.length) return;
+      const availablePairs = pairs.filter((pair) => !claimedPairs.has(pair));
+      if (!availablePairs.length) {
         pca.patients = [];
         pca.maxPatients = PCA_SPECIAL_MAX_PATIENTS;
         return;
       }
 
       const hits = pts
-        .filter((p) => p && !p.isEmpty && !!p.sitter && __sitterRoomGroupKey(p) === pair)
+        .filter((p) => p && !p.isEmpty && !!p.sitter && availablePairs.includes(__sitterRoomGroupKey(p)))
         .sort(safeSortPatientsForDisplay)
         .slice(0, PCA_SPECIAL_MAX_PATIENTS)
         .map((p) => Number(p.id))
@@ -515,7 +523,7 @@ if (window.__assignmentsRenderLoaded) {
 
       pca.patients = Array.from(new Set(hits));
       pca.maxPatients = PCA_SPECIAL_MAX_PATIENTS;
-      claimedPairs.add(pair);
+      availablePairs.forEach((pair) => claimedPairs.add(pair));
       pca.patients.forEach((id) => {
         pinned.add(id);
         claimedPatientIds.add(id);
@@ -3509,10 +3517,10 @@ if (window.__assignmentsRenderLoaded) {
       const wCount = visibleRules.warnings;
       const ruleTip = buildRuleTooltip(ruleEval);
       const staffRestrictionIcon = buildStaffRestrictionIconHtml(ruleEval);
-      const sitterPair = String(pca?.sitterRoomPair || "").trim();
+      const sitterPairs = __pcaSpecialRoomPairs(pca);
       const isSpecialPca = __isPcaSpecialOwner(pca);
       const specialLabel = __pcaSpecialLabel(pca, pts);
-      const sitterRoomsLabel = isSpecialPca && sitterPair ? `${sitterPair}A, ${sitterPair}B` : "";
+      const sitterRoomsLabel = isSpecialPca && sitterPairs.length ? sitterPairs.map((pair) => `${pair}A/${pair}B`).join(", ") : "";
       const printTitle = `${String(pca.name || "PCA").trim()} (${specialLabel})`;
 
       html += `

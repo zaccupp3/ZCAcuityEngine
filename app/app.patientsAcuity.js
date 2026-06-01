@@ -479,6 +479,16 @@
     });
   }
 
+  function noteLocalPatientEdit(reason) {
+    try {
+      if (window.cloudSync && typeof window.cloudSync.noteLocalUnitEdit === "function") {
+        window.cloudSync.noteLocalUnitEdit(reason || "patient_details");
+      } else if (window.__cloud) {
+        window.__cloud.suspendRealtimeApplyUntil = Math.max(Number(window.__cloud.suspendRealtimeApplyUntil || 0), Date.now() + 5000);
+      }
+    } catch (_) {}
+  }
+
   // =========================
   // Assignment clearing helpers (LIVE + Oncoming)
   // =========================
@@ -566,6 +576,7 @@
     }
 
     const afterEmpty = !!p.isEmpty;
+    noteLocalPatientEdit("patient_bed_state_changed");
     logBedStateChange(p, beforeEmpty, afterEmpty, opts.source || "patient_details");
 
     if (!opts.suppressRefresh) {
@@ -822,6 +833,7 @@
     p.gender = value;
     recomputeIsEmpty(p);
 
+    noteLocalPatientEdit("patient_gender_changed");
     logAcuityChange(p, "gender", before, p.gender || "", "patient_details");
     refreshAllTabs({ reason: "gender_changed" });
   }
@@ -851,6 +863,7 @@
 
     recomputeIsEmpty(p);
 
+    noteLocalPatientEdit("patient_tag_toggled");
     logAcuityChange(p, String(effectiveKey), before, !!checked, "patient_details");
     refreshAllTabs({ reason: "tag_toggled" });
   }

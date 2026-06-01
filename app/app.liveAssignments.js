@@ -268,17 +268,24 @@
     });
   }
 
+  function pcaSpecialRoomPairs(owner) {
+    return String(owner?.sitterRoomPair || "")
+      .split(/[,\s]+/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+  }
+
   function applyPcaSitterDesignations(pcas, activePatients) {
     const owners = safeArray(pcas);
     const pts = safeArray(activePatients);
     const pinned = new Set();
 
     owners.forEach((pca) => {
-      const pair = String(pca?.sitterRoomPair || "").trim();
-      if (!isPcaSpecialOwner(pca) || !pair) return;
+      const pairs = pcaSpecialRoomPairs(pca);
+      if (!isPcaSpecialOwner(pca) || !pairs.length) return;
 
       const hits = pts
-        .filter((p) => p && !p.isEmpty && !!p.sitter && getRoomPairKeyForSitter(p) === pair)
+        .filter((p) => p && !p.isEmpty && !!p.sitter && pairs.includes(getRoomPairKeyForSitter(p)))
         .sort((a, b) => getRoomNumberSafe(a) - getRoomNumberSafe(b))
         .slice(0, PCA_SPECIAL_MAX_PATIENTS)
         .map((p) => Number(p.id))
@@ -1658,10 +1665,10 @@
       const ownerEval = getOwnerEval(pca, pcaEvalMap);
       const ruleIcon = buildRuleIconHtml(ownerEval, "PCA");
       const staffRestrictionIcon = buildStaffRestrictionIconHtml(ownerEval);
-      const sitterPair = String(pca?.sitterRoomPair || "").trim();
+      const sitterPairs = pcaSpecialRoomPairs(pca);
       const isSpecialPca = isPcaSpecialOwner(pca);
       const titleRole = pcaSpecialLabel(pca, pts);
-      const sitterRoomsLabel = isSpecialPca && sitterPair ? `${sitterPair}A, ${sitterPair}B` : "";
+      const sitterRoomsLabel = isSpecialPca && sitterPairs.length ? sitterPairs.map((pair) => `${pair}A/${pair}B`).join(", ") : "";
       const printTitle = `${String(pca.name || "PCA").trim()} (${titleRole})`;
 
       let rows = "";

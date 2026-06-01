@@ -231,6 +231,21 @@
       .sort((a, b) => Number(a.key) - Number(b.key));
   }
 
+  function parseSitterRoomPairs(value) {
+    if (Array.isArray(value)) return value.map(String).map((s) => s.trim()).filter(Boolean);
+    return String(value || "")
+      .split(/[,\s]+/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+  }
+
+  function selectedSitterRoomPairsFromSelect(selectEl) {
+    if (!selectEl) return [];
+    return Array.from(selectEl.selectedOptions || [])
+      .map((opt) => String(opt.value || "").trim())
+      .filter(Boolean);
+  }
+
   function canDecrementByLastHasNoPatients(listRaw, minCount, label) {
     const list = filterOutHoldBuckets(listRaw);
     const min = safeInt(minCount, 1);
@@ -639,13 +654,12 @@
     filterOutHoldBuckets(currentPcas).forEach((p, index) => {
       const r = p.restrictions || { noIso: false };
       const isSitter = !!p.isSitter;
-      const selectedPair = String(p.sitterRoomPair || "");
-      const pairOptions = roomPairs.map((opt) => `<option value="${opt.key}" ${opt.key === selectedPair ? "selected" : ""}>${opt.label}</option>`).join("");
+      const selectedPairs = new Set(parseSitterRoomPairs(p.sitterRoomPair));
+      const pairOptions = roomPairs.map((opt) => `<option value="${opt.key}" ${selectedPairs.has(String(opt.key)) ? "selected" : ""}>${opt.label}</option>`).join("");
       const sitterRoomPairControl = isSitter ? `
           <label>
-            Room Pair:
-            <select onchange="updateCurrentPcaSitterRoom(${index}, this.value)">
-              <option value="">Select room pair</option>
+            Room Pairs:
+            <select multiple size="4" onchange="updateCurrentPcaSitterRoom(${index}, this)">
               ${pairOptions}
             </select>
           </label>
@@ -687,13 +701,12 @@
     filterOutHoldBuckets(incomingPcas).forEach((p, index) => {
       const r = p.restrictions || { noIso: false };
       const isSitter = !!p.isSitter;
-      const selectedPair = String(p.sitterRoomPair || "");
-      const pairOptions = roomPairs.map((opt) => `<option value="${opt.key}" ${opt.key === selectedPair ? "selected" : ""}>${opt.label}</option>`).join("");
+      const selectedPairs = new Set(parseSitterRoomPairs(p.sitterRoomPair));
+      const pairOptions = roomPairs.map((opt) => `<option value="${opt.key}" ${selectedPairs.has(String(opt.key)) ? "selected" : ""}>${opt.label}</option>`).join("");
       const sitterRoomPairControl = isSitter ? `
           <label>
-            Room Pair:
-            <select onchange="updateIncomingPcaSitterRoom(${index}, this.value)">
-              <option value="">Select room pair</option>
+            Room Pairs:
+            <select multiple size="4" onchange="updateIncomingPcaSitterRoom(${index}, this)">
               ${pairOptions}
             </select>
           </label>
@@ -809,19 +822,25 @@
     if (typeof window.saveState === "function") window.saveState();
   };
 
-  window.updateCurrentPcaSitterRoom = function (index, roomPair) {
+  window.updateCurrentPcaSitterRoom = function (index, roomPairOrSelect) {
     const p = getCurrentPcaByFilteredIndex(index);
     if (!p) return;
-    p.sitterRoomPair = String(roomPair || "").trim();
+    const pairs = roomPairOrSelect && typeof roomPairOrSelect === "object"
+      ? selectedSitterRoomPairsFromSelect(roomPairOrSelect)
+      : parseSitterRoomPairs(roomPairOrSelect);
+    p.sitterRoomPair = pairs.join(",");
     syncWindowRefs();
     refreshAllViews();
     if (typeof window.saveState === "function") window.saveState();
   };
 
-  window.updateIncomingPcaSitterRoom = function (index, roomPair) {
+  window.updateIncomingPcaSitterRoom = function (index, roomPairOrSelect) {
     const p = getIncomingPcaByFilteredIndex(index);
     if (!p) return;
-    p.sitterRoomPair = String(roomPair || "").trim();
+    const pairs = roomPairOrSelect && typeof roomPairOrSelect === "object"
+      ? selectedSitterRoomPairsFromSelect(roomPairOrSelect)
+      : parseSitterRoomPairs(roomPairOrSelect);
+    p.sitterRoomPair = pairs.join(",");
     syncWindowRefs();
     refreshAllViews();
     if (typeof window.saveState === "function") window.saveState();

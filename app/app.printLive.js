@@ -350,10 +350,14 @@
   function configuredSitterAssignments(pcaOwners) {
     return (Array.isArray(pcaOwners) ? pcaOwners : [])
       .filter((pca) => pca && pca.isSitter && String(pca.sitterRoomPair || "").trim())
-      .map((pca) => ({
-        room: String(pca.sitterRoomPair || "").trim(),
-        label: `${String(pca.sitterRoomPair || "").trim()} - ${String(pca.name || "Sitter PCA").trim()}`
-      }))
+      .flatMap((pca) => String(pca.sitterRoomPair || "")
+        .split(/[,\s]+/)
+        .map((room) => room.trim())
+        .filter(Boolean)
+        .map((room) => ({
+          room,
+          label: `${room} - ${String(pca.name || "Sitter PCA").trim()}`
+        })))
       .sort((a, b) => roomSortKey(a.room).localeCompare(roomSortKey(b.room)));
   }
 

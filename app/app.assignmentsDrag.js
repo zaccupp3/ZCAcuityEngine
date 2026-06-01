@@ -99,6 +99,13 @@ function roomPairKeyFromOwnerSitter(owner) {
   return String(owner?.sitterRoomPair || "").trim();
 }
 
+function roomPairKeysFromOwnerSitter(owner) {
+  return String(owner?.sitterRoomPair || "")
+    .split(/[,\s]+/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
 function findDesignatedSitterPcaForPatient(context, patient) {
   if (!patient || !patient.sitter) return null;
   const pair = roomPairKeyFromPatient(patient);
@@ -107,7 +114,7 @@ function findDesignatedSitterPcaForPatient(context, patient) {
   return (
     pcas.find((owner) =>
       !!owner?.isSitter &&
-      String(owner?.sitterRoomPair || "").trim() === pair
+      roomPairKeysFromOwnerSitter(owner).includes(pair)
     ) || null
   );
 }
@@ -413,7 +420,7 @@ function onRowDrop(event, context, role, newOwnerId) {
   // If a room pair is configured, keep that PCA locked to the selected pair.
   if (role === "pca" && !!toOwner?.isSitter) {
     const p = (typeof window.getPatientById === "function") ? window.getPatientById(pid) : null;
-    const pair = roomPairKeyFromOwnerSitter(toOwner);
+    const pairs = roomPairKeysFromOwnerSitter(toOwner);
     const pKey = roomPairKeyFromPatient(p);
     const toPids = (toOwner.patients || []).map((x) => Number(x)).filter(Number.isFinite);
     const currentCountExcludingThis = toPids.filter((x) => x !== pid).length;
@@ -423,8 +430,8 @@ function onRowDrop(event, context, role, newOwnerId) {
       dragCtx = null;
       return;
     }
-    if (pair && pKey !== pair) {
-      alert(`This sitter/mod PCA is locked to room pair ${pair}A/${pair}B.`);
+    if (pairs.length && !pairs.includes(pKey)) {
+      alert(`This sitter/mod PCA is locked to selected room pair(s): ${pairs.map((pair) => `${pair}A/${pair}B`).join(", ")}.`);
       dragCtx = null;
       return;
     }
