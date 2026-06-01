@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 126 126" shape-rendering="crispEdges" aria-label="PCA rounds QR code">
+  <rect width="126" height="126" fill="#fff"/>
+  <g fill="#000">
+    <path d="M6 6h33v33H6zM87 6h33v33H87zM6 87h33v33H6z"/>
+    <path fill="#fff" d="M12 12h21v21H12zM93 12h21v21H93zM12 93h21v21H12z"/>
+    <path d="M18 18h9v9h-9zM99 18h9v9h-9zM18 99h9v9h-9z"/>
+    <path d="M48 6h6v6h-6zM60 6h6v6h-6zM72 6h6v6h-6zM42 12h6v6h-6zM54 12h6v6h-6zM66 12h12v6H66zM48 18h12v6H48zM72 18h6v6h-6zM42 24h12v6H42zM60 24h6v6h-6zM78 24h6v6h-6zM48 30h6v6h-6zM66 30h12v6H66z"/>
+    <path d="M6 45h12v6H6zM24 45h6v6h-6zM42 45h6v6h-6zM54 45h12v6H54zM72 45h12v6H72zM96 45h6v6h-6zM114 45h6v6h-6z"/>
+    <path d="M12 51h6v6h-6zM30 51h18v6H30zM60 51h6v6h-6zM78 51h12v6H78zM102 51h18v6h-18z"/>
+    <path d="M6 57h6v6H6zM18 57h12v6H18zM42 57h18v6H42zM66 57h6v6h-6zM84 57h12v6H84zM108 57h6v6h-6z"/>
+    <path d="M24 63h6v6h-6zM36 63h12v6H36zM54 63h12v6H54zM78 63h6v6h-6zM90 63h6v6h-6zM102 63h18v6h-18z"/>
+    <path d="M6 69h12v6H6zM30 69h6v6h-6zM48 69h6v6h-6zM60 69h18v6H60zM84 69h6v6h-6zM96 69h12v6H96zM114 69h6v6h-6z"/>
+    <path d="M12 75h18v6H12zM36 75h6v6h-6zM54 75h6v6h-6zM72 75h18v6H72zM102 75h6v6h-6z"/>
+    <path d="M42 81h12v6H42zM60 81h6v6h-6zM72 81h6v6h-6zM84 81h12v6H84zM108 81h12v6h-12z"/>
+    <path d="M48 87h6v6h-6zM66 87h12v6H66zM90 87h6v6h-6zM102 87h18v6h-18z"/>
+    <path d="M42 93h18v6H42zM72 93h6v6h-6zM84 93h24v6H84zM114 93h6v6h-6z"/>
+    <path d="M48 99h6v6h-6zM60 99h12v6H60zM78 99h6v6h-6zM96 99h6v6h-6zM108 99h12v6h-12z"/>
+    <path d="M42 105h6v6h-6zM54 105h12v6H54zM72 105h24v6H72zM102 105h6v6h-6zM114 105h6v6h-6z"/>
+    <path d="M48 111h12v6H48zM66 111h6v6h-6zM84 111h6v6h-6zM96 111h24v6H96z"/>
+    <path d="M42 117h6v6h-6zM60 117h18v6H60zM90 117h6v6h-6zM108 117h12v6h-12z"/>
+    <path d="M81 36h6v6h-6zM39 39h6v6h-6zM57 36h12v6H57zM75 39h6v6h-6zM87 39h12v6H87z"/>
+  </g>
+</svg>

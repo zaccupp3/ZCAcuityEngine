@@ -1043,7 +1043,7 @@
       ${renderSixNorthTaskRows()}
       <div class="pca-rounds-wrap">
         <div class="pca-rounds">PCA<br>Rounds</div>
-        <img class="pca-rounds-qr" src="assets/pca-rounds-qr.png" alt="PCA Rounds QR" />
+        <img class="pca-rounds-qr" src="assets/pca-rounds-qr.svg" alt="PCA Rounds QR" />
       </div>
     </div>
     ${renderSixNorthRnBox(rnCards[2])}
