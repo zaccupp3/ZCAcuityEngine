@@ -176,6 +176,10 @@
     } catch {}
   }
 
+  function shouldPersistStaffName(mode) {
+    return String(mode || "").toLowerCase() !== "draft";
+  }
+
   function reflectLegacySelects() {
     const cn = filterOutHoldBuckets(currentNurses).length;
     const inN = filterOutHoldBuckets(incomingNurses).length;
@@ -356,7 +360,9 @@
             <input type="text"
                    data-staff-role="RN"
                    value="${(n.name || "").replace(/"/g, "&quot;")}"
-                   onchange="updateCurrentNurseName(${index}, this)">
+                   oninput="updateCurrentNurseName(${index}, this, 'draft')"
+                   onblur="updateCurrentNurseName(${index}, this, 'commit')"
+                   onchange="updateCurrentNurseName(${index}, this, 'commit')">
           </label>
           <label>
             Type:
@@ -396,7 +402,9 @@
             <input type="text"
                    data-staff-role="RN"
                    value="${(n.name || "").replace(/"/g, "&quot;")}"
-                   onchange="updateIncomingNurseName(${index}, this)">
+                   oninput="updateIncomingNurseName(${index}, this, 'draft')"
+                   onblur="updateIncomingNurseName(${index}, this, 'commit')"
+                   onchange="updateIncomingNurseName(${index}, this, 'commit')">
           </label>
           <label>
             Type:
@@ -454,7 +462,7 @@
     if (typeof window.saveState === "function") window.saveState();
   };
 
-  window.updateCurrentNurseName = function (index, elOrValue) {
+  window.updateCurrentNurseName = function (index, elOrValue, mode) {
     const n = getCurrentNurseByFilteredIndex(index);
     if (!n) return;
 
@@ -466,10 +474,10 @@
 
     syncWindowRefs();
     refreshAllViews();
-    if (typeof window.saveState === "function") window.saveState();
+    if (shouldPersistStaffName(mode) && typeof window.saveState === "function") window.saveState();
   };
 
-  window.updateIncomingNurseName = function (index, elOrValue) {
+  window.updateIncomingNurseName = function (index, elOrValue, mode) {
     const n = getIncomingNurseByFilteredIndex(index);
     if (!n) return;
 
@@ -481,7 +489,7 @@
 
     syncWindowRefs();
     refreshAllViews();
-    if (typeof window.saveState === "function") window.saveState();
+    if (shouldPersistStaffName(mode) && typeof window.saveState === "function") window.saveState();
   };
 
   window.updateCurrentNurseRestriction = function (index, key, checked) {
@@ -649,7 +657,9 @@
             <input type="text"
                    data-staff-role="PCA"
                    value="${(p.name || "").replace(/"/g, "&quot;")}"
-                   onchange="updateCurrentPcaName(${index}, this)">
+                   oninput="updateCurrentPcaName(${index}, this, 'draft')"
+                   onblur="updateCurrentPcaName(${index}, this, 'commit')"
+                   onchange="updateCurrentPcaName(${index}, this, 'commit')">
           </label>
           <div class="restrictionsGroup">
             <span>Restrictions:</span>
@@ -695,7 +705,9 @@
             <input type="text"
                    data-staff-role="PCA"
                    value="${(p.name || "").replace(/"/g, "&quot;")}"
-                   onchange="updateIncomingPcaName(${index}, this)">
+                   oninput="updateIncomingPcaName(${index}, this, 'draft')"
+                   onblur="updateIncomingPcaName(${index}, this, 'commit')"
+                   onchange="updateIncomingPcaName(${index}, this, 'commit')">
           </label>
           <div class="restrictionsGroup">
             <span>Restrictions:</span>
@@ -723,7 +735,7 @@
     return list[index] || null;
   }
 
-  window.updateCurrentPcaName = function (index, elOrValue) {
+  window.updateCurrentPcaName = function (index, elOrValue, mode) {
     const p = getCurrentPcaByFilteredIndex(index);
     if (!p) return;
 
@@ -735,10 +747,10 @@
 
     syncWindowRefs();
     refreshAllViews();
-    if (typeof window.saveState === "function") window.saveState();
+    if (shouldPersistStaffName(mode) && typeof window.saveState === "function") window.saveState();
   };
 
-  window.updateIncomingPcaName = function (index, elOrValue) {
+  window.updateIncomingPcaName = function (index, elOrValue, mode) {
     const p = getIncomingPcaByFilteredIndex(index);
     if (!p) return;
 
@@ -750,7 +762,7 @@
 
     syncWindowRefs();
     refreshAllViews();
-    if (typeof window.saveState === "function") window.saveState();
+    if (shouldPersistStaffName(mode) && typeof window.saveState === "function") window.saveState();
   };
 
   window.updateCurrentPcaRestriction = function (index, checked) {
