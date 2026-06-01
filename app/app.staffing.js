@@ -635,7 +635,7 @@
       const pairOptions = roomPairs.map((opt) => `<option value="${opt.key}" ${opt.key === selectedPair ? "selected" : ""}>${opt.label}</option>`).join("");
       const sitterRoomPairControl = isSitter ? `
           <label>
-            Sitter Room Pair:
+            Room Pair:
             <select onchange="updateCurrentPcaSitterRoom(${index}, this.value)">
               <option value="">Select room pair</option>
               ${pairOptions}
@@ -659,7 +659,7 @@
             </label>
             <label class="restrictionOption">
               <input type="checkbox" ${isSitter ? "checked" : ""}
-                     onchange="updateCurrentPcaSitter(${index}, this.checked)"> Sitter Assignment
+                     onchange="updateCurrentPcaSitter(${index}, this.checked)"> Sitter / Mod Assignment
             </label>
           </div>
           ${sitterRoomPairControl}
@@ -681,7 +681,7 @@
       const pairOptions = roomPairs.map((opt) => `<option value="${opt.key}" ${opt.key === selectedPair ? "selected" : ""}>${opt.label}</option>`).join("");
       const sitterRoomPairControl = isSitter ? `
           <label>
-            Sitter Room Pair:
+            Room Pair:
             <select onchange="updateIncomingPcaSitterRoom(${index}, this.value)">
               <option value="">Select room pair</option>
               ${pairOptions}
@@ -705,7 +705,7 @@
             </label>
             <label class="restrictionOption">
               <input type="checkbox" ${isSitter ? "checked" : ""}
-                     onchange="updateIncomingPcaSitter(${index}, this.checked)"> Sitter Assignment
+                     onchange="updateIncomingPcaSitter(${index}, this.checked)"> Sitter / Mod Assignment
             </label>
           </div>
           ${sitterRoomPairControl}

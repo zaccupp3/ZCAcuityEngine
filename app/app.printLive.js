@@ -125,6 +125,7 @@
       block.querySelector("h4");
 
     const title =
+      String(block.getAttribute("data-print-title") || "").trim() ||
       (titleEl ? titleEl.textContent : "").trim() ||
       (kind === "RN" ? "Current RN" : "Current PCA");
 
@@ -168,7 +169,7 @@
 
   function splitStaffDisplay(title, fallback) {
     const raw = String(title || fallback || "").trim();
-    const noRole = raw.replace(/\((RN|PCA|SITTER)\)/gi, "").trim();
+    const noRole = raw.replace(/\((RN|PCA|SITTER|SITTER ASSIGNMENT|MOD ASSIGNMENT)\)/gi, "").trim();
     const idMatch = noRole.match(/(?:#?\s*)(\d{5,})$/);
     const id = idMatch ? `#${idMatch[1]}` : "";
     const name = noRole.replace(/(?:#?\s*)\d{5,}$/, "").trim() || noRole || String(fallback || "");
@@ -343,7 +344,7 @@
 
   function isSitterOwnerTitle(title) {
     const t = String(title || "").toLowerCase();
-    return /\bsitter\b/.test(t);
+    return /\bsitter\b/.test(t) || /\bmod\b/.test(t);
   }
 
   function configuredSitterAssignments(pcaOwners) {

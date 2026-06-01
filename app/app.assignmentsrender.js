@@ -463,6 +463,27 @@ if (window.__assignmentsRenderLoaded) {
     return (Number(a?.id) || 0) - (Number(b?.id) || 0);
   }
 
+  const PCA_SPECIAL_MAX_PATIENTS = 4;
+
+  function __isPcaSpecialOwner(owner) {
+    return !!owner?.isSitter;
+  }
+
+  function __pcaSpecialLabel(owner, pts) {
+    if (!__isPcaSpecialOwner(owner)) return "PCA";
+    const count = Array.isArray(pts) ? pts.length : safeArray(owner?.patients).length;
+    return count >= 3 ? "Mod Assignment" : "Sitter Assignment";
+  }
+
+  function __pcaDisplayOwners(owners) {
+    return safeArray(owners).slice().sort((a, b) => {
+      const sa = __isPcaSpecialOwner(a) ? 1 : 0;
+      const sb = __isPcaSpecialOwner(b) ? 1 : 0;
+      if (sa !== sb) return sa - sb;
+      return (Number(a?.id) || 0) - (Number(b?.id) || 0);
+    });
+  }
+
   function __sitterRoomGroupKey(p) {
     const bed = getBedLabel(p);
     const m = String(bed || "").trim().match(/^(\d+)/);
@@ -478,23 +499,22 @@ if (window.__assignmentsRenderLoaded) {
 
     owners.forEach((pca) => {
       const pair = String(pca?.sitterRoomPair || "").trim();
-      const isSitterPca = !!pca?.isSitter && !!pair;
-      if (!isSitterPca) return;
+      if (!__isPcaSpecialOwner(pca) || !pair) return;
       if (claimedPairs.has(pair)) {
         pca.patients = [];
-        pca.maxPatients = 2;
+        pca.maxPatients = PCA_SPECIAL_MAX_PATIENTS;
         return;
       }
 
       const hits = pts
         .filter((p) => p && !p.isEmpty && !!p.sitter && __sitterRoomGroupKey(p) === pair)
         .sort(safeSortPatientsForDisplay)
-        .slice(0, 2)
+        .slice(0, PCA_SPECIAL_MAX_PATIENTS)
         .map((p) => Number(p.id))
         .filter((id) => Number.isFinite(id) && !claimedPatientIds.has(id));
 
       pca.patients = Array.from(new Set(hits));
-      pca.maxPatients = 2;
+      pca.maxPatients = PCA_SPECIAL_MAX_PATIENTS;
       claimedPairs.add(pair);
       pca.patients.forEach((id) => {
         pinned.add(id);
@@ -512,8 +532,7 @@ if (window.__assignmentsRenderLoaded) {
     if (!pinned.size) return pinned;
 
     owners.forEach((pca) => {
-      const isSitterPca = !!pca?.isSitter && !!String(pca?.sitterRoomPair || "").trim();
-      if (isSitterPca) return;
+      if (__isPcaSpecialOwner(pca)) return;
       const raw = Array.isArray(pca?.patients) ? pca.patients : [];
       pca.patients = raw
         .map((id) => Number(id))
@@ -636,7 +655,7 @@ if (window.__assignmentsRenderLoaded) {
   }
 
   function cleanupPcaPinsAgainstRoster() {
-    const roster = __getIncomingPcas().filter((p) => !(p?.isSitter && String(p?.sitterRoomPair || "").trim()));
+    const roster = __getIncomingPcas().filter((p) => !__isPcaSpecialOwner(p));
     const rosterIds = new Set(roster.map((p) => Number(p.id)));
 
     const pts = __getPatients();
@@ -1591,7 +1610,7 @@ if (window.__assignmentsRenderLoaded) {
     const prevMaps = __getPrevMapsForCycle();
     const { prevRnByPid, prevPcaByPid } = prevMaps || buildPrevOwnerMaps();
     const rnOwners = __getIncomingNursesReal();
-    const pcaOwners = __getIncomingPcasReal().filter((p) => !(p?.isSitter && String(p?.sitterRoomPair || "").trim()));
+    const pcaOwners = __getIncomingPcasReal().filter((p) => !__isPcaSpecialOwner(p));
 
     const rnSuggestions = __findBestSuggestionsForRole("nurse", rnOwners, prevRnByPid, 8);
     const pcaSuggestions = __findBestSuggestionsForRole("pca", pcaOwners, prevPcaByPid, 8);
@@ -1705,7 +1724,7 @@ if (window.__assignmentsRenderLoaded) {
   }
 
   function __applySuggestion(role, patientId, fromOwnerId, toOwnerId) {
-    const owners = role === "pca" ? __getIncomingPcasReal().filter((p) => !(p?.isSitter && String(p?.sitterRoomPair || "").trim())) : __getIncomingNursesReal();
+    const owners = role === "pca" ? __getIncomingPcasReal().filter((p) => !__isPcaSpecialOwner(p)) : __getIncomingNursesReal();
     const fromOwner = owners.find((owner) => Number(owner?.id) === Number(fromOwnerId));
     const toOwner = owners.find((owner) => Number(owner?.id) === Number(toOwnerId));
     if (!fromOwner || !toOwner) return false;
@@ -2172,7 +2191,7 @@ if (window.__assignmentsRenderLoaded) {
     const q = String(rawQuestion || "").trim().toLowerCase();
     if (!q) return "Ask me to compare groups, review the whole unit, explain the balancing rules, find room-spread problems, or suggest the next safest move.";
     const nurses = __getIncomingNursesReal();
-    const pcas = __getIncomingPcasReal().filter((p) => !(p?.isSitter && String(p?.sitterRoomPair || "").trim()));
+    const pcas = __getIncomingPcasReal().filter((p) => !__isPcaSpecialOwner(p));
     const pts = __getPatients().filter((p) => p && !p.isEmpty);
     const prevMaps = __getPrevMapsForCycle();
     const prefix = __assistantStylePrefix(rawQuestion);
@@ -2383,7 +2402,7 @@ if (window.__assignmentsRenderLoaded) {
     const prevMaps = __getPrevMapsForCycle();
     const { prevRnByPid, prevPcaByPid } = prevMaps || buildPrevOwnerMaps();
     const nurses = __getIncomingNursesReal();
-    const openPcas = __getIncomingPcasReal().filter((p) => !(p?.isSitter && String(p?.sitterRoomPair || "").trim()));
+    const openPcas = __getIncomingPcasReal().filter((p) => !__isPcaSpecialOwner(p));
     const rnScore = __nonIdealScore(nurses, "nurse", prevRnByPid);
     const pcaScore = __nonIdealScore(openPcas, "pca", prevPcaByPid);
     const lastDebug = window.__lastOncomingRebalanceDebug || {};
@@ -3459,7 +3478,7 @@ if (window.__assignmentsRenderLoaded) {
     let html = "";
     try {
     const holdOwner = __syncOncomingHoldPatients("pca");
-    const allOwners = __getIncomingPcasReal();
+    const allOwners = __pcaDisplayOwners(__getIncomingPcasReal());
     const activeIdSet = new Set(
       __getPatients()
         .filter((p) => p && !p.isEmpty)
@@ -3491,8 +3510,10 @@ if (window.__assignmentsRenderLoaded) {
       const ruleTip = buildRuleTooltip(ruleEval);
       const staffRestrictionIcon = buildStaffRestrictionIconHtml(ruleEval);
       const sitterPair = String(pca?.sitterRoomPair || "").trim();
-      const isSitterPca = !!pca?.isSitter && !!sitterPair;
-      const sitterRoomsLabel = isSitterPca ? `${sitterPair}A, ${sitterPair}B` : "";
+      const isSpecialPca = __isPcaSpecialOwner(pca);
+      const specialLabel = __pcaSpecialLabel(pca, pts);
+      const sitterRoomsLabel = isSpecialPca && sitterPair ? `${sitterPair}A, ${sitterPair}B` : "";
+      const printTitle = `${String(pca.name || "PCA").trim()} (${specialLabel})`;
 
       html += `
         <div class="assignment-card ${loadClass}"
@@ -3500,6 +3521,7 @@ if (window.__assignmentsRenderLoaded) {
              data-board="incoming"
              data-role="pca"
              data-owner-id="${Number(pca.id)}"
+             data-print-title="${escapeHtml(printTitle)}"
              ondragover="window.onOwnerTileDragOver && window.onOwnerTileDragOver(event)"
              ondrop="window.onOwnerTileDrop && window.onOwnerTileDrop(event, 'incoming', 'pca', ${Number(pca.id)})">
           <div class="assignment-header"
@@ -3509,7 +3531,7 @@ if (window.__assignmentsRenderLoaded) {
               <div style="min-width:0;flex:1;">
                 <div style="display:flex;align-items:baseline;justify-content:space-between;gap:12px;">
                   <div style="min-width:0;">
-                    <strong>${escapeHtml(pca.name)}</strong> (${isSitterPca ? "Sitter" : "PCA"})${isSitterPca ? ` ${pts.length} | ${escapeHtml(sitterRoomsLabel)}` : ``}
+                    <strong>${escapeHtml(pca.name)}</strong> (${escapeHtml(specialLabel)})${isSpecialPca ? ` ${pts.length}${sitterRoomsLabel ? ` | ${escapeHtml(sitterRoomsLabel)}` : ``}` : ``}
                   </div>
                   ${staffRestrictionIcon}
                   ${
@@ -3525,7 +3547,7 @@ if (window.__assignmentsRenderLoaded) {
               </div>
             </div>
 
-            <div>${isSitterPca ? `Load Score: ${loadScore}` : `Patients: ${pts.length} | Load Score: ${loadScore}`}</div>
+            <div>Patients: ${pts.length} | Load Score: ${loadScore}</div>
             ${__ownerHeaderControlsHtml("incoming", "pca", pca)}
           </div>
 
@@ -3727,7 +3749,7 @@ if (window.__assignmentsRenderLoaded) {
       if (typeof window.distributePatientsEvenly === "function") {
         window.distributePatientsEvenly(nurses, unlockedPool, { randomize, role: "nurse", preserveExisting: true });
         const pinnedToSitterPcas = __enforceSitterAssignmentsExclusive(pcas, list);
-        const openPcas = pcas.filter((p) => !(p?.isSitter && String(p?.sitterRoomPair || "").trim()));
+        const openPcas = pcas.filter((p) => !__isPcaSpecialOwner(p));
         const pcaPoolSeed = list.filter((p) => !pinnedToSitterPcas.has(Number(p?.id)));
         const { unlockedPool: pcaPool } = applyPcaPinsBeforeDistribute(pcaPoolSeed, openPcas);
         if (openPcas.length) {
@@ -3747,7 +3769,7 @@ if (window.__assignmentsRenderLoaded) {
       // keep these passes reasonable to avoid UI lag
       rebalanceSingleMovesStrict(nurses, "nurse", { maxPasses: 80 });
       balanceCountsWithoutCreatingNewAvoidableViolations(nurses, "nurse", { maxPasses: 50 });
-      const openPcasForBalance = pcas.filter((p) => !(p?.isSitter && String(p?.sitterRoomPair || "").trim()));
+      const openPcasForBalance = pcas.filter((p) => !__isPcaSpecialOwner(p));
       rebalanceSingleMovesStrict(openPcasForBalance, "pca", { maxPasses: 80 });
       balanceCountsWithoutCreatingNewAvoidableViolations(openPcasForBalance, "pca", { maxPasses: 50 });
 
@@ -3818,9 +3840,9 @@ if (window.__assignmentsRenderLoaded) {
       const beforeStatsRn = __reportStatsForOwners(nurses, "nurse", prevRnByPid);
       const beforeStatsPca = __reportStatsForOwners(pcas, "pca", prevPcaByPid);
       const beforeScoreRn = __nonIdealScore(nurses, "nurse", prevRnByPid);
-      const beforeScorePca = __nonIdealScore(pcas.filter((p) => !(p?.isSitter && String(p?.sitterRoomPair || "").trim())), "pca", prevPcaByPid);
+      const beforeScorePca = __nonIdealScore(pcas.filter((p) => !__isPcaSpecialOwner(p)), "pca", prevPcaByPid);
       const baselinePreventableRn = getAvoidableViolationCount(nurses, "nurse");
-      const baselinePreventablePca = getAvoidableViolationCount(pcas.filter((p) => !(p?.isSitter && String(p?.sitterRoomPair || "").trim())), "pca");
+      const baselinePreventablePca = getAvoidableViolationCount(pcas.filter((p) => !__isPcaSpecialOwner(p)), "pca");
       window.__lastOncomingRebalanceDebug = {
         startedAt: new Date().toISOString(),
         before: {
@@ -3843,18 +3865,18 @@ if (window.__assignmentsRenderLoaded) {
         });
         const active = ptsAll.filter(p => p && !p.isEmpty);
         applyRnPinsBeforeDistribute(active);
-        const openPcasForPins = pcas.filter((p) => !(p?.isSitter && String(p?.sitterRoomPair || "").trim()));
+        const openPcasForPins = pcas.filter((p) => !__isPcaSpecialOwner(p));
         applyPcaPinsBeforeDistribute(active, openPcasForPins);
       } catch (e) {
         console.warn("[rebalance BOTH] pin placement pre-pass failed", e);
       }
 
-      const openPcas = pcas.filter((p) => !(p?.isSitter && String(p?.sitterRoomPair || "").trim()));
+      const openPcas = pcas.filter((p) => !__isPcaSpecialOwner(p));
       const activePatients = ptsAll.filter((p) => p && !p.isEmpty);
       const initialAssignedRn = Array.from(beforeSnapRn.values()).reduce((sum, row) => sum + safeArray(row).length, 0);
       const initialAssignedPca = Array.from(beforeSnapPca.values()).reduce((sum, row) => sum + safeArray(row).length, 0);
       const rnQueueFill = __assignMissingPatientsBestEffort(nurses, "nurse", activePatients);
-      const pcaPoolForInitialFill = activePatients.filter((p) => !(__getIncomingPcas().some((owner) => owner?.isSitter && String(owner?.sitterRoomPair || "").trim() && safeArray(owner?.patients).includes(Number(p?.id)))));
+      const pcaPoolForInitialFill = activePatients.filter((p) => !(__getIncomingPcas().some((owner) => __isPcaSpecialOwner(owner) && safeArray(owner?.patients).includes(Number(p?.id)))));
       const pcaQueueFill = __assignMissingPatientsBestEffort(openPcas, "pca", pcaPoolForInitialFill);
       const filledUnassignedPatients =
         rnQueueFill.added > 0 ||
@@ -3917,7 +3939,7 @@ if (window.__assignmentsRenderLoaded) {
       let emergencyPcaRebuild = { changed: false, improved: false };
       let rnRes = { applied: false, reason: "Heavy rebalance pass skipped; light pass was sufficient." };
       let pcaRes = { applied: false, reason: "Heavy rebalance pass skipped; light pass was sufficient." };
-      const pcaPoolForRebuild = activePatients.filter((p) => !(__getIncomingPcas().some((owner) => owner?.isSitter && String(owner?.sitterRoomPair || "").trim() && safeArray(owner?.patients).includes(Number(p?.id)))));
+      const pcaPoolForRebuild = activePatients.filter((p) => !(__getIncomingPcas().some((owner) => __isPcaSpecialOwner(owner) && safeArray(owner?.patients).includes(Number(p?.id)))));
 
       if (afterPrimaryPreventableRn > 0) {
         emergencyRnRebuild = __fullRebuildOwnersForRole(nurses, "nurse", activePatients);

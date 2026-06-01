@@ -409,7 +409,8 @@ function onRowDrop(event, context, role, newOwnerId) {
     }
   }
 
-  // PCA marked as sitter can only hold sitter-tagged patients in its configured room pair (max 2).
+  // PCA marked for sitter/mod work can only hold sitter-tagged patients, capped at 4.
+  // If a room pair is configured, keep that PCA locked to the selected pair.
   if (role === "pca" && !!toOwner?.isSitter) {
     const p = (typeof window.getPatientById === "function") ? window.getPatientById(pid) : null;
     const pair = roomPairKeyFromOwnerSitter(toOwner);
@@ -418,22 +419,17 @@ function onRowDrop(event, context, role, newOwnerId) {
     const currentCountExcludingThis = toPids.filter((x) => x !== pid).length;
 
     if (!p || !p.sitter) {
-      alert("This PCA is designated as a sitter and can only accept Sitter-tagged patients.");
+      alert("This PCA is designated for sitter/mod coverage and can only accept Sitter-tagged patients.");
       dragCtx = null;
       return;
     }
-    if (!pair) {
-      alert("This PCA is marked as sitter but has no room pair selected.");
+    if (pair && pKey !== pair) {
+      alert(`This sitter/mod PCA is locked to room pair ${pair}A/${pair}B.`);
       dragCtx = null;
       return;
     }
-    if (pKey !== pair) {
-      alert(`This sitter PCA is locked to room pair ${pair}A/${pair}B.`);
-      dragCtx = null;
-      return;
-    }
-    if (currentCountExcludingThis >= 2) {
-      alert("Sitter assignment is capped at 2 patients.");
+    if (currentCountExcludingThis >= 4) {
+      alert("Sitter/mod assignment is capped at 4 patients.");
       dragCtx = null;
       return;
     }

@@ -675,6 +675,7 @@
       block.querySelector("h4");
 
     const title =
+      String(block.getAttribute("data-print-title") || "").trim() ||
       (titleEl ? titleEl.textContent : "").trim() ||
       (kind === "RN" ? "Incoming RN" : "Incoming PCA");
 
@@ -720,7 +721,7 @@
 
   function splitStaffDisplay(title, fallback) {
     const raw = String(title || fallback || "").trim();
-    const noRole = raw.replace(/\((RN|PCA|SITTER)\)/gi, "").trim();
+    const noRole = raw.replace(/\((RN|PCA|SITTER|SITTER ASSIGNMENT|MOD ASSIGNMENT)\)/gi, "").trim();
     const idMatch = noRole.match(/(?:#?\s*)(\d{5,})$/);
     const id = idMatch ? `#${idMatch[1]}` : "";
     const name = noRole.replace(/(?:#?\s*)\d{5,}$/, "").trim() || noRole || String(fallback || "");
@@ -880,13 +881,15 @@
 
   function renderSixNorthPcaBox(card, idx) {
     const staffLine = staffPrintName(card?.title || "", `PCA ${idx + 1}`, "pca");
+    const rawTitle = String(card?.title || "");
+    const specialLabel = /\bmod\b/i.test(rawTitle) ? "Mod" : (/\bsitter\b/i.test(rawTitle) ? "Sitter" : "");
     const rooms = (card?.rows || [])
       .map((r) => stripPins(r.room || ""))
       .filter(Boolean)
       .sort((a, b) => roomSortKey(a).localeCompare(roomSortKey(b)));
     return `
       <section class="six-pca-box">
-        <div class="six-pca-head"><strong>PCA:</strong> <span class="six-staff-name">${escapeHtml(staffLine)}</span></div>
+        <div class="six-pca-head"><strong>${specialLabel ? escapeHtml(specialLabel) + ":" : "PCA:"}</strong> <span class="six-staff-name">${escapeHtml(staffLine)}</span></div>
         <div class="six-pca-rooms">${escapeHtml(rooms.join(", "))}</div>
       </section>
     `;
@@ -1088,7 +1091,7 @@
 
   function isSitterOwnerTitle(title) {
     const t = String(title || "").toLowerCase();
-    return /\bsitter\b/.test(t);
+    return /\bsitter\b/.test(t) || /\bmod\b/.test(t);
   }
 
   function roomPairLabel(pairKey) {
