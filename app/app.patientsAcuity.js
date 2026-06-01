@@ -462,54 +462,21 @@
   function clearAllAcuityFieldsAndAliases(p) {
     if (!p) return;
 
-    // Canonical fields
     p.gender = "";
-    p.tele = false;
-    p.drip = false;
-    p.nih = false;
-    p.bg = false;
-    p.tf = false;
-    p.ciwa = false;
-    p.emu = false;
-    p.restraint = false;
-    p.sitter = false;
-    p.vpo = false;
-    p.isolation = false;
-    p.admit = false;
-    p.lateDc = false;
 
-    p.chg = false;
-    p.foley = false;
-    p.q2turns = false;
-    p.strictIo = false;
-    p.heavy = false;
-    p.feeder = false;
-    p.expectedDischarge = false;
+    [
+      // Canonical RN/PCA fields
+      "tele", "drip", "nih", "bg", "tf", "ciwa", "emu", "restraint", "sitter", "vpo",
+      "isolation", "admit", "lateDc", "chg", "foley", "q2turns", "strictIo", "heavy",
+      "feeder", "expectedDischarge", "reviewed",
 
-    p.reviewed = false;
-
-    // Legacy/alias fields (the ghost-tag culprits)
-    p.bgChecks = false;
-    p.cows = false;
-    p.ciwaCows = false;
-
-    p.iso = false;
-
-    p.q2Turns = false;
-
-    p.lateDC = false;
-    p.latedc = false;
-
-    p.restraints = false;
-
-    p.feeders = false;
-
-    // If any older variants exist, defensively zero them too
-    try {
-      if ("late_dc" in p) p.late_dc = false;
-      if ("Q2" in p) p.Q2 = false;
-      if ("q2" in p) p.q2 = false;
-    } catch (_) {}
+      // Legacy/alias fields used by older engines, imports, or print/render paths
+      "drips", "bgChecks", "cows", "ciwaCows", "iso", "isoPca", "telePca",
+      "admitPca", "lateDcPca", "q2Turns", "lateDC", "latedc", "late_dc",
+      "restraints", "feeders", "Q2", "q2", "totalCare"
+    ].forEach((key) => {
+      try { p[key] = false; } catch (_) {}
+    });
   }
 
   // =========================
