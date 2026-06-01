@@ -940,27 +940,27 @@
     const f = ["60","61","62","63","64","65","66"];
     const right = ["76","75","74","73","72","71","70","69","68","67"];
     const topTexts = top.map((n, i) => {
-      const x = 16 + (i * 20);
-      return `<text class="map-room" x="${x}" y="28" transform="rotate(90 ${x} 28)">${n}</text>`;
+      const x = 20 + (i * 37);
+      return `<text class="map-room" x="${x}" y="30" transform="rotate(90 ${x} 30)">${n}</text>`;
     }).join("");
     const midTexts = mid.map((n, i) => {
-      const x = 18 + (i * 20);
-      return `<text class="map-room" x="${x}" y="123" transform="rotate(90 ${x} 123)">${n}</text>`;
+      const x = 22 + (i * 37);
+      return `<text class="map-room" x="${x}" y="132" transform="rotate(90 ${x} 132)">${n}</text>`;
     }).join("");
-    const fTexts = f.map((n, i) => `<text class="map-room" x="186" y="${118 + (i * 9)}">${n}</text>`).join("");
-    const rightTexts = right.map((n, i) => `<text class="map-room" x="244" y="${54 + (i * 11)}">${n}</text>`).join("");
+    const fTexts = f.map((n, i) => `<text class="map-room map-room-horizontal" x="333" y="${178 + (i * 28)}">${n}</text>`).join("");
+    const rightTexts = right.map((n, i) => `<text class="map-room map-room-horizontal" x="443" y="${88 + (i * 28)}">${n}</text>`).join("");
     return `
       <div class="six-map">
-        <svg class="six-map-svg" viewBox="0 0 270 180" aria-label="6 North unit map">
-          <path class="map-outline" d="M1 1 H269 V179 H158 V126 H1 Z" />
+        <svg class="six-map-svg" viewBox="0 0 482 375" preserveAspectRatio="xMidYMid meet" aria-label="6 North unit map">
+          <path class="map-outline" d="M1 1 H481 V374 H296 V186 H1 Z" />
           ${topTexts}
           ${midTexts}
           ${fTexts}
           ${rightTexts}
-          <text class="map-pod" x="75" y="75">E</text>
-          <text class="map-pod" x="216" y="75">D</text>
-          <text class="map-pod" x="216" y="139">F</text>
-          <text class="map-heart" x="35" y="151">&#10084;</text>
+          <text class="map-pod" x="143" y="86">E</text>
+          <text class="map-pod" x="380" y="86">D</text>
+          <text class="map-pod" x="389" y="270">F</text>
+          <text class="map-heart" x="35" y="166">&#10084;</text>
         </svg>
       </div>
     `;
@@ -1015,12 +1015,13 @@
   .six-task-row{ border:1px solid #111; border-top:0; min-height:0.39in; font-size:14px; padding:5px 4px; background:#fff; display:flex; align-items:baseline; gap:4px; }
   .six-task-row strong{ flex:0 0 0.7in; font-weight:800; }
   .six-task-row span{ font-size:11.5px; min-width:0; overflow-wrap:anywhere; }
-  .six-map{ height:100%; min-height:1.72in; position:relative; align-self:stretch; }
+  .six-map{ height:1.78in; position:relative; align-self:end; display:flex; align-items:center; justify-content:center; overflow:hidden; }
   .six-map-svg{ width:100%; height:100%; display:block; }
   .map-outline{ fill:#fff; stroke:#111; stroke-width:1; }
-  .map-room{ font-size:14px; font-weight:800; fill:#000; text-anchor:middle; dominant-baseline:middle; }
-  .map-pod{ font-size:20px; font-weight:900; fill:#000; text-anchor:middle; dominant-baseline:middle; }
-  .map-heart{ font-size:15px; fill:#000; text-anchor:middle; dominant-baseline:middle; }
+  .map-room{ font-size:18px; font-weight:800; fill:#000; text-anchor:middle; dominant-baseline:middle; }
+  .map-room-horizontal{ text-anchor:middle; }
+  .map-pod{ font-size:24px; font-weight:900; fill:#000; text-anchor:middle; dominant-baseline:middle; }
+  .map-heart{ font-size:18px; fill:#000; text-anchor:middle; dominant-baseline:middle; }
   .six-unit{ position:absolute; left:-0.06in; top:5.2in; transform:rotate(-90deg); transform-origin:center; font-weight:700; font-size:16px; white-space:nowrap; }
   .pca-rounds{ margin:0.12in auto 0; border:1px solid #111; width:0.68in; height:0.48in; display:flex; align-items:center; justify-content:center; text-align:center; font-weight:700; font-size:13px; }
   @media print{ .six-wrap{ margin:0; } }
