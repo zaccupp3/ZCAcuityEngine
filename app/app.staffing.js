@@ -1347,54 +1347,58 @@
   }
 
   function attachStaffingTotalsChangeListeners() {
-    if (window.__staffingTotalsListenersAttached) return;
     const curRn = document.getElementById("currentNurseCount");
     const curPca = document.getElementById("currentPcaCount");
     const curSitter = document.getElementById("currentSitterCount");
     const incRn = document.getElementById("incomingNurseCount");
     const incPca = document.getElementById("incomingPcaCount");
     const incSitter = document.getElementById("incomingSitterCount");
-    if (curRn) {
+
+    const wire = (el, fn, shift) => {
+      if (!el || el.__staffingTotalsListenerAttached) return;
       const h = () => {
         if (isDemoEditLocked()) { warnDemoStaffLocked(); return; }
-        if (typeof window.setupCurrentNurses === "function") window.setupCurrentNurses();
+        fn();
+        refreshAfterStaffingChange(shift);
       };
-      curRn.addEventListener("input", h);
-      curRn.addEventListener("change", h);
-    }
-    if (curPca) {
+      el.addEventListener("input", h);
+      el.addEventListener("change", h);
+      el.__staffingTotalsListenerAttached = true;
+    };
+
+    wire(curRn, () => {
+      if (typeof window.setupCurrentNurses === "function") window.setupCurrentNurses();
+    }, "current");
+    wire(curPca, () => {
+      if (typeof window.setupCurrentPcas === "function") window.setupCurrentPcas();
+    }, "current");
+    wire(incRn, () => {
+      if (typeof window.setupIncomingNurses === "function") window.setupIncomingNurses();
+    }, "incoming");
+    wire(incPca, () => {
+      if (typeof window.setupIncomingPcas === "function") window.setupIncomingPcas();
+    }, "incoming");
+
+    if (curSitter && !curSitter.__staffingTotalsListenerAttached) {
       const h = () => {
         if (isDemoEditLocked()) { warnDemoStaffLocked(); return; }
-        if (typeof window.setupCurrentPcas === "function") window.setupCurrentPcas();
+        if (typeof window.setupCurrentSitters === "function") window.setupCurrentSitters();
+        refreshAfterStaffingChange("current");
       };
-      curPca.addEventListener("input", h);
-      curPca.addEventListener("change", h);
+      curSitter.addEventListener("input", h);
+      curSitter.addEventListener("change", h);
+      curSitter.__staffingTotalsListenerAttached = true;
     }
-    if (curSitter) curSitter.addEventListener("change", () => {
-      if (isDemoEditLocked()) { warnDemoStaffLocked(); return; }
-      if (typeof window.setupCurrentSitters === "function") window.setupCurrentSitters();
-    });
-    if (incRn) {
+    if (incSitter && !incSitter.__staffingTotalsListenerAttached) {
       const h = () => {
         if (isDemoEditLocked()) { warnDemoStaffLocked(); return; }
-        if (typeof window.setupIncomingNurses === "function") window.setupIncomingNurses();
+        if (typeof window.setupIncomingSitters === "function") window.setupIncomingSitters();
+        refreshAfterStaffingChange("incoming");
       };
-      incRn.addEventListener("input", h);
-      incRn.addEventListener("change", h);
+      incSitter.addEventListener("input", h);
+      incSitter.addEventListener("change", h);
+      incSitter.__staffingTotalsListenerAttached = true;
     }
-    if (incPca) {
-      const h = () => {
-        if (isDemoEditLocked()) { warnDemoStaffLocked(); return; }
-        if (typeof window.setupIncomingPcas === "function") window.setupIncomingPcas();
-      };
-      incPca.addEventListener("input", h);
-      incPca.addEventListener("change", h);
-    }
-    if (incSitter) incSitter.addEventListener("change", () => {
-      if (isDemoEditLocked()) { warnDemoStaffLocked(); return; }
-      if (typeof window.setupIncomingSitters === "function") window.setupIncomingSitters();
-    });
-    window.__staffingTotalsListenersAttached = true;
   }
 
   function clearNames(list, makeDefault) {

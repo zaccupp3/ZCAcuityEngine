@@ -87,7 +87,7 @@
   function rnRatioCap(owner, patientMap) {
     const needsFour = safeArray(owner?.patients).some((pid) => {
       const patient = patientMap.get(Number(pid));
-      return !!(patient && (patient.tele || patient.nih));
+      return !!(patient && (patient.tele || patient.nih || patient.emu));
     });
     return needsFour ? 4 : 5;
   }
@@ -115,6 +115,17 @@
     }, 0);
   }
 
+  function hasNihEmuPair(owner, patientMap) {
+    let hasNih = false;
+    let hasEmu = false;
+    safeArray(owner?.patients).forEach((pid) => {
+      const patient = patientMap.get(Number(pid));
+      if (patient?.nih) hasNih = true;
+      if (patient?.emu) hasEmu = true;
+    });
+    return hasNih && hasEmu;
+  }
+
   function evaluateOwner(owner, owners, patientMap, role) {
     const limits = LIMITS[role] || LIMITS.nurse;
     const violations = [];
@@ -124,6 +135,7 @@
       const ratioCap = rnRatioCap(owner, patientMap);
       if (count > ratioCap) violations.push({ tag: "rnRatio", mine: count, limit: ratioCap });
       if (count > 5) violations.push({ tag: "rnAbsoluteMax", mine: count, limit: 5 });
+      if (hasNihEmuPair(owner, patientMap)) violations.push({ tag: "nihEmu", mine: 2, limit: 1 });
     }
     if (count < targets.minTarget || count > targets.maxTarget) {
       violations.push({ tag: "countBalance", mine: count, limit: `${targets.minTarget}-${targets.maxTarget}` });

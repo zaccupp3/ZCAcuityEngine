@@ -118,6 +118,24 @@ if (window.__assignmentsRenderLoaded) {
       : "";
   }
 
+  function rnRatioBadgeHtmlForPatients(pts) {
+    const rows = safeArray(pts).filter((p) => p && !p.isEmpty);
+    const hasTele = rows.some((p) => p.tele);
+    const hasNih = rows.some((p) => p.nih);
+    const hasEmu = rows.some((p) => p.emu);
+    const cap = (hasTele || hasNih || hasEmu) ? 4 : 5;
+    const reasons = [
+      hasNih ? "NIH" : "",
+      hasEmu ? "EMU" : "",
+      hasTele ? "Tele" : ""
+    ].filter(Boolean);
+    const reasonText = reasons.length ? ` (${reasons.join("/")})` : "";
+    const title = cap === 4
+      ? `4:1 required because this RN group has ${reasons.join(", ")}`
+      : "5:1 allowed for med-surg-only RN group";
+    return `<span class="rn-ratio-badge ratio-${cap === 4 ? "four" : "five"}" title="${escapeHtml(title)}">Ratio: ${cap}:1${escapeHtml(reasonText)}</span>`;
+  }
+
   function __getIncomingNursesReal() {
     return __getIncomingNurses().filter((owner) => owner && !__isOncomingHoldOwner(owner));
   }
@@ -238,7 +256,7 @@ if (window.__assignmentsRenderLoaded) {
           <div>
             <strong>${escapeHtml(String(hold?.name || "Needs to be assigned"))}</strong>
           </div>
-          <div style="font-weight:700;">Patients: ${pts.length} | ${roleLabel} queue</div>
+          <div style="font-weight:700;">Patients: ${pts.length} | ${roleLabel} queue${role === "nurse" ? ` | ${rnRatioBadgeHtmlForPatients(pts)}` : ""}</div>
         </div>
         <table class="assignment-table">
           <thead>
@@ -715,14 +733,20 @@ if (window.__assignmentsRenderLoaded) {
     if (!Array.isArray(fromOwner.patients)) fromOwner.patients = [];
     if (!Array.isArray(toOwner.patients)) toOwner.patients = [];
 
-    const idx = fromOwner.patients.indexOf(patientId);
+    const pid = Number(patientId);
+    const idx = fromOwner.patients.findIndex((x) => Number(x) === pid);
     if (idx === -1) return false;
 
-    if (role === "nurse" && isPatientPinnedToAnyIncomingRn(patientId)) return false;
-    if (role === "pca" && isPatientPinnedToAnyIncomingPca(patientId)) return false;
+    if (role === "nurse" && isPatientPinnedToAnyIncomingRn(pid)) return false;
+    if (role === "pca" && isPatientPinnedToAnyIncomingPca(pid)) return false;
 
     fromOwner.patients.splice(idx, 1);
-    if (!toOwner.patients.includes(patientId)) toOwner.patients.push(patientId);
+    safeArray(owners).forEach((owner) => {
+      if (!owner || !Array.isArray(owner.patients)) return;
+      owner.patients = owner.patients.filter((x) => Number(x) !== pid);
+    });
+    if (!toOwner.patients.some((x) => Number(x) === pid)) toOwner.patients.push(pid);
+    toOwner.patients = Array.from(new Set(toOwner.patients.map((x) => Number(x)).filter(Number.isFinite)));
     return true;
   }
 
@@ -742,7 +766,7 @@ if (window.__assignmentsRenderLoaded) {
   function rnRatioCapLocal(owner) {
     const hasTeleOrNih = safeArray(owner?.patients).some((pid) => {
       const p = (typeof window.getPatientById === "function") ? window.getPatientById(pid) : null;
-      return !!(p && !p.isEmpty && (p.tele || p.nih));
+      return !!(p && !p.isEmpty && (p.tele || p.nih || p.emu));
     });
     return hasTeleOrNih ? 4 : 5;
   }
@@ -1671,7 +1695,7 @@ if (window.__assignmentsRenderLoaded) {
   }
 
   function __findCurrentSuggestion(role, patientId, fromOwnerId, toOwnerId) {
-    const activeSuggestions = __getOncomingSuggestions();
+    const activeSuggestions = window.__lastOncomingSuggestions || { nurse: [], pca: [] };
     const list = String(role || "") === "pca" ? activeSuggestions.pca : activeSuggestions.nurse;
     return safeArray(list).find((s) =>
       Number(s?.patientId) === Number(patientId) &&
@@ -1692,10 +1716,23 @@ if (window.__assignmentsRenderLoaded) {
 
     if (suggestion) __recordSuggestionFeedback(suggestion, "accepted");
     window.__oncomingSuggestionDismissed = window.__oncomingSuggestionDismissed || {};
-    window.__oncomingSuggestionDismissed[role] = null;
-    __suspendOncomingAutoPopulate(5000);
+    window.__oncomingSuggestionDismissed[role] = [];
+    window.__oncomingSuggestionsCollapsed = true;
+    window.__lastOncomingSuggestions = null;
+    __suspendOncomingAutoPopulate(7000);
+    __suspendCloudRealtimeApply(7000);
+    try {
+      if (window.cloudSync && typeof window.cloudSync.noteLocalUnitEdit === "function") {
+        window.cloudSync.noteLocalUnitEdit("oncoming_suggestion_accept");
+      }
+    } catch (_) {}
     try { if (typeof window.saveState === "function") window.saveState(); } catch (_) {}
     try { renderOncomingAll(); } catch (_) {}
+    try {
+      if (window.cloudSync && typeof window.cloudSync.publishUnitStateDebounced === "function") {
+        window.cloudSync.publishUnitStateDebounced("oncoming_suggestion_accept");
+      }
+    } catch (_) {}
     __showOncomingRebalanceToast("ok", `Applied suggestion: ${__patientLabelForSuggestion(patientId)} to ${String(toOwner?.name || "new owner")}.`);
     return true;
   }
@@ -1773,8 +1810,9 @@ if (window.__assignmentsRenderLoaded) {
   };
 
   window.toggleOncomingSuggestionsPanel = function toggleOncomingSuggestionsPanel() {
-    window.__oncomingSuggestionsCollapsed = window.__oncomingSuggestionsCollapsed === false ? true : false;
-    try { __renderOncomingQualityPanel({ forceSuggestions: window.__oncomingSuggestionsCollapsed === false, reason: "suggestions_toggle" }); } catch (_) {}
+    const isOpen = window.__oncomingSuggestionsCollapsed === false;
+    window.__oncomingSuggestionsCollapsed = isOpen ? true : false;
+    try { __renderOncomingQualityPanel({ force: true, forceSuggestions: true, reason: "suggestions_toggle" }); } catch (_) {}
   };
 
   function __shouldDeferOncomingQualityPanel() {
@@ -1819,8 +1857,9 @@ if (window.__assignmentsRenderLoaded) {
         .filter((p) => p && !p.isEmpty);
       const tele = pts.filter((p) => p.tele).length;
       const nih = pts.filter((p) => p.nih).length;
+      const emu = pts.filter((p) => p.emu).length;
       const rooms = pts.map((p) => String(typeof window.getRoomLabelForPatient === "function" ? window.getRoomLabelForPatient(p) : (p.room || p.id || ""))).join(", ");
-      return `${owner?.name || role}: ${pts.length} patients${tele ? `, ${tele} tele` : ""}${nih ? `, ${nih} NIH` : ""}${rooms ? ` (${rooms})` : ""}`;
+      return `${owner?.name || role}: ${pts.length} patients${tele ? `, ${tele} tele` : ""}${nih ? `, ${nih} NIH` : ""}${emu ? `, ${emu} EMU` : ""}${rooms ? ` (${rooms})` : ""}`;
     });
   }
 
@@ -1844,7 +1883,7 @@ if (window.__assignmentsRenderLoaded) {
     const available = nihRows.filter((row) => row.count < targetMax && row.total < 4);
     if (!totalNih) return "I do not see any NIH patients marked right now.";
     if (!overloaded.length) {
-      return `NIH distribution looks acceptable: ${totalNih} NIH patient${totalNih === 1 ? "" : "s"} across ${list.length} RN groups, target max ${targetMax} per RN. I would still keep any Tele/NIH RN at 4:1.`;
+      return `NIH distribution looks acceptable: ${totalNih} NIH patient${totalNih === 1 ? "" : "s"} across ${list.length} RN groups, target max ${targetMax} per RN. I would still keep any Tele/NIH/EMU RN at 4:1.`;
     }
     const overloadText = overloaded.map((row) => `${row.owner?.name || "RN"} has ${row.count} NIH (${row.rooms.join(", ")})`).join("; ");
     const availableText = available.length
@@ -1877,6 +1916,7 @@ if (window.__assignmentsRenderLoaded) {
       const span = roomNumbers.length > 1 ? Math.max(...roomNumbers) - Math.min(...roomNumbers) : 0;
       const tele = rows.filter((row) => row.patient.tele).length;
       const nih = rows.filter((row) => row.patient.nih).length;
+      const emu = rows.filter((row) => row.patient.emu).length;
       const discharges = rows.filter((row) => row.patient.expectedDischarge).length;
       const tags = {};
       rows.forEach((row) => {
@@ -1896,6 +1936,7 @@ if (window.__assignmentsRenderLoaded) {
         tags,
         tele,
         nih,
+        emu,
         discharges
       };
     });
@@ -1956,7 +1997,7 @@ if (window.__assignmentsRenderLoaded) {
     const rooms = stat.rooms.length ? stat.rooms.join(", ") : "no rooms";
     const tagText = __assistantTagSummary(stat.tags, 5) || "no high-risk tags";
     const ruleText = buildRuleTooltip(ruleEval);
-    const ratioNote = role === "nurse" && (stat.tele || stat.nih)
+    const ratioNote = role === "nurse" && (stat.tele || stat.nih || stat.emu)
       ? "keep near 4:1"
       : role === "nurse"
         ? "med-surg cap 5"
@@ -1998,8 +2039,8 @@ if (window.__assignmentsRenderLoaded) {
     return [
       "Here are the rules I am using as my charge-nurse lens:",
       "RN counts should stay within one patient when possible.",
-      "Any RN group with Tele or NIH should generally stay at 4:1; med-surg-only groups can go to 5:1, but not past 5.",
-      "Avoid stacking RN limit-one tags unless unavoidable: Drip, NIH, CIWA/COWS, EMU, restraint, sitter, and VPO. BG and TF should be spread instead of clustered.",
+      "Any RN group with Tele, NIH, or EMU should generally stay at 4:1; med-surg-only groups can go to 5:1, but not past 5.",
+      "Avoid stacking RN limit-one tags unless unavoidable: Drip, NIH, CIWA/COWS, EMU, restraint, sitter, and VPO. NIH and EMU should not be paired unless unit math leaves no better path. BG and TF should be spread instead of clustered.",
       "PCA balance looks at isolation, admits, late discharges, CHG, Foley, Q2 turns, total care, and feeders.",
       "Expected discharges should not all land on the same group.",
       "Room spread matters: a numerically fair assignment can still feel bad when one person is stretched across a wide hallway run.",
@@ -2035,7 +2076,7 @@ if (window.__assignmentsRenderLoaded) {
     rnStats.forEach((s) => {
       const flags = visibleRuleCounts(getOwnerRuleEvalFromMap(s.owner, rnRuleMap));
       if (flags.violations) issues.push({ weight: 100 + flags.violations, text: `${s.name} has ${flags.violations} RN hard-rule flag(s); fix this before fine-tuning fairness.` });
-      if ((s.tele || s.nih) && s.count > 4) issues.push({ weight: 90, text: `${s.name} has Tele/NIH plus ${s.count} patients, so I would bring that group back toward 4:1.` });
+      if ((s.tele || s.nih || s.emu) && s.count > 4) issues.push({ weight: 90, text: `${s.name} has Tele/NIH/EMU plus ${s.count} patients, so I would bring that group back toward 4:1.` });
       if (s.span > 10) issues.push({ weight: 50 + s.span, text: `${s.name} has the widest RN room run (${s.rooms.join(", ")}), which may feel inefficient even if acuity is acceptable.` });
     });
     pcaStats.forEach((s) => {
@@ -2243,8 +2284,8 @@ if (window.__assignmentsRenderLoaded) {
       return;
     }
 
-    const suggestionDrawerCollapsed = window.__oncomingSuggestionsCollapsed !== false;
-    const chargeAssistantCollapsed = window.__chargeAssistantCollapsed !== false;
+    if (typeof window.__oncomingSuggestionsCollapsed !== "boolean") window.__oncomingSuggestionsCollapsed = true;
+    const suggestionDrawerCollapsed = window.__oncomingSuggestionsCollapsed === true;
     const shouldComputeSuggestions = !suggestionDrawerCollapsed || !!opts.forceSuggestions;
     let activeSuggestions = window.__lastOncomingSuggestions || { nurse: [], pca: [] };
     let topSuggestions = [];
@@ -2292,7 +2333,7 @@ if (window.__assignmentsRenderLoaded) {
       <div class="oncoming-quality-card">
         <button type="button" class="oncoming-quality-toggle" aria-expanded="${suggestionDrawerCollapsed ? "false" : "true"}" onclick="window.toggleOncomingSuggestionsPanel && window.toggleOncomingSuggestionsPanel()">
           <span>${suggestionDrawerCollapsed ? ">" : "v"}</span>
-          <span>Suggestions (${shouldComputeSuggestions ? (totalSuggestions ? `${Math.min(totalSuggestions, 5)}${totalSuggestions > 5 ? "+" : ""}` : "0") : "open to refresh"})</span>
+          <span>Suggestions (${shouldComputeSuggestions ? (totalSuggestions ? `${Math.min(totalSuggestions, 5)}${totalSuggestions > 5 ? "+" : ""}` : "0") : "closed"})</span>
         </button>
         <div style="${suggestionDrawerCollapsed ? "display:none;" : "display:block;"}">
           <div class="oncoming-quality-meta" style="margin-top:6px;">Top ${Number(topSuggestions.length) || 0} current move candidates.</div>
@@ -2300,20 +2341,6 @@ if (window.__assignmentsRenderLoaded) {
           <div style="margin-top:10px;">
             <button type="button" onclick="window.refreshOncomingSuggestions && window.refreshOncomingSuggestions()" style="padding:6px 10px; border-radius:8px; background:#fff; color:#0f172a; border:1px solid #cbd5e1; font-weight:800;">Refresh Suggestions</button>
           </div>
-        </div>
-      </div>
-      <div class="oncoming-quality-card" style="margin-top:8px;">
-        <button type="button" class="oncoming-quality-toggle" aria-expanded="${chargeAssistantCollapsed ? "false" : "true"}" onclick="window.toggleChargeAssistantPanel && window.toggleChargeAssistantPanel()">
-          <span>${chargeAssistantCollapsed ? ">" : "v"}</span>
-          <span>Virtual Charge Nurse Assistant</span>
-        </button>
-        <div style="${chargeAssistantCollapsed ? "display:none;" : "display:block;"}">
-          <div class="oncoming-quality-meta" style="margin-top:6px;">Ask for a whole-unit read, group-by-group comparison, balancing rules, room spread, warnings, or the next safest move.</div>
-          <div style="display:flex; gap:6px; margin-top:8px;">
-            <input id="chargeAssistantInput" type="text" placeholder="Ask about this assignment..." onkeydown="if(event.key==='Enter'){ window.askChargeAssistant && window.askChargeAssistant(); }" style="flex:1; min-width:0; padding:7px 9px; border:1px solid #cbd5e1; border-radius:8px; font-size:13px;" />
-            <button type="button" onclick="window.askChargeAssistant && window.askChargeAssistant()" style="padding:7px 10px; border-radius:8px; background:#111; color:#fff; border:1px solid #111; font-weight:800;">Ask</button>
-          </div>
-          <div id="chargeAssistantOutput" class="oncoming-quality-meta" style="margin-top:8px; line-height:1.35;">${window.__chargeAssistantLast?.answer ? `<strong>Assistant:</strong> ${escapeHtml(window.__chargeAssistantLast.answer)}` : "Assistant ready."}</div>
         </div>
       </div>
     `;
@@ -2812,7 +2839,7 @@ if (window.__assignmentsRenderLoaded) {
   }
 
   function visibleRuleCounts(ruleEval) {
-    const hiddenTags = new Set(["expecteddischarge", "countbalance", "chg", "foley", "q2turns", "feeder"]);
+    const hiddenTags = new Set(["expecteddischarge", "countbalance", "chg", "foley", "q2turns", "feeder", "staffrestriction"]);
     const isVisible = (x) => !hiddenTags.has(String(x?.tag || "").toLowerCase());
     return {
       violations: (Array.isArray(ruleEval?.violations) ? ruleEval.violations : []).filter(isVisible).length,
@@ -2822,7 +2849,7 @@ if (window.__assignmentsRenderLoaded) {
 
   function buildRuleTooltip(ruleEval) {
     if (!ruleEval) return "";
-    const hiddenTags = new Set(["expecteddischarge", "countbalance", "chg", "foley", "q2turns", "feeder"]);
+    const hiddenTags = new Set(["expecteddischarge", "countbalance", "chg", "foley", "q2turns", "feeder", "staffrestriction"]);
     const isHidden = (x) => hiddenTags.has(String(x?.tag || "").toLowerCase());
     const v = (Array.isArray(ruleEval.violations) ? ruleEval.violations : []).filter((x) => !isHidden(x));
     const w = (Array.isArray(ruleEval.warnings) ? ruleEval.warnings : []).filter((x) => !isHidden(x));
@@ -2830,9 +2857,10 @@ if (window.__assignmentsRenderLoaded) {
 
     const plainRuleLabel = (x) => {
       const tag = String(x?.tag || "").toLowerCase();
-      if (tag === "rnratio") return "Tele/NIH group exceeds 4 patients";
+      if (tag === "rnratio") return "Tele/NIH/EMU group exceeds 4 patients";
       if (tag === "rnabsolutemax") return "Med-Surg group exceeds 5 patients";
       if (tag === "nih") return "Multiple NIH patients assigned together";
+      if (tag === "nihemu") return "NIH and EMU are paired together";
       if (tag === "drip") return "Multiple drip patients assigned together";
       if (tag === "bg") return "Blood glucose checks are concentrated";
       if (tag === "tf") return "Tube feeds are concentrated";
@@ -2855,6 +2883,14 @@ if (window.__assignmentsRenderLoaded) {
     v.forEach(x => parts.push(`❗ ${x.tag}: ${x.mine} > ${x.limit}`));
     w.forEach(x => parts.push(`⚠ ${x.tag}: ${x.mine} > ${x.limit} (may be unavoidable)`));
     return parts.join(" • ");
+  }
+
+  function buildStaffRestrictionIconHtml(ruleEval) {
+    const hits = (Array.isArray(ruleEval?.violations) ? ruleEval.violations : [])
+      .filter((x) => String(x?.tag || "").toLowerCase() === "staffrestriction");
+    if (!hits.length) return "";
+    const title = hits.map((x) => x?.message || "Staff restriction mismatch").join(" | ");
+    return `<button class="icon-btn staff-restriction-bad" type="button" title="${escapeHtml(title)}" aria-label="${escapeHtml(title)}">&#9977;</button>`;
   }
 
   function escapeHtml(str) {
@@ -3277,6 +3313,7 @@ if (window.__assignmentsRenderLoaded) {
       const vCount = visibleRules.violations;
       const wCount = visibleRules.warnings;
       const ruleTip = buildRuleTooltip(ruleEval);
+      const staffRestrictionIcon = buildStaffRestrictionIconHtml(ruleEval);
 
       html += `
         <div class="assignment-card ${loadClass}"
@@ -3295,6 +3332,7 @@ if (window.__assignmentsRenderLoaded) {
                   <div style="min-width:0;">
                     <strong>${escapeHtml(nurse.name)}</strong> (${escapeHtml((nurse.type || "").toUpperCase())})
                   </div>
+                  ${staffRestrictionIcon}
                   ${
                     (vCount || wCount)
                       ? `<button class="icon-btn ${vCount ? "flag-bad" : "flag-warn"}" type="button"
@@ -3308,7 +3346,7 @@ if (window.__assignmentsRenderLoaded) {
               </div>
             </div>
 
-            <div>Patients: ${pts.length} | Load Score: ${loadScore}</div>
+            <div>Patients: ${pts.length} | Load Score: ${loadScore} | ${rnRatioBadgeHtmlForPatients(pts)}</div>
             ${__ownerHeaderControlsHtml("incoming", "nurse", nurse)}
           </div>
 
@@ -3451,6 +3489,7 @@ if (window.__assignmentsRenderLoaded) {
       const vCount = visibleRules.violations;
       const wCount = visibleRules.warnings;
       const ruleTip = buildRuleTooltip(ruleEval);
+      const staffRestrictionIcon = buildStaffRestrictionIconHtml(ruleEval);
       const sitterPair = String(pca?.sitterRoomPair || "").trim();
       const isSitterPca = !!pca?.isSitter && !!sitterPair;
       const sitterRoomsLabel = isSitterPca ? `${sitterPair}A, ${sitterPair}B` : "";
@@ -3472,6 +3511,7 @@ if (window.__assignmentsRenderLoaded) {
                   <div style="min-width:0;">
                     <strong>${escapeHtml(pca.name)}</strong> (${isSitterPca ? "Sitter" : "PCA"})${isSitterPca ? ` ${pts.length} | ${escapeHtml(sitterRoomsLabel)}` : ``}
                   </div>
+                  ${staffRestrictionIcon}
                   ${
                     (vCount || wCount)
                       ? `<button class="icon-btn ${vCount ? "flag-bad" : "flag-warn"}" type="button"

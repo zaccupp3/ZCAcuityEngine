@@ -923,6 +923,32 @@ body.owner-tile-dragging [data-owner-card="1"]:hover{
   line-height:1;
 }
 
+.rn-ratio-badge{
+  display:inline-flex;
+  align-items:center;
+  min-height:22px;
+  padding:2px 8px;
+  border:1px solid #cbd5e1;
+  border-radius:999px;
+  font-size:12px;
+  font-weight:900;
+  line-height:1.1;
+  vertical-align:middle;
+  white-space:nowrap;
+}
+
+.rn-ratio-badge.ratio-four{
+  background:#fff7ed;
+  border-color:#fed7aa;
+  color:#9a3412;
+}
+
+.rn-ratio-badge.ratio-five{
+  background:#f8fafc;
+  border-color:#cbd5e1;
+  color:#334155;
+}
+
 .pp-discharge-toggle{
   opacity:0.22;
   transition:opacity 120ms ease, box-shadow 120ms ease, transform 120ms ease;
@@ -1517,6 +1543,14 @@ body.owner-tile-dragging [data-owner-card="1"]:hover{
   border-color: #dc2626;
   color: #ffffff;
   font-size: 16px;
+  font-weight: 900;
+}
+
+.staff-restriction-bad{
+  background: #b91c1c;
+  border-color: #991b1b;
+  color: #ffffff;
+  font-size: 15px;
   font-weight: 900;
 }
 
@@ -2499,4 +2533,76 @@ button[onclick*="populateLiveAssignment"]{
 
 .oncoming-suggestion-item:first-of-type {
   margin-top: 10px;
+}
+
+.charge-ai-card{
+  border:1px solid rgba(15,23,42,0.10);
+  background:rgba(255,255,255,0.96);
+  border-radius:12px;
+  padding:10px 12px;
+  box-shadow:0 10px 24px rgba(15,23,42,0.08);
+}
+
+.charge-ai-toggle{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  width:100%;
+  border:0;
+  background:transparent;
+  padding:0;
+  margin:0;
+  font-size:12px;
+  font-weight:900;
+  color:#0f172a;
+  cursor:pointer;
+  text-align:left;
+}
+
+.charge-ai-body{
+  margin-top:8px;
+}
+
+.charge-ai-input{
+  width:100%;
+  resize:vertical;
+  min-height:64px;
+  border:1px solid #cbd5e1;
+  border-radius:8px;
+  padding:8px;
+  font-size:12px;
+  line-height:1.3;
+  box-sizing:border-box;
+}
+
+.charge-ai-actions{
+  display:flex;
+  gap:6px;
+  flex-wrap:wrap;
+  margin-top:8px;
+}
+
+.charge-ai-btn{
+  border:1px solid #111;
+  background:#111;
+  color:#fff;
+  border-radius:8px;
+  padding:6px 10px;
+  font-size:12px;
+  font-weight:900;
+  cursor:pointer;
+}
+
+.charge-ai-btn.secondary{
+  background:#fff;
+  color:#0f172a;
+  border-color:#cbd5e1;
+}
+
+.charge-ai-answer{
+  margin-top:8px;
+  font-size:12px;
+  line-height:1.35;
+  color:#334155;
+  white-space:pre-wrap;
 }

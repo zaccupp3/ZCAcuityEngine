@@ -209,6 +209,24 @@
       : "";
   }
 
+  function rnRatioBadgeHtml(pts) {
+    const rows = safeArray(pts).filter((p) => p && !p.isEmpty);
+    const hasTele = rows.some((p) => p.tele);
+    const hasNih = rows.some((p) => p.nih);
+    const hasEmu = rows.some((p) => p.emu);
+    const cap = (hasTele || hasNih || hasEmu) ? 4 : 5;
+    const reasons = [
+      hasNih ? "NIH" : "",
+      hasEmu ? "EMU" : "",
+      hasTele ? "Tele" : ""
+    ].filter(Boolean);
+    const reasonText = reasons.length ? ` (${reasons.join("/")})` : "";
+    const title = cap === 4
+      ? `4:1 required because this RN group has ${reasons.join(", ")}`
+      : "5:1 allowed for med-surg-only RN group";
+    return `<span class="rn-ratio-badge ratio-${cap === 4 ? "four" : "five"}" title="${escapeHtml(title)}">Ratio: ${cap}:1${escapeHtml(reasonText)}</span>`;
+  }
+
   function getPatientByIdSafe(id) {
     try {
       if (typeof window.getPatientById === "function") return window.getPatientById(id);
@@ -910,8 +928,9 @@
 
   function buildRuleTitle(ownerEval, roleLabel) {
     if (!ownerEval) return "";
-    const v = safeArray(ownerEval.violations);
-    const w = safeArray(ownerEval.warnings);
+    const isStaffRestriction = (x) => String(x?.tag || "").toLowerCase() === "staffrestriction";
+    const v = safeArray(ownerEval.violations).filter((x) => !isStaffRestriction(x));
+    const w = safeArray(ownerEval.warnings).filter((x) => !isStaffRestriction(x));
     if (!v.length && !w.length) return "";
 
     const parts = [];
@@ -931,13 +950,21 @@
 
   function buildRuleIconHtml(ownerEval, roleLabel) {
     if (!ownerEval) return "";
-    const v = safeArray(ownerEval.violations);
-    const w = safeArray(ownerEval.warnings);
+    const isStaffRestriction = (x) => String(x?.tag || "").toLowerCase() === "staffrestriction";
+    const v = safeArray(ownerEval.violations).filter((x) => !isStaffRestriction(x));
+    const w = safeArray(ownerEval.warnings).filter((x) => !isStaffRestriction(x));
     if (!v.length && !w.length) return "";
 
     const cls = v.length ? "flag-bad" : "flag-warn";
     const title = buildRuleTitle(ownerEval, roleLabel);
     return `<button class="icon-btn ${cls}" type="button" title="${escapeHtml(title)}">!</button>`;
+  }
+
+  function buildStaffRestrictionIconHtml(ownerEval) {
+    const hits = safeArray(ownerEval?.violations).filter((x) => String(x?.tag || "").toLowerCase() === "staffrestriction");
+    if (!hits.length) return "";
+    const title = hits.map((x) => x?.message || "Staff restriction mismatch").join(" | ");
+    return `<button class="icon-btn staff-restriction-bad" type="button" title="${escapeHtml(title)}" aria-label="${escapeHtml(title)}">&#9977;</button>`;
   }
 
   // -----------------------------
@@ -1417,7 +1444,7 @@
             <div>
               <strong>${escapeHtml(holdRn.name)}</strong>
             </div>
-            <div style="font-weight:700;">Patients: ${holdRnPts.length} | Load Score: 0</div>
+            <div style="font-weight:700;">Patients: ${holdRnPts.length} | Load Score: 0 | ${rnRatioBadgeHtml(holdRnPts)}</div>
           </div>
 
           <table class="assignment-table">
@@ -1455,6 +1482,7 @@
 
       const ownerEval = getOwnerEval(nurse, rnEvalMap);
       const ruleIcon = buildRuleIconHtml(ownerEval, "RN");
+      const staffRestrictionIcon = buildStaffRestrictionIconHtml(ownerEval);
 
       let rows = "";
       pts.forEach((p) => {
@@ -1512,9 +1540,9 @@
                 <div>
                   <strong>${escapeHtml(nurse.name)}</strong> (${escapeHtml(String(nurse.type || "").toUpperCase())})
                 </div>
-                <div class="icon-row">${ruleIcon}</div>
+                <div class="icon-row">${staffRestrictionIcon}${ruleIcon}</div>
               </div>
-              <div>Patients: ${pts.length} | Load Score: ${loadScore}</div>
+              <div>Patients: ${pts.length} | Load Score: ${loadScore} | ${rnRatioBadgeHtml(pts)}</div>
             </div>
             <div style="display:flex;align-items:center;gap:8px;">
               ${ownerHeaderControlsHtml("live", "nurse", nurse)}
@@ -1609,6 +1637,7 @@
 
       const ownerEval = getOwnerEval(pca, pcaEvalMap);
       const ruleIcon = buildRuleIconHtml(ownerEval, "PCA");
+      const staffRestrictionIcon = buildStaffRestrictionIconHtml(ownerEval);
       const sitterPair = String(pca?.sitterRoomPair || "").trim();
       const isSitterPca = !!pca?.isSitter && !!sitterPair;
       const sitterRoomsLabel = isSitterPca ? `${sitterPair}A, ${sitterPair}B` : "";
@@ -1670,7 +1699,7 @@
                 <div>
                   <strong>${escapeHtml(pca.name)}</strong> (${titleRole})${isSitterPca ? ` ${pts.length} | ${escapeHtml(sitterRoomsLabel)}` : ``}
                 </div>
-                <div class="icon-row">${ruleIcon}</div>
+                <div class="icon-row">${staffRestrictionIcon}${ruleIcon}</div>
               </div>
               <div>${isSitterPca ? `Load Score: ${loadScore}` : `Patients: ${pts.length} | Load Score: ${loadScore}`}</div>
             </div>

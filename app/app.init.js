@@ -664,6 +664,24 @@ window.addEventListener("DOMContentLoaded", async () => {
   window.__cloud.lastQueuedSnapshotStr = window.__cloud.lastQueuedSnapshotStr || "";
   window.__cloud.lastPublishAt =
     typeof window.__cloud.lastPublishAt === "number" ? window.__cloud.lastPublishAt : 0;
+  window.__cloud.localDirtyAt =
+    typeof window.__cloud.localDirtyAt === "number" ? window.__cloud.localDirtyAt : 0;
+  window.__cloud.localDirtyReason = window.__cloud.localDirtyReason || "";
+
+  function noteLocalUnitEdit(reason = "") {
+    const now = Date.now();
+    window.__cloud.localDirtyAt = now;
+    window.__cloud.localDirtyReason = String(reason || "local_edit");
+    window.__cloud.suspendRealtimeApplyUntil = Math.max(
+      Number(window.__cloud.suspendRealtimeApplyUntil || 0),
+      now + 5000
+    );
+  }
+
+  function hasRecentLocalEdit() {
+    const dirtyAt = Number(window.__cloud.localDirtyAt || 0);
+    return dirtyAt > 0 && Date.now() - dirtyAt < 15000;
+  }
 
   function snapshotString() {
     try { return JSON.stringify(snapshotFromWindow()); } catch { return ""; }
@@ -731,7 +749,11 @@ window.addEventListener("DOMContentLoaded", async () => {
           const localV = typeof window.__cloud.unitStateVersion === "number" ? window.__cloud.unitStateVersion : 0;
           const remoteMs = cloudRowTimestamp(remoteRow);
           const localMs = localCloudTimestamp();
-          if (remoteV > localV || (remoteV === localV && remoteMs > localMs + 1000)) {
+          const localEditActive = hasRecentLocalEdit();
+          if (localEditActive && remoteV > localV) {
+            window.__cloud.unitStateVersion = remoteV;
+            window.__cloud.unitStateUpdatedAt = remoteRow.updated_at || remoteRow.updatedAt || window.__cloud.unitStateUpdatedAt || "";
+          } else if (remoteV > localV || (!localEditActive && remoteV === localV && remoteMs > localMs + 1000)) {
             const remoteState = remoteRow.state || remoteRow.state_json || remoteRow || {};
             withPublishMuted(() => {
               applySnapshotToWindow(remoteState.state || remoteState);
@@ -779,6 +801,8 @@ window.addEventListener("DOMContentLoaded", async () => {
 
       if (snapStr) window.__cloud.lastPublishedSnapshotStr = snapStr;
       window.__cloud.lastPublishAt = Date.now();
+      window.__cloud.localDirtyAt = 0;
+      window.__cloud.localDirtyReason = "";
 
       setSyncStatus("synced", { lastSyncedAt: new Date() });
 
@@ -854,6 +878,8 @@ window.addEventListener("DOMContentLoaded", async () => {
     window.__cloud.unitStateUpdatedAt = row.updated_at || row.updatedAt || "";
     window.__cloud.lastPublishedSnapshotStr = snapshotString();
     window.__cloud.lastQueuedSnapshotStr = "";
+    window.__cloud.localDirtyAt = 0;
+    window.__cloud.localDirtyReason = "";
     markCloudHydrated(unitId);
     setSyncStatus("synced", { lastSyncedAt: new Date() });
 
@@ -901,7 +927,12 @@ window.addEventListener("DOMContentLoaded", async () => {
         const incomingMs = cloudRowTimestamp(row);
         const localMs = localCloudTimestamp();
 
-        if (incomingV > localV || (incomingV === localV && incomingMs > localMs + 1000)) {
+        const localEditActive = hasRecentLocalEdit();
+        if (localEditActive) {
+          console.log("[cloud] incoming snapshot held because a local edit is pending publish");
+          return;
+        }
+        if (incomingV > localV || (!localEditActive && incomingV === localV && incomingMs > localMs + 1000)) {
           if (cloudApplySuspended()) {
             console.log("[cloud] newer snapshot ignored during local rebalance/edit window");
             return;
@@ -917,6 +948,8 @@ window.addEventListener("DOMContentLoaded", async () => {
           });
           window.__cloud.lastPublishedSnapshotStr = snapshotString();
           window.__cloud.lastQueuedSnapshotStr = "";
+          window.__cloud.localDirtyAt = 0;
+          window.__cloud.localDirtyReason = "";
 
           // ✅ batched refresh to avoid fan-out if multiple events land close together
           window.requestGlobalRefresh("cloud_realtime_apply");
@@ -936,7 +969,8 @@ window.addEventListener("DOMContentLoaded", async () => {
     subscribeUnitState,
     unsubscribeUnitState,
     publishUnitStateNow,
-    publishUnitStateDebounced
+    publishUnitStateDebounced,
+    noteLocalUnitEdit
   };
 
   // -----------------------------

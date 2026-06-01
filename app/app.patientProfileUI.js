@@ -541,6 +541,14 @@
 
   function markProfileStateDirty(reason) {
     try {
+      if (window.cloudSync && typeof window.cloudSync.noteLocalUnitEdit === "function") {
+        window.cloudSync.noteLocalUnitEdit(reason || "patient_profile");
+      } else if (window.__cloud) {
+        window.__cloud.suspendRealtimeApplyUntil = Math.max(Number(window.__cloud.suspendRealtimeApplyUntil || 0), Date.now() + 5000);
+      }
+    } catch (_) {}
+
+    try {
       if (typeof window.markDirty === "function") window.markDirty();
       else if (typeof window.saveState === "function") window.saveState();
     } catch (_) {}
@@ -678,6 +686,13 @@
     const target = event.target;
     if (!target || target.tagName !== "INPUT" || target.type !== "checkbox") return;
     if (!String(target.id || "").startsWith("prof")) return;
+    try {
+      if (window.cloudSync && typeof window.cloudSync.noteLocalUnitEdit === "function") {
+        window.cloudSync.noteLocalUnitEdit("patient_profile_editing");
+      } else if (window.__cloud) {
+        window.__cloud.suspendRealtimeApplyUntil = Math.max(Number(window.__cloud.suspendRealtimeApplyUntil || 0), Date.now() + 5000);
+      }
+    } catch (_) {}
     const t0 = (typeof performance !== "undefined" && performance.now) ? performance.now() : 0;
     try {
       requestAnimationFrame(() => {

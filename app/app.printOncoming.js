@@ -63,7 +63,7 @@
         }
       });
     });
-    return doc.body.innerHTML.trim();
+    return doc.body.innerHTML.trim().replace(/&nbsp;/gi, " ").replace(/\u00a0/g, " ");
   }
 
   function richValueOrBlank(html) {
@@ -113,10 +113,10 @@
     const raw = String(getValueById("finalizeShiftDate") || "").trim();
     if (raw) {
       const d = new Date(`${raw}T00:00:00`);
-      if (!Number.isNaN(d.getTime())) return `${d.getMonth() + 1}/${d.getDate()}/${String(d.getFullYear()).slice(-2)}`;
+      if (!Number.isNaN(d.getTime())) return `${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}-${String(d.getFullYear()).slice(-2)}`;
     }
     const now = new Date();
-    return `${now.getMonth() + 1}/${now.getDate()}/${String(now.getFullYear()).slice(-2)}`;
+    return `${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}-${String(now.getFullYear()).slice(-2)}`;
   }
 
   function getUnitLabel() {
@@ -313,6 +313,10 @@
         if (txt) base.roomDetails[s.id][room] = txt;
       });
     });
+    CHARGE_REPORT_RICH_IDS.forEach((id) => {
+      const txt = String(detailsSrc[id] || "").trim();
+      if (txt && txt !== "None") base.details[id] = txt;
+    });
     return base;
   }
 
@@ -336,6 +340,17 @@
     // Rooms are always derived live from tags; only details are persisted.
     saveHandoffDraft(prior);
     return prior;
+  }
+
+  function highRiskEditorHasActiveTypingFocus() {
+    try {
+      const active = document.activeElement;
+      if (!active) return false;
+      const root = document.getElementById("highRiskStructuredEditor");
+      return !!(root && root.contains(active) && active.matches && active.matches("[data-hr-rich]"));
+    } catch (_) {
+      return false;
+    }
   }
 
   function collectHighRiskDraftFromUi() {
@@ -426,6 +441,11 @@
   function renderHighRiskStructuredEditor() {
     const root = document.getElementById("highRiskStructuredEditor");
     if (!root) return;
+    if (highRiskEditorHasActiveTypingFocus()) {
+      window.__highRiskRenderPending = true;
+      return;
+    }
+    window.__highRiskRenderPending = false;
     root.style.maxWidth = "none";
     root.style.margin = "0 0 12px 0";
     root.style.padding = "0";
@@ -526,7 +546,15 @@
 
     root.querySelectorAll("[data-hr-rich]").forEach((el) => {
       el.addEventListener("input", () => { collectHighRiskDraftFromUi(); });
-      el.addEventListener("blur", () => { collectHighRiskDraftFromUi(); });
+      el.addEventListener("blur", () => {
+        collectHighRiskDraftFromUi();
+        if (window.__highRiskRenderPending) {
+          window.__highRiskRenderPending = false;
+          setTimeout(() => {
+            try { renderHighRiskStructuredEditor(); } catch (_) {}
+          }, 0);
+        }
+      });
     });
     root.querySelectorAll("[data-hr-cmd]").forEach((btn) => {
       btn.addEventListener("click", () => {
@@ -705,20 +733,19 @@
     return new RegExp(`^(current|incoming)?\\s*${r}\\s*\\d+$`, "i").test(text);
   }
 
-  function stableFourDigitExtension(seed) {
+  function explicitFourDigitExtension(seed) {
     const s = String(seed || "").trim();
     if (!s) return "";
     const direct = s.match(/\b(?:x|ext\.?|extension)?\s*(\d{4})\b/i);
     if (direct) return `x${direct[1]}`;
-    let hash = 0;
-    for (let i = 0; i < s.length; i++) hash = ((hash * 31) + s.charCodeAt(i)) % 9000;
-    return `x${String(hash + 1000).slice(-4)}`;
+    return "";
   }
 
   function staffPrintName(title, fallback, role) {
     const staff = splitStaffDisplay(title || "", fallback || role || "");
-    const name = isPlaceholderStaffName(staff.name, role) ? "" : staff.name;
-    const ext = name ? stableFourDigitExtension(`${staff.name}|${staff.id || title || fallback}`) : "";
+    const ext = explicitFourDigitExtension(title || staff.name || "");
+    const nameRaw = String(staff.name || "").replace(/\b(?:x|ext\.?|extension)?\s*\d{4}\b/i, "").trim();
+    const name = isPlaceholderStaffName(nameRaw, role) ? "" : nameRaw;
     return [name, ext].filter(Boolean).join(" ");
   }
 
@@ -730,10 +757,10 @@
 
   function rowIsTeleOrNih(row) {
     const p = patientForPrintRoom(row?.room);
-    if (p && (p.tele || p.nih)) return true;
+    if (p && (p.tele || p.nih || p.emu)) return true;
     const level = String(row?.level || "");
     const notes = String(row?.notes || "");
-    return !!level.trim() || /\bnih\b/i.test(notes);
+    return !!level.trim() || /\b(nih|emu)\b/i.test(notes);
   }
 
 
@@ -843,7 +870,7 @@
     return `
       <section class="six-rn-box">
         <div class="six-rn-head">
-          <div class="six-rn-line"><strong>RN:</strong> <span>${escapeHtml(staffLine)}</span></div>
+          <div class="six-rn-line"><strong>RN:</strong> <span class="six-staff-name">${escapeHtml(staffLine)}</span></div>
           <div class="six-ratio-line"><strong>Ratio:</strong> <span>${ratioCap}:1</span></div>
         </div>
         <table><tbody>${rows || `<tr><td class="room"></td><td class="tele"></td><td></td></tr>`}</tbody></table>
@@ -859,7 +886,7 @@
       .sort((a, b) => roomSortKey(a).localeCompare(roomSortKey(b)));
     return `
       <section class="six-pca-box">
-        <div class="six-pca-head"><strong>PCA:</strong> <span>${escapeHtml(staffLine)}</span></div>
+        <div class="six-pca-head"><strong>PCA:</strong> <span class="six-staff-name">${escapeHtml(staffLine)}</span></div>
         <div class="six-pca-rooms">${escapeHtml(rooms.join(", "))}</div>
       </section>
     `;
@@ -877,7 +904,7 @@
       } else {
         text = raw.replace(/<br\s*\/?>/gi, "\n").replace(/<[^>]+>/g, "");
       }
-      text = String(text || "").trim();
+      text = String(text || "").replace(/\u00a0/g, " ").replace(/&nbsp;/gi, " ").trim();
       if (!text || text === "None") return "";
       return text.replace(/\s*\r?\n\s*/g, "; ");
     } catch (_) {
@@ -933,6 +960,9 @@
         return hasPatients || !!staffLine;
       })
       .slice(0, 7);
+    const shiftDate = getShiftDateLabel();
+    const shift = getShiftTypeLabel(data.rnCards, data.pcaCards);
+    const dateShift = `${shiftDate} ${shift && shift !== "-" ? shift : ""}`.trim();
 
     return `<!doctype html>
 <html>
@@ -944,27 +974,29 @@
   *{ box-sizing:border-box; }
   html,body{ margin:0; padding:0; background:#fff; color:#000; font-family:Arial, Helvetica, sans-serif; }
   @page{ size:8.5in 11in; margin:0.22in; }
-  .six-wrap{ width:8.05in; min-height:10.55in; margin:0 auto; display:grid; grid-template-columns:2.45in 2.45in 2.45in; grid-template-rows:0.26in repeat(5, 1.52in); gap:0.14in; position:relative; }
+  .six-wrap{ width:8.05in; min-height:10.55in; margin:0 auto; padding-left:0.3in; display:grid; grid-template-columns:2.45in 2.45in 2.45in; grid-template-rows:0.24in 0.26in repeat(5, 1.52in); gap:0.14in; position:relative; }
+  .six-date{ grid-column:1 / -1; border:1px solid #111; height:0.24in; display:flex; align-items:center; justify-content:center; font-size:14px; font-weight:800; letter-spacing:0; }
   .six-lead{ border:1px solid #111; display:grid; grid-template-columns:0.78in 1fr; height:0.24in; font-size:13px; font-weight:700; align-items:center; }
   .six-lead span:first-child{ border-right:1px solid #111; height:100%; padding:2px 4px; }
   .six-lead span:last-child{ padding:2px 4px; }
   .six-rn-box{ border:1px solid #111; display:flex; flex-direction:column; min-height:0; }
-  .six-rn-head{ height:0.42in; background:linear-gradient(90deg,#fff 0,#fff 0.58in,#d9d9d9 0.58in,#d9d9d9 100%); border-bottom:1px solid #111; font-size:12px; line-height:1.05; padding:2px 4px; overflow:hidden; }
+  .six-rn-head{ height:0.42in; background:#fff; border-bottom:1px solid #111; font-size:12px; line-height:1.05; padding:2px 4px; overflow:hidden; }
   .six-rn-line,.six-ratio-line{ display:flex; gap:3px; align-items:baseline; white-space:nowrap; min-width:0; }
   .six-rn-line strong,.six-ratio-line strong,.six-pca-head strong{ font-weight:800; flex:0 0 0.48in; }
   .six-rn-line span,.six-ratio-line span{ font-weight:700; overflow:hidden; text-overflow:ellipsis; }
+  .six-rn-line .six-staff-name,.six-pca-head .six-staff-name{ background:#d9d9d9; padding:1px 3px; }
   .six-rn-line{ max-width:100%; }
   .six-rn-box table{ width:100%; border-collapse:collapse; table-layout:fixed; flex:1; }
   .six-rn-box td{ font-size:11px; line-height:1.05; padding:1px 3px; vertical-align:top; border:0; }
   .six-rn-box td.room{ width:0.34in; border-right:1px solid #111; text-align:center; font-weight:700; }
   .six-rn-box td.tele{ width:0.18in; color:#dc2626; text-align:center; }
-  .six-side{ grid-column:3; grid-row:2 / span 5; display:flex; flex-direction:column; min-height:0; }
+  .six-side{ grid-column:3; grid-row:3 / span 5; display:flex; flex-direction:column; min-height:0; }
   .six-pca-box{ border:1px solid #111; border-bottom:0; height:0.58in; }
   .six-pca-box:nth-child(7){ border-bottom:1px solid #111; }
-  .six-pca-head{ height:0.2in; font-size:14px; padding:2px 4px; background:linear-gradient(90deg,#fff 0,#fff 0.58in,#d9d9d9 0.58in,#d9d9d9 100%); display:flex; gap:3px; align-items:baseline; white-space:nowrap; overflow:hidden; }
+  .six-pca-head{ height:0.2in; font-size:14px; padding:2px 4px; background:#fff; display:flex; gap:3px; align-items:baseline; white-space:nowrap; overflow:hidden; }
   .six-pca-head span{ font-weight:700; overflow:hidden; text-overflow:ellipsis; }
   .six-pca-rooms{ font-size:11px; padding:4px; line-height:1.15; }
-  .six-task-row{ border:1px solid #111; border-top:0; min-height:0.36in; font-size:14px; padding:5px 4px; background:linear-gradient(90deg,#fff 0,#fff 0.58in,#e9e9e9 0.58in,#e9e9e9 100%); display:flex; align-items:baseline; gap:4px; }
+  .six-task-row{ border:1px solid #111; border-top:0; min-height:0.36in; font-size:14px; padding:5px 4px; background:#fff; display:flex; align-items:baseline; gap:4px; }
   .six-task-row strong{ flex:0 0 0.58in; font-weight:800; }
   .six-task-row span{ font-size:11px; min-width:0; overflow-wrap:anywhere; }
   .six-map{ border:1px solid #bbb; height:1.62in; position:relative; align-self:end; }
@@ -979,13 +1011,14 @@
   .stack-g{ right:-0.02in; bottom:0.02in; width:0.5in; height:1.5in; flex-direction:column; }
   .tower-f{ right:0.02in; bottom:0.3in; width:0.48in; height:0.42in; }
   .map-heart{ position:absolute; left:0.25in; bottom:0.25in; color:#000; font-size:16px; }
-  .six-unit{ position:absolute; left:-0.22in; top:4.8in; transform:rotate(-90deg); font-weight:700; font-size:16px; }
+  .six-unit{ position:absolute; left:-0.04in; top:4.95in; transform:rotate(-90deg); transform-origin:center; font-weight:700; font-size:16px; white-space:nowrap; }
   .pca-rounds{ margin:0.18in auto 0; border:1px solid #111; width:0.68in; height:0.48in; display:flex; align-items:center; justify-content:center; text-align:center; font-weight:700; font-size:13px; }
   @media print{ .six-wrap{ margin:0; } }
 </style>
 </head>
 <body>
   <div class="six-wrap">
+    <div class="six-date">${escapeHtml(dateShift)}</div>
     <div class="six-lead"><span>Charge:</span><span>${escapeHtml(data.charge || "")}</span></div>
     <div class="six-lead"><span>Mentor:</span><span>${escapeHtml(data.mentor || "")}</span></div>
     <div class="six-lead"><span>CTA:</span><span>${escapeHtml(data.cta || "")}</span></div>
@@ -1494,11 +1527,11 @@
 
   function buildOncomingPreviewDoc(mode, includePacket) {
     const selectedMode = String(mode || "new").toLowerCase() === "traditional" ? "traditional" : "new";
+    const handoffInput = collectHighRiskDraftFromUi();
     const data = collectOncomingPrintData();
     const assignmentHtml = buildPrintHTMLSixNorth(data);
     if (!includePacket) return assignmentHtml;
     refreshHighRiskDraftFromPatients();
-    const handoffInput = collectHighRiskDraftFromUi();
     return appendHighRiskSectionToDocument(
       assignmentHtml,
       buildHighRiskHandoffSection(handoffInput)
@@ -1567,7 +1600,10 @@
     const original = window.updateAcuityTiles;
     window.updateAcuityTiles = function wrappedUpdateAcuityTiles() {
       const out = original.apply(this, arguments);
-      try { renderHighRiskStructuredEditor(); } catch (_) {}
+      try {
+        if (highRiskEditorHasActiveTypingFocus()) window.__highRiskRenderPending = true;
+        else renderHighRiskStructuredEditor();
+      } catch (_) {}
       return out;
     };
     window.__highRiskAutoRefreshWrapped = true;

@@ -264,9 +264,28 @@
     return countTagsForOwner(tempOwner, role);
   }
 
+  function countNihEmuForOwner(owner, extraPatient) {
+    const rows = safeArray(owner?.patients)
+      .map((pid) => resolvePatient(pid))
+      .filter(Boolean);
+    if (extraPatient) rows.push(extraPatient);
+    return {
+      nih: rows.reduce((sum, p) => sum + (isOn(p, ["nih"]) ? 1 : 0), 0),
+      emu: rows.reduce((sum, p) => sum + (isOn(p, ["emu"]) ? 1 : 0), 0)
+    };
+  }
+
+  function countNihEmuForUnit(ownersAll) {
+    return safeArray(ownersAll).reduce((sum, owner) => {
+      const counts = countNihEmuForOwner(owner);
+      return sum + counts.nih + counts.emu;
+    }, 0);
+  }
+
   // Would adding this patient to this owner create an avoidable violation?
   function wouldAddingPatientCauseAvoidableViolation(owner, patient, ownersAll, role, limitsOverride) {
     if (role !== "pca" && rnRatioOverflowForOwner(owner, patient) > 0) return true;
+    if (staffRestrictionViolations(owner, role, patient).length) return true;
     const limits = limitsOverride || (role === "pca" ? PCA_LIMITS : RN_LIMITS);
     const ownerCount = Math.max(1, safeArray(ownersAll).length);
     const ownerCounts = countTagsForOwner(owner, role);
@@ -281,6 +300,14 @@
       const unitTotalWithNew = (unitCounts[tag] || 0) + (patientCounts[tag] || 0);
       const unavoidable = unavoidableThreshold(unitTotalWithNew, ownerCount, limit);
       if (!unavoidable) return true;
+    }
+    if (role !== "pca") {
+      const paired = countNihEmuForOwner(owner, patient);
+      if (paired.nih > 0 && paired.emu > 0) {
+        const unitTotalWithNew = countNihEmuForUnit(ownersAll) + ((isOn(patient, ["nih"]) || isOn(patient, ["emu"])) ? 1 : 0);
+        const unavoidable = unavoidableThreshold(unitTotalWithNew, ownerCount, 1);
+        if (!unavoidable) return true;
+      }
     }
     return false;
   }
@@ -417,7 +444,7 @@
   }
 
   function patientNeedsFourToOne(patient) {
-    return !!(patient && (patient.tele || patient.nih));
+    return !!(patient && (patient.tele || patient.nih || patient.emu));
   }
 
   function rnOwnerRatioCap(owner, extraPatientObj) {
@@ -461,6 +488,33 @@
     return safeArray(ownersAll).reduce((sum, owner) => sum + countOverflowForOwner(owner, ownersAll), 0);
   }
 
+  function staffRestrictionViolations(owner, role, extraPatient) {
+    const restrictions = owner?.restrictions || {};
+    const rows = safeArray(owner?.patients)
+      .map((pid) => resolvePatient(pid))
+      .filter((p) => p && !p.isEmpty);
+    if (extraPatient && !extraPatient.isEmpty) rows.push(extraPatient);
+    const hits = [];
+
+    if (role !== "pca" && restrictions.noNih) {
+      const rooms = rows
+        .filter((p) => isOn(p, ["nih"]))
+        .map((p) => String((typeof window.getRoomLabelForPatient === "function" ? window.getRoomLabelForPatient(p) : "") || p.room || p.id || "").trim())
+        .filter(Boolean);
+      if (rooms.length) hits.push({ key: "No NIH", rooms });
+    }
+
+    if (restrictions.noIso) {
+      const rooms = rows
+        .filter((p) => isOn(p, ["isolation", "iso"]))
+        .map((p) => String((typeof window.getRoomLabelForPatient === "function" ? window.getRoomLabelForPatient(p) : "") || p.room || p.id || "").trim())
+        .filter(Boolean);
+      if (rooms.length) hits.push({ key: "No ISO", rooms });
+    }
+
+    return hits;
+  }
+
   function evaluateOwnerHardRules(owner, ownersAll, role, limitsOverride, ctx = {}) {
     const limits = limitsOverride || (role === "pca" ? PCA_LIMITS : RN_LIMITS);
     const ownerCount = Math.max(1, safeArray(ownersAll).length);
@@ -470,6 +524,20 @@
 
     const violations = [];
     const warnings = [];
+
+    const staffRestrictionHits = staffRestrictionViolations(owner, role);
+    staffRestrictionHits.forEach((hit) => {
+      violations.push({
+        tag: "staffRestriction",
+        mine: hit.rooms.length,
+        limit: 0,
+        unitTotal: hit.rooms.length,
+        ownerCount,
+        unavoidable: false,
+        severity: "violation",
+        message: `${owner?.name || (role === "pca" ? "PCA" : "RN")} is marked ${hit.key} but has room(s): ${hit.rooms.join(", ")}`
+      });
+    });
 
     if (role !== "pca") {
       const count = safeArray(owner?.patients).length;
@@ -497,6 +565,24 @@
           severity: "violation",
           message: `RN assignment exceeds absolute max (5)`
         });
+      }
+
+      const paired = countNihEmuForOwner(owner);
+      if (paired.nih > 0 && paired.emu > 0) {
+        const unitTotal = countNihEmuForUnit(ownersAll);
+        const unavoidable = unavoidableThreshold(unitTotal, ownerCount, 1);
+        const rec = {
+          tag: "nihEmu",
+          mine: paired.nih + paired.emu,
+          limit: 1,
+          unitTotal,
+          ownerCount,
+          unavoidable,
+          severity: unavoidable ? "warning" : "violation",
+          message: "NIH and EMU are paired together"
+        };
+        if (unavoidable) warnings.push(rec);
+        else violations.push(rec);
       }
     }
 

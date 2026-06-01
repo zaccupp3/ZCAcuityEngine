@@ -160,6 +160,14 @@ function scheduleNonCriticalRefresh(reason) {
 
 function markStateDirty(reason) {
   try {
+    if (window.cloudSync && typeof window.cloudSync.noteLocalUnitEdit === "function") {
+      window.cloudSync.noteLocalUnitEdit(reason || "assignment_move");
+    } else if (window.__cloud) {
+      window.__cloud.suspendRealtimeApplyUntil = Math.max(Number(window.__cloud.suspendRealtimeApplyUntil || 0), Date.now() + 5000);
+    }
+  } catch (_) {}
+
+  try {
     if (typeof window.markDirty === "function") window.markDirty();
     else if (typeof window.saveState === "function") window.saveState();
   } catch (_) {}
