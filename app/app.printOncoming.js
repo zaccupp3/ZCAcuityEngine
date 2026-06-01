@@ -1023,7 +1023,9 @@
   .map-pod{ font-size:24px; font-weight:900; fill:#000; text-anchor:middle; dominant-baseline:middle; }
   .map-heart{ font-size:18px; fill:#000; text-anchor:middle; dominant-baseline:middle; }
   .six-unit{ position:absolute; left:-0.18in; top:5.2in; transform:rotate(-90deg); transform-origin:center; font-weight:700; font-size:16px; white-space:nowrap; }
-  .pca-rounds{ margin:0.12in auto 0; border:1px solid #111; width:0.68in; height:0.48in; display:flex; align-items:center; justify-content:center; text-align:center; font-weight:700; font-size:13px; }
+  .pca-rounds-wrap{ margin:0.12in auto 0; display:flex; align-items:flex-start; justify-content:center; gap:0.42in; width:100%; min-height:1.05in; }
+  .pca-rounds{ border:1px solid #111; width:0.68in; height:0.5in; display:flex; align-items:center; justify-content:center; text-align:center; font-weight:700; font-size:13px; line-height:1.05; margin-top:0.08in; }
+  .pca-rounds-qr{ width:0.95in; height:0.95in; object-fit:contain; image-rendering:pixelated; display:block; }
   @media print{ .six-wrap{ margin:0; } }
 </style>
 </head>
@@ -1039,7 +1041,10 @@
     <div class="six-side">
       ${pcaCards.map(renderSixNorthPcaBox).join("")}
       ${renderSixNorthTaskRows()}
-      <div class="pca-rounds">PCA<br>Rounds</div>
+      <div class="pca-rounds-wrap">
+        <div class="pca-rounds">PCA<br>Rounds</div>
+        <img class="pca-rounds-qr" src="assets/pca-rounds-qr.png" alt="PCA Rounds QR" />
+      </div>
     </div>
     ${renderSixNorthRnBox(rnCards[2])}
     ${renderSixNorthRnBox(rnCards[3])}
