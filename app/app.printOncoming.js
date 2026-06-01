@@ -939,16 +939,29 @@
     const mid = ["53","54","55","56","57","58","59"];
     const f = ["60","61","62","63","64","65","66"];
     const right = ["76","75","74","73","72","71","70","69","68","67"];
+    const topTexts = top.map((n, i) => {
+      const x = 16 + (i * 20);
+      return `<text class="map-room" x="${x}" y="28" transform="rotate(90 ${x} 28)">${n}</text>`;
+    }).join("");
+    const midTexts = mid.map((n, i) => {
+      const x = 18 + (i * 20);
+      return `<text class="map-room" x="${x}" y="123" transform="rotate(90 ${x} 123)">${n}</text>`;
+    }).join("");
+    const fTexts = f.map((n, i) => `<text class="map-room" x="186" y="${118 + (i * 9)}">${n}</text>`).join("");
+    const rightTexts = right.map((n, i) => `<text class="map-room" x="244" y="${54 + (i * 11)}">${n}</text>`).join("");
     return `
       <div class="six-map">
-        <div class="map-strip strip-a">${top.map(n => `<span>${n}</span>`).join("")}</div>
-        <div class="map-strip strip-b">${mid.map(n => `<span>${n}</span>`).join("")}</div>
-        <div class="map-tower tower-d"><strong>D</strong></div>
-        <div class="map-tower tower-e"><strong>E</strong></div>
-        <div class="map-stack stack-f">${f.map(n => `<span>${n}</span>`).join("")}</div>
-        <div class="map-stack stack-g">${right.map(n => `<span>${n}</span>`).join("")}</div>
-        <div class="map-tower tower-f"><strong>F</strong></div>
-        <div class="map-heart">&#10084;</div>
+        <svg class="six-map-svg" viewBox="0 0 270 180" aria-label="6 North unit map">
+          <path class="map-outline" d="M1 1 H269 V179 H158 V126 H1 Z" />
+          ${topTexts}
+          ${midTexts}
+          ${fTexts}
+          ${rightTexts}
+          <text class="map-pod" x="75" y="75">E</text>
+          <text class="map-pod" x="216" y="75">D</text>
+          <text class="map-pod" x="216" y="139">F</text>
+          <text class="map-heart" x="35" y="151">&#10084;</text>
+        </svg>
       </div>
     `;
   }
@@ -976,46 +989,40 @@
 <style>
   *{ box-sizing:border-box; }
   html,body{ margin:0; padding:0; background:#fff; color:#000; font-family:Arial, Helvetica, sans-serif; }
-  @page{ size:8.5in 11in; margin:0.22in; }
-  .six-wrap{ width:8.05in; min-height:10.55in; margin:0 auto; padding-left:0.3in; display:grid; grid-template-columns:2.45in 2.45in 2.45in; grid-template-rows:0.24in 0.26in repeat(5, 1.52in); gap:0.14in; position:relative; }
+  @page{ size:8.5in 11in; margin:0.12in; }
+  .six-wrap{ width:8.26in; height:10.76in; margin:0 auto; padding-left:0.22in; display:grid; grid-template-columns:2.58in 2.58in 2.58in; grid-template-rows:0.24in 0.27in repeat(5, minmax(0, 1fr)); gap:0.08in; position:relative; }
   .six-date{ grid-column:1 / -1; border:1px solid #111; height:0.24in; display:flex; align-items:center; justify-content:center; font-size:14px; font-weight:800; letter-spacing:0; }
-  .six-lead{ border:1px solid #111; display:grid; grid-template-columns:0.78in 1fr; height:0.24in; font-size:13px; font-weight:700; align-items:center; }
+  .six-lead{ border:1px solid #111; display:grid; grid-template-columns:0.78in 1fr; height:0.25in; font-size:13px; font-weight:700; align-items:center; }
   .six-lead span:first-child{ border-right:1px solid #111; height:100%; padding:2px 4px; }
   .six-lead span:last-child{ padding:2px 4px; }
   .six-rn-box{ border:1px solid #111; display:flex; flex-direction:column; min-height:0; }
-  .six-rn-head{ height:0.42in; background:#fff; border-bottom:1px solid #111; font-size:12px; line-height:1.05; padding:2px 4px; overflow:hidden; }
+  .six-rn-head{ height:0.42in; background:#fff; border-bottom:1px solid #111; font-size:12.5px; line-height:1.05; padding:2px 4px; overflow:hidden; }
   .six-rn-line,.six-ratio-line{ display:flex; gap:3px; align-items:baseline; white-space:nowrap; min-width:0; }
   .six-rn-line strong,.six-ratio-line strong,.six-pca-head strong{ font-weight:800; flex:0 0 0.48in; }
   .six-rn-line span,.six-ratio-line span{ font-weight:700; overflow:hidden; text-overflow:ellipsis; }
   .six-rn-line .six-staff-name,.six-pca-head .six-staff-name{ background:#d9d9d9; padding:1px 3px; }
   .six-rn-line{ max-width:100%; }
   .six-rn-box table{ width:100%; border-collapse:collapse; table-layout:fixed; flex:1; }
-  .six-rn-box td{ font-size:11px; line-height:1.05; padding:1px 3px; vertical-align:top; border:0; }
+  .six-rn-box td{ font-size:11.5px; line-height:1.12; padding:2px 3px; vertical-align:top; border:0; }
   .six-rn-box td.room{ width:0.34in; border-right:1px solid #111; text-align:center; font-weight:700; }
-  .six-rn-box td.tele{ width:0.18in; color:#dc2626; text-align:center; }
+  .six-rn-box td.tele{ width:0.18in; color:#dc2626; text-align:center; font-size:12px; }
   .six-side{ grid-column:3; grid-row:3 / span 5; display:flex; flex-direction:column; min-height:0; }
-  .six-pca-box{ border:1px solid #111; border-bottom:0; height:0.58in; }
+  .six-pca-box{ border:1px solid #111; border-bottom:0; height:0.6in; }
   .six-pca-box:nth-child(7){ border-bottom:1px solid #111; }
   .six-pca-head{ height:0.2in; font-size:14px; padding:2px 4px; background:#fff; display:flex; gap:3px; align-items:baseline; white-space:nowrap; overflow:hidden; }
   .six-pca-head span{ font-weight:700; overflow:hidden; text-overflow:ellipsis; }
-  .six-pca-rooms{ font-size:11px; padding:4px; line-height:1.15; }
-  .six-task-row{ border:1px solid #111; border-top:0; min-height:0.36in; font-size:14px; padding:5px 4px; background:#fff; display:flex; align-items:baseline; gap:4px; }
-  .six-task-row strong{ flex:0 0 0.58in; font-weight:800; }
-  .six-task-row span{ font-size:11px; min-width:0; overflow-wrap:anywhere; }
-  .six-map{ border:1px solid #bbb; height:1.62in; position:relative; align-self:end; }
-  .map-strip,.map-stack{ position:absolute; border:1px solid #bbb; background:#fff; display:flex; align-items:center; justify-content:space-around; font-weight:700; font-size:11px; }
-  .map-strip span{ writing-mode:vertical-rl; }
-  .strip-a{ left:0; top:0; width:2.18in; height:0.28in; }
-  .strip-b{ left:0.02in; top:0.92in; width:1.38in; height:0.28in; }
-  .map-tower{ position:absolute; border:1px solid #bbb; background:#fff; display:flex; align-items:center; justify-content:center; font-size:26px; }
-  .tower-e{ left:0.52in; top:0.3in; width:0.52in; height:0.42in; }
-  .tower-d{ right:0.28in; top:0.28in; width:0.52in; height:0.42in; }
-  .stack-f{ right:0.38in; bottom:0.02in; width:0.44in; height:1.08in; flex-direction:column; }
-  .stack-g{ right:-0.02in; bottom:0.02in; width:0.5in; height:1.5in; flex-direction:column; }
-  .tower-f{ right:0.02in; bottom:0.3in; width:0.48in; height:0.42in; }
-  .map-heart{ position:absolute; left:0.25in; bottom:0.25in; color:#000; font-size:16px; }
-  .six-unit{ position:absolute; left:-0.04in; top:4.95in; transform:rotate(-90deg); transform-origin:center; font-weight:700; font-size:16px; white-space:nowrap; }
-  .pca-rounds{ margin:0.18in auto 0; border:1px solid #111; width:0.68in; height:0.48in; display:flex; align-items:center; justify-content:center; text-align:center; font-weight:700; font-size:13px; }
+  .six-pca-rooms{ font-size:11.5px; padding:4px; line-height:1.15; }
+  .six-task-row{ border:1px solid #111; border-top:0; min-height:0.39in; font-size:14px; padding:5px 4px; background:#fff; display:flex; align-items:baseline; gap:4px; }
+  .six-task-row strong{ flex:0 0 0.7in; font-weight:800; }
+  .six-task-row span{ font-size:11.5px; min-width:0; overflow-wrap:anywhere; }
+  .six-map{ height:100%; min-height:1.72in; position:relative; align-self:stretch; }
+  .six-map-svg{ width:100%; height:100%; display:block; }
+  .map-outline{ fill:#fff; stroke:#111; stroke-width:1; }
+  .map-room{ font-size:14px; font-weight:800; fill:#000; text-anchor:middle; dominant-baseline:middle; }
+  .map-pod{ font-size:20px; font-weight:900; fill:#000; text-anchor:middle; dominant-baseline:middle; }
+  .map-heart{ font-size:15px; fill:#000; text-anchor:middle; dominant-baseline:middle; }
+  .six-unit{ position:absolute; left:-0.06in; top:5.2in; transform:rotate(-90deg); transform-origin:center; font-weight:700; font-size:16px; white-space:nowrap; }
+  .pca-rounds{ margin:0.12in auto 0; border:1px solid #111; width:0.68in; height:0.48in; display:flex; align-items:center; justify-content:center; text-align:center; font-weight:700; font-size:13px; }
   @media print{ .six-wrap{ margin:0; } }
 </style>
 </head>
