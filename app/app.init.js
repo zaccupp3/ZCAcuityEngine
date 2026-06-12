@@ -1074,19 +1074,27 @@ window.addEventListener("DOMContentLoaded", async () => {
 
   const bootedFromCloud = __bootSource === "cloud";
 
-  if (currentNurseCountSel) currentNurseCountSel.value = bootedFromCloud && currentNurses.length ? currentNurses.length : DEFAULT_CURRENT_RN;
+  function setStaffingCountDisplay(el, value) {
+    if (!el) return;
+    const v = String(value);
+    el.value = v;
+    el.textContent = v;
+    try { el.setAttribute("data-count", v); } catch {}
+  }
+
+  setStaffingCountDisplay(currentNurseCountSel, bootedFromCloud && currentNurses.length ? currentNurses.length : DEFAULT_CURRENT_RN);
   if (!currentNurses.length || (!bootedFromCloud && currentNurses.length !== DEFAULT_CURRENT_RN)) setupCurrentNurses(DEFAULT_CURRENT_RN);
   else renderCurrentNurseList();
 
-  if (incomingNurseCountSel) incomingNurseCountSel.value = bootedFromCloud && incomingNurses.length ? incomingNurses.length : DEFAULT_INCOMING_RN;
+  setStaffingCountDisplay(incomingNurseCountSel, bootedFromCloud && incomingNurses.length ? incomingNurses.length : DEFAULT_INCOMING_RN);
   if (!incomingNurses.length || (!bootedFromCloud && incomingNurses.length !== DEFAULT_INCOMING_RN)) setupIncomingNurses(DEFAULT_INCOMING_RN);
   else renderIncomingNurseList();
 
-  if (currentPcaCountSel) currentPcaCountSel.value = bootedFromCloud && currentPcas.length ? currentPcas.length : DEFAULT_CURRENT_PCA;
+  setStaffingCountDisplay(currentPcaCountSel, bootedFromCloud && currentPcas.length ? currentPcas.length : DEFAULT_CURRENT_PCA);
   if (!currentPcas.length || (!bootedFromCloud && currentPcas.length !== DEFAULT_CURRENT_PCA)) setupCurrentPcas(DEFAULT_CURRENT_PCA);
   else renderCurrentPcaList();
 
-  if (incomingPcaCountSel) incomingPcaCountSel.value = bootedFromCloud && incomingPcas.length ? incomingPcas.length : DEFAULT_INCOMING_PCA;
+  setStaffingCountDisplay(incomingPcaCountSel, bootedFromCloud && incomingPcas.length ? incomingPcas.length : DEFAULT_INCOMING_PCA);
   if (!incomingPcas.length || (!bootedFromCloud && incomingPcas.length !== DEFAULT_INCOMING_PCA)) setupIncomingPcas(DEFAULT_INCOMING_PCA);
   else renderIncomingPcaList();
 

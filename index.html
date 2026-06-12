@@ -3,7 +3,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>Charge Nurse Platform</title>
+  <title>CHG Nurse Platform</title>
   <link rel="stylesheet" href="style.css?v=7" />
 
   <!-- ✅ Staffing Details v2 layout helpers (safe, scoped) -->
@@ -26,7 +26,7 @@
 
     .leadership-row {
       display: grid;
-      grid-template-columns: 1fr 1fr 1fr;
+      grid-template-columns: 1fr 1fr;
       gap: 10px;
       align-items: end;
       margin-bottom: 12px;
@@ -51,6 +51,21 @@
       padding: 10px 12px;
       font-size: 17px;
       font-weight: 700;
+    }
+
+    .leadership-value {
+      width: 100%;
+      box-sizing: border-box;
+      min-height: 42px;
+      padding: 10px 12px;
+      border: 1px solid rgba(148,163,184,0.55);
+      border-radius: 4px;
+      background: rgba(248,250,252,0.9);
+      color: #0f172a;
+      font-size: 17px;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
     }
 
     .totals-block {
@@ -455,19 +470,20 @@
       <div class="brand">
         <span class="brand-dot" aria-hidden="true"></span>
         <span class="brand-text">
-          <span id="brandTitle" class="brand-title">Charge Nurse Platform</span>
+          <span id="brandTitle" class="brand-title">CHG Nurse Platform</span>
         </span>
       </div>
     </div>
 
     <!-- Middle: Tabs -->
     <nav class="header-nav top-tabs" aria-label="Primary">
-      <button class="tabButton header-tab" data-target="staffingTab">Staffing Details</button>
+      <button class="tabButton header-tab" data-target="staffingTab">Staffing</button>
       <button class="tabButton header-tab" data-target="patientDetailsTab">Patient Details</button>
-      <button class="tabButton header-tab" data-target="liveAssignmentTab">LIVE Assignment</button>
-      <button class="tabButton header-tab" data-target="oncomingAssignmentTab">Oncoming Assignment</button>
+      <button class="tabButton header-tab" data-target="liveAssignmentTab">Live</button>
+      <button class="tabButton header-tab" data-target="oncomingAssignmentTab">Oncoming</button>
       <button class="tabButton header-tab" data-target="highRiskTab">High Risk Report</button>
-      <button class="tabButton header-tab" data-target="unitMetricsTab">Unit Metrics</button>
+      <button class="tabButton header-tab" data-target="unitMetricsTab">Analytics</button>
+      <button class="tabButton header-tab" data-target="advancedMetricsTab">Advanced Metrics</button>
     </nav>
 
     <!-- Right: Unit Switch + Compact Auth Menu -->
@@ -477,9 +493,9 @@
         Print Hand-Off Packet
       </button>
 
-      <div class="unit-switcher" style="display:flex; align-items:center; gap:8px; margin-right:10px;">
+      <div class="unit-switcher auth-unit-switcher">
         <span style="font-size:12px; opacity:0.75;">Unit</span>
-        <select id="unitSwitcher" style="max-width:220px;">
+        <select id="unitSwitcher" class="auth-input">
           <option value="">—</option>
         </select>
       </div>
@@ -575,6 +591,26 @@
                 onclick="window.printOncoming && window.printOncoming.open && window.printOncoming.open()">
           Print Oncoming Assignment
         </button>
+        <div id="globalLiveStaffActions" style="display:none; flex-direction:column; gap:8px;">
+          <button id="globalLiveAddRnBtn" type="button" class="global-tab-print-btn"
+                  onclick="window.adjustStaffingRoster && window.adjustStaffingRoster('current', 'RN', 1)">
+            + Add RN
+          </button>
+          <button id="globalLiveAddPcaBtn" type="button" class="global-tab-print-btn"
+                  onclick="window.adjustStaffingRoster && window.adjustStaffingRoster('current', 'PCA', 1)">
+            + Add PCA
+          </button>
+        </div>
+        <div id="globalOncomingStaffActions" style="display:none; flex-direction:column; gap:8px;">
+          <button id="globalOncomingAddRnBtn" type="button" class="global-tab-print-btn"
+                  onclick="window.adjustStaffingRoster && window.adjustStaffingRoster('incoming', 'RN', 1)">
+            + Add RN
+          </button>
+          <button id="globalOncomingAddPcaBtn" type="button" class="global-tab-print-btn"
+                  onclick="window.adjustStaffingRoster && window.adjustStaffingRoster('incoming', 'PCA', 1)">
+            + Add PCA
+          </button>
+        </div>
         <div id="oncomingQualityPanel" style="display:none;"></div>
       </div>
     </div>
@@ -608,12 +644,16 @@
                 <input id="currentChargeName" type="text" placeholder="Name" />
               </div>
               <div class="leadership-field">
+                <label for="currentCtaName">CTA</label>
+                <input id="currentCtaName" type="text" placeholder="Name" />
+              </div>
+              <div class="leadership-field">
                 <label for="currentMentorName">Resource / Clinical Mentor</label>
                 <input id="currentMentorName" type="text" placeholder="Name" />
               </div>
               <div class="leadership-field">
-                <label for="currentCtaName">CTA</label>
-                <input id="currentCtaName" type="text" placeholder="Name" />
+                <label for="currentPcaResourceName">PCA Resource</label>
+                <input id="currentPcaResourceName" type="text" placeholder="Name" />
               </div>
             </div>
           </div>
@@ -624,17 +664,11 @@
             <div class="totals-three-sections">
               <div class="totals-section">
                 <span class="totals-label">Total RNs:</span>
-                <select id="currentNurseCount">
-                  <option>5</option><option>6</option><option>7</option><option>8</option>
-                  <option>9</option><option>10</option>
-                </select>
+                <span id="currentNurseCount" class="staffing-count-value" aria-live="polite">0</span>
               </div>
               <div class="totals-section">
                 <span class="totals-label">Total PCAs:</span>
-                <select id="currentPcaCount">
-                  <option>3</option><option>4</option><option>5</option><option>6</option>
-                  <option>7</option><option>8</option>
-                </select>
+                <span id="currentPcaCount" class="staffing-count-value" aria-live="polite">0</span>
               </div>
               <div class="totals-section totals-status">
                 <div id="currentStaffingTotalsStatus" class="staffing-status-pill" role="status">
@@ -649,7 +683,10 @@
           <div class="staff-card">
             <div class="staff-card-header" style="display:flex; align-items:center; justify-content:space-between; gap:8px;">
               <span>Current RNs</span>
-              <button type="button" onclick="window.clearCurrentRnNames && window.clearCurrentRnNames()" style="padding:4px 8px; font-size:12px;">Clear RN</button>
+              <div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
+                <button type="button" data-staff-ctrl="1" data-shift="current" data-role="RN" data-delta="1" style="padding:4px 8px; font-size:12px;">+ Add RN</button>
+                <button type="button" onclick="window.clearCurrentRnNames && window.clearCurrentRnNames()" style="padding:4px 8px; font-size:12px;">Clear RN</button>
+              </div>
             </div>
             <div id="currentNurseList" class="staffList"></div>
           </div>
@@ -657,7 +694,10 @@
           <div class="staff-card">
             <div class="staff-card-header" style="display:flex; align-items:center; justify-content:space-between; gap:8px;">
               <span>Current PCAs</span>
-              <button type="button" onclick="window.clearCurrentPcaNames && window.clearCurrentPcaNames()" style="padding:4px 8px; font-size:12px;">Clear PCA</button>
+              <div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
+                <button type="button" data-staff-ctrl="1" data-shift="current" data-role="PCA" data-delta="1" style="padding:4px 8px; font-size:12px;">+ Add PCA</button>
+                <button type="button" onclick="window.clearCurrentPcaNames && window.clearCurrentPcaNames()" style="padding:4px 8px; font-size:12px;">Clear PCA</button>
+              </div>
             </div>
             <div id="currentPcaList" class="staffList"></div>
           </div>
@@ -678,12 +718,16 @@
                 <input id="incomingChargeName" type="text" placeholder="Name" />
               </div>
               <div class="leadership-field">
+                <label for="incomingCtaName">CTA</label>
+                <input id="incomingCtaName" type="text" placeholder="Name" />
+              </div>
+              <div class="leadership-field">
                 <label for="incomingMentorName">Resource / Clinical Mentor</label>
                 <input id="incomingMentorName" type="text" placeholder="Name" />
               </div>
               <div class="leadership-field">
-                <label for="incomingCtaName">CTA</label>
-                <input id="incomingCtaName" type="text" placeholder="Name" />
+                <label for="incomingPcaResourceName">PCA Resource</label>
+                <input id="incomingPcaResourceName" type="text" placeholder="Name" />
               </div>
             </div>
           </div>
@@ -694,17 +738,11 @@
             <div class="totals-three-sections">
               <div class="totals-section">
                 <span class="totals-label">Total RNs:</span>
-                <select id="incomingNurseCount">
-                  <option>5</option><option>6</option><option>7</option><option>8</option>
-                  <option>9</option><option>10</option>
-                </select>
+                <span id="incomingNurseCount" class="staffing-count-value" aria-live="polite">0</span>
               </div>
               <div class="totals-section">
                 <span class="totals-label">Total PCAs:</span>
-                <select id="incomingPcaCount">
-                  <option>3</option><option>4</option><option>5</option><option>6</option>
-                  <option>7</option><option>8</option>
-                </select>
+                <span id="incomingPcaCount" class="staffing-count-value" aria-live="polite">0</span>
               </div>
               <div class="totals-section totals-status">
                 <div id="incomingStaffingTotalsStatus" class="staffing-status-pill" role="status">
@@ -719,7 +757,10 @@
           <div class="staff-card">
             <div class="staff-card-header" style="display:flex; align-items:center; justify-content:space-between; gap:8px;">
               <span>Oncoming RNs</span>
-              <button type="button" onclick="window.clearIncomingRnNames && window.clearIncomingRnNames()" style="padding:4px 8px; font-size:12px;">Clear RN</button>
+              <div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
+                <button type="button" data-staff-ctrl="1" data-shift="incoming" data-role="RN" data-delta="1" style="padding:4px 8px; font-size:12px;">+ Add RN</button>
+                <button type="button" onclick="window.clearIncomingRnNames && window.clearIncomingRnNames()" style="padding:4px 8px; font-size:12px;">Clear RN</button>
+              </div>
             </div>
             <div id="incomingNurseList" class="staffList"></div>
           </div>
@@ -727,7 +768,10 @@
           <div class="staff-card">
             <div class="staff-card-header" style="display:flex; align-items:center; justify-content:space-between; gap:8px;">
               <span>Oncoming PCAs</span>
-              <button type="button" onclick="window.clearIncomingPcaNames && window.clearIncomingPcaNames()" style="padding:4px 8px; font-size:12px;">Clear PCA</button>
+              <div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
+                <button type="button" data-staff-ctrl="1" data-shift="incoming" data-role="PCA" data-delta="1" style="padding:4px 8px; font-size:12px;">+ Add PCA</button>
+                <button type="button" onclick="window.clearIncomingPcaNames && window.clearIncomingPcaNames()" style="padding:4px 8px; font-size:12px;">Clear PCA</button>
+              </div>
             </div>
             <div id="incomingPcaList" class="staffList"></div>
           </div>
@@ -793,6 +837,12 @@
         <button type="button" class="header-action-btn" onclick="window.openImportAssignmentCsv && window.openImportAssignmentCsv()">
           Import Current Assignment
         </button>
+      </div>
+
+      <div id="globalLivePopulateStatus" class="staffing-status-pill live-populate-status" role="status" style="display:none;">
+        <span class="staffing-status-dot"></span>
+        <span class="staffing-status-text">Populated</span>
+        <span class="staffing-status-meta">0/0</span>
       </div>
 
       <!-- ✅ Option A: remove the legacy Admit Queue column.
@@ -878,7 +928,7 @@
     <!-- ✅ UNIT METRICS TAB -->
     <section id="unitMetricsTab" class="tab-section" style="display: none;">
       <div class="tab-title-row">
-        <h1>Unit Metrics</h1>
+        <h1>Analytics</h1>
         <button type="button" class="tab-info-btn" data-tab-help="unitMetrics">i</button>
       </div>
       <p>
@@ -918,21 +968,104 @@
       <div id="pulseTable" style="display:none;"></div>
     </section>
 
+    <!-- ADVANCED METRICS TAB -->
+    <section id="advancedMetricsTab" class="tab-section" style="display: none;">
+      <div class="tab-title-row">
+        <h1>Advanced Metrics</h1>
+        <button type="button" class="tab-info-btn" data-tab-help="advancedMetrics">i</button>
+      </div>
+      <p>
+        Unit-scoped operational reports for patient experience, staff support, flow, handoff quality, and injury-prevention planning.
+      </p>
+
+      <div class="staff-card">
+        <div class="staff-card-header">Report Controls</div>
+        <div class="staff-inline-controls" style="gap:10px; flex-wrap:wrap;">
+          <label for="advancedFrom"><strong>From:</strong></label>
+          <input id="advancedFrom" type="date" />
+
+          <label for="advancedTo"><strong>To:</strong></label>
+          <input id="advancedTo" type="date" />
+
+          <label for="advancedShiftType"><strong>Shift:</strong></label>
+          <select id="advancedShiftType">
+            <option value="">All</option>
+            <option value="day">Day</option>
+            <option value="night">Night</option>
+          </select>
+
+          <label for="advancedInterval"><strong>Window:</strong></label>
+          <select id="advancedInterval">
+            <option value="all" selected>Selected Dates</option>
+            <option value="last_3">Last 3 Shifts</option>
+            <option value="last_6">Last 6 Shifts</option>
+            <option value="last_12">Last 12 Shifts</option>
+          </select>
+
+          <button id="btnLoadAdvancedMetrics" type="button">Load Advanced Metrics</button>
+        </div>
+        <div id="advancedMetricsStatus" style="margin-top:10px; font-size:12px; opacity:0.85;"></div>
+      </div>
+
+      <div id="advancedMetricsRoot" class="advanced-metrics-root">
+        <div class="staff-card">
+          <div class="staff-card-header">Advanced Metrics Summary</div>
+          <div style="font-size:14px; color:#475569; line-height:1.4;">No data loaded yet.</div>
+        </div>
+      </div>
+    </section>
+
   </main>
 
   <footer class="app-footer">
-    <div>Charge Nurse Acuity and Workload Tracking Platform: Created by Zachary Cupp, BSN, RN</div>
+    <div>CHG Nurse Acuity and Workload Tracking Platform: Created by Zachary Cupp, BSN, RN</div>
     <button id="footerMiniMapToggle" class="footer-mini-map-toggle" type="button" onclick="window.toggleUnitMiniMap && window.toggleUnitMiniMap()">Unit Mini Map</button>
     <div id="footerMiniMapPanel" class="footer-mini-map-panel" hidden>
       <div class="footer-mini-map-title">6 North Room Flow</div>
       <div class="footer-mini-map">
-        <div class="mini-strip mini-strip-e">52 51 50 49 48 47 46 45 44 43 42 41</div>
-        <div class="mini-strip mini-strip-mid">53 54 55 56 57 58 59</div>
-        <div class="mini-pod mini-pod-d">D</div>
-        <div class="mini-pod mini-pod-e">E</div>
-        <div class="mini-stack mini-stack-f">60 61 62 63 64 65 66</div>
-        <div class="mini-stack mini-stack-g">76 75 74 73 72 71 70 69 68 67</div>
-        <div class="mini-pod mini-pod-f">F</div>
+        <svg class="footer-mini-map-svg" viewBox="0 0 520 405" preserveAspectRatio="xMidYMid meet" aria-label="6 North unit mini map">
+          <path class="footer-map-outline" d="M2 2 H518 V403 H320 V205 H2 Z" />
+          <text class="footer-map-room footer-map-room-vertical" x="26" y="32" transform="rotate(90 26 32)">52</text>
+          <text class="footer-map-room footer-map-room-vertical" x="64" y="32" transform="rotate(90 64 32)">51</text>
+          <text class="footer-map-room footer-map-room-vertical" x="102" y="32" transform="rotate(90 102 32)">50</text>
+          <text class="footer-map-room footer-map-room-vertical" x="140" y="32" transform="rotate(90 140 32)">49</text>
+          <text class="footer-map-room footer-map-room-vertical" x="178" y="32" transform="rotate(90 178 32)">48</text>
+          <text class="footer-map-room footer-map-room-vertical" x="216" y="32" transform="rotate(90 216 32)">47</text>
+          <text class="footer-map-room footer-map-room-vertical" x="254" y="32" transform="rotate(90 254 32)">46</text>
+          <text class="footer-map-room footer-map-room-vertical" x="292" y="32" transform="rotate(90 292 32)">45</text>
+          <text class="footer-map-room footer-map-room-vertical" x="330" y="32" transform="rotate(90 330 32)">44</text>
+          <text class="footer-map-room footer-map-room-vertical" x="368" y="32" transform="rotate(90 368 32)">43</text>
+          <text class="footer-map-room footer-map-room-vertical" x="406" y="32" transform="rotate(90 406 32)">42</text>
+          <text class="footer-map-room footer-map-room-vertical" x="444" y="32" transform="rotate(90 444 32)">41</text>
+          <text class="footer-map-room footer-map-room-vertical" x="26" y="150" transform="rotate(90 26 150)">53</text>
+          <text class="footer-map-room footer-map-room-vertical" x="64" y="150" transform="rotate(90 64 150)">54</text>
+          <text class="footer-map-room footer-map-room-vertical" x="102" y="150" transform="rotate(90 102 150)">55</text>
+          <text class="footer-map-room footer-map-room-vertical" x="140" y="150" transform="rotate(90 140 150)">56</text>
+          <text class="footer-map-room footer-map-room-vertical" x="178" y="150" transform="rotate(90 178 150)">57</text>
+          <text class="footer-map-room footer-map-room-vertical" x="216" y="150" transform="rotate(90 216 150)">58</text>
+          <text class="footer-map-room footer-map-room-vertical" x="254" y="150" transform="rotate(90 254 150)">59</text>
+          <text class="footer-map-room" x="470" y="72">76</text>
+          <text class="footer-map-room" x="470" y="100">75</text>
+          <text class="footer-map-room" x="470" y="128">74</text>
+          <text class="footer-map-room" x="470" y="156">73</text>
+          <text class="footer-map-room" x="470" y="184">72</text>
+          <text class="footer-map-room" x="470" y="212">71</text>
+          <text class="footer-map-room" x="470" y="240">70</text>
+          <text class="footer-map-room" x="470" y="268">69</text>
+          <text class="footer-map-room" x="470" y="296">68</text>
+          <text class="footer-map-room" x="470" y="324">67</text>
+          <text class="footer-map-room" x="338" y="182">60</text>
+          <text class="footer-map-room" x="338" y="210">61</text>
+          <text class="footer-map-room" x="338" y="238">62</text>
+          <text class="footer-map-room" x="338" y="266">63</text>
+          <text class="footer-map-room" x="338" y="294">64</text>
+          <text class="footer-map-room" x="338" y="322">65</text>
+          <text class="footer-map-room" x="338" y="350">66</text>
+          <text class="footer-map-pod" x="142" y="92">E</text>
+          <text class="footer-map-pod" x="405" y="92">D</text>
+          <text class="footer-map-pod" x="400" y="290">F</text>
+          <text class="footer-map-heart" x="30" y="178">&#10084;</text>
+        </svg>
       </div>
       <div class="footer-mini-map-note">Distance anchor: Pod E long hall, Pod F north run, Pod D west run. Use for room-spread decisions.</div>
     </div>
@@ -1209,6 +1342,7 @@
     <script src="app/app.shiftBackfill.js?v=2"></script>
 
     <script src="app/app.unitMetrics.js?v=12"></script>
+    <script src="app/app.advancedMetrics.js?v=1"></script>
     <script src="app/app.unitPulse.js?v=5"></script>
 
     <script src="app/app.printOncoming.js?v=20"></script>
@@ -1336,7 +1470,7 @@
             `
           },
           unitMetrics: {
-            title: "Unit Metrics - How To Use",
+            title: "Analytics - How To Use",
             html: `
               <h4>Purpose</h4>
               <ul>
@@ -1347,6 +1481,21 @@
                 <li>Set date range and optional shift filter.</li>
                 <li>Click <strong>Load Metrics</strong>.</li>
                 <li>Use summary + table for review and comparison.</li>
+              </ul>
+            `
+          },
+          advancedMetrics: {
+            title: "Advanced Metrics - How To Use",
+            html: `
+              <h4>Purpose</h4>
+              <ul>
+                <li>Review unit-specific reports built from finalized shifts, staff metrics, snapshots, and audit events.</li>
+              </ul>
+              <h4>Best Workflow</h4>
+              <ul>
+                <li>Select date range, shift, and window.</li>
+                <li>Click <strong>Load Advanced Metrics</strong>.</li>
+                <li>Use the report cards to spot staffing equity, safety, flow, handoff, and patient-experience risks.</li>
               </ul>
             `
           }

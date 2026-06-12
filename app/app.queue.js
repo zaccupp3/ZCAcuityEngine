@@ -253,11 +253,38 @@
   // Queue list rendering
   // --------------------------
   function ensureQueueListLayout(el) {
-    // This makes the INLINE queue readable (wraps tiles, not smushed)
     el.style.display = "flex";
-    el.style.flexWrap = "wrap";
-    el.style.gap = "10px";
+    el.style.flexDirection = "column";
+    el.style.flexWrap = "nowrap";
+    el.style.gap = "6px";
     el.style.alignItems = "stretch";
+  }
+
+  function getEmptyBeds() {
+    return safeArray(window.patients)
+      .filter(p => p && p.isEmpty)
+      .sort((a, b) => getRoomNumberCompat(a) - getRoomNumberCompat(b));
+  }
+
+  function currentAssignableRns() {
+    return safeArray(window.currentNurses)
+      .filter(n => n && !isRnAtCapacity(n));
+  }
+
+  function currentAssignablePcas() {
+    return safeArray(window.currentPcas)
+      .filter(p => p && !isPcaAtCapacity(p));
+  }
+
+  function renderSelectOptions(items, selectedValue, placeholder, labeler) {
+    const selected = String(selectedValue || "");
+    const base = `<option value="">${escapeHtml(placeholder)}</option>`;
+    const opts = safeArray(items).map(item => {
+      const value = String(item?.id || "");
+      const label = labeler ? labeler(item) : value;
+      return `<option value="${escapeHtml(value)}" ${value === selected ? "selected" : ""}>${escapeHtml(label)}</option>`;
+    }).join("");
+    return base + opts;
   }
 
   function renderQueueList() {
@@ -284,36 +311,56 @@
 
       item.preAdmitTagsText = tagsText;
 
+      const levelText = item.preAdmit?.tele ? "♥" : "?";
+      const notesText = tagsText || "?";
+      const bedOptions = renderSelectOptions(
+        getEmptyBeds(),
+        item.targetBedId,
+        "Room",
+        p => `Room ${p.room || p.id}`
+      );
+      const rnOptions = renderSelectOptions(
+        currentAssignableRns(),
+        item.targetRnId,
+        "RN",
+        n => {
+          const cur = countActiveAssignedPatients(n);
+          return `${n.name || `RN ${n.id}`} (${cur}/${getNurseMaxPatients(n)})`;
+        }
+      );
+      const pcaOptions = renderSelectOptions(
+        currentAssignablePcas(),
+        item.targetPcaId,
+        "PCA",
+        p => {
+          const cur = countActiveAssignedPatients(p);
+          return `${p.name || `PCA ${p.id}`} (${cur}/${getPcaMaxPatients(p)})`;
+        }
+      );
+      const ready = Number(item.targetBedId || 0) && Number(item.targetRnId || 0) && Number(item.targetPcaId || 0);
       return `
-        <div class="queue-item" style="
-          min-width: 300px;
-          max-width: 520px;
-          flex: 1 1 320px;
-          padding: 10px 12px;
-          border-radius: 14px;
-          border: 1px solid rgba(15,23,42,0.10);
-          background: rgba(255,255,255,0.96);
-          box-shadow: 0 6px 18px rgba(0,0,0,.06);
-        ">
-          <div class="queue-item-header" style="display:flex;justify-content:space-between;gap:10px;">
-            <div class="queue-item-title" style="min-width:120px;">
-              <strong>${escapeHtml(name)}</strong>
-            </div>
-            <div class="queue-item-actions" style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end;">
-              <button class="queue-btn" onclick="openQueueAssignModal(${item.id})">Assign</button>
-              <button class="queue-btn" onclick="editQueuedAdmitName(${item.id})">Edit Name</button>
-              <button class="queue-btn" onclick="openAdmitDraftModal(${item.id})">Pre-Admit Tags</button>
-              <button class="queue-btn" onclick="removeQueuedAdmit(${item.id})">Remove</button>
-            </div>
+        <div class="queue-item queue-item-row">
+          <div class="queue-row-cell queue-row-bed">?</div>
+          <div class="queue-row-cell queue-row-level">${escapeHtml(levelText)}</div>
+          <div class="queue-row-main">
+            <div class="queue-row-name">${escapeHtml(name)}</div>
+            <div class="queue-row-notes">${escapeHtml(notesText)}</div>
           </div>
-
-          ${
-            tagsText
-              ? `<div class="queue-item-tags" style="margin-top:8px;line-height:1.25;word-break:break-word;">
-                   <strong>Pre-admit:</strong> ${escapeHtml(tagsText)}
-                 </div>`
-              : `<div style="margin-top:8px;opacity:.7;">No pre-admit tags.</div>`
-          }
+          <select class="queue-row-select" aria-label="Queue room" onchange="setQueuedAdmitDraft(${item.id}, 'targetBedId', this.value)">
+            ${bedOptions}
+          </select>
+          <select class="queue-row-select" aria-label="Queue RN" onchange="setQueuedAdmitDraft(${item.id}, 'targetRnId', this.value)">
+            ${rnOptions}
+          </select>
+          <select class="queue-row-select" aria-label="Queue PCA" onchange="setQueuedAdmitDraft(${item.id}, 'targetPcaId', this.value)">
+            ${pcaOptions}
+          </select>
+          <div class="queue-row-actions">
+            <button class="queue-btn queue-place-btn" onclick="placeQueuedAdmitFromDraft(${item.id})" ${ready ? "" : "disabled"}>Place</button>
+            <button class="queue-btn" onclick="editQueuedAdmitName(${item.id})">Edit</button>
+            <button class="queue-btn" onclick="openAdmitDraftModal(${item.id})">Tags</button>
+            <button class="queue-btn" onclick="removeQueuedAdmit(${item.id})">&times;</button>
+          </div>
         </div>
       `;
     }).join("");
@@ -338,7 +385,10 @@
         lateDc: false,
         chg: false, foley: false, q2turns: false, strictIo: false, heavy: false, feeder: false
       },
-      preAdmitTagsText: ""
+      preAdmitTagsText: "",
+      targetBedId: "",
+      targetRnId: "",
+      targetPcaId: ""
     };
   }
 
@@ -398,6 +448,16 @@
     if (typeof window.saveState === "function") window.saveState();
   }
 
+  function setQueuedAdmitDraft(id, field, value) {
+    const item = getQueueItem(id);
+    if (!item) return;
+    const allowed = new Set(["targetBedId", "targetRnId", "targetPcaId"]);
+    if (!allowed.has(String(field || ""))) return;
+    item[field] = value ? String(value) : "";
+    renderQueueList();
+    if (typeof window.saveState === "function") window.saveState();
+  }
+
   function removeAdmit(id) {
     removeQueuedAdmit(id);
   }
@@ -430,9 +490,7 @@
     const label = item?.name || item?.label || "Admit";
     if (info) info.textContent = `Assign "${label}" to RN / PCA / bed.`;
 
-    const empties = safeArray(window.patients)
-      .filter(p => p && p.isEmpty)
-      .sort((a, b) => getRoomNumberCompat(a) - getRoomNumberCompat(b));
+    const empties = getEmptyBeds();
 
     if (bedSel) {
       bedSel.innerHTML = empties.length
@@ -441,8 +499,7 @@
       bedSel.disabled = !empties.length;
     }
 
-    const allRns = safeArray(window.currentNurses);
-    const availableRns = allRns.filter(n => n && !isRnAtCapacity(n));
+    const availableRns = currentAssignableRns();
 
     if (rnSel) {
       rnSel.innerHTML = availableRns.length
@@ -455,8 +512,7 @@
       rnSel.disabled = !availableRns.length;
     }
 
-    const allPcas = safeArray(window.currentPcas);
-    const availablePcas = allPcas.filter(p => p && !isPcaAtCapacity(p));
+    const availablePcas = currentAssignablePcas();
 
     if (pcaSel) {
       pcaSel.innerHTML = availablePcas.length
@@ -470,18 +526,7 @@
     }
   }
 
-  function confirmQueueAssign() {
-    const queueId = activeQueueAssignId;
-    if (queueId == null) return;
-
-    const bedSel = byId("queueAssignBed");
-    const rnSel = byId("queueAssignNurse");
-    const pcaSel = byId("queueAssignPca");
-
-    const bedPatientId = Number(bedSel?.value || 0);
-    const rnId = Number(rnSel?.value || 0);
-    const pcaId = Number(pcaSel?.value || 0);
-
+  function placeQueuedAdmit(queueId, bedPatientId, rnId, pcaId) {
     if (!bedPatientId) return alert("Please select an empty bed.");
     if (!rnId) return alert("Please select a receiving RN.");
     if (!pcaId) return alert("Please select a receiving PCA.");
@@ -489,7 +534,6 @@
     const item = getQueueItem(queueId);
     if (!item) {
       alert("That admit is no longer in the queue.");
-      closeQueueAssignModal();
       return;
     }
     ensurePreAdmitShape(item);
@@ -554,6 +598,33 @@
 
     saveAndRefreshAll();
     closeQueueAssignModal();
+  }
+
+  function confirmQueueAssign() {
+    const queueId = activeQueueAssignId;
+    if (queueId == null) return;
+
+    const bedSel = byId("queueAssignBed");
+    const rnSel = byId("queueAssignNurse");
+    const pcaSel = byId("queueAssignPca");
+
+    placeQueuedAdmit(
+      queueId,
+      Number(bedSel?.value || 0),
+      Number(rnSel?.value || 0),
+      Number(pcaSel?.value || 0)
+    );
+  }
+
+  function placeQueuedAdmitFromDraft(id) {
+    const item = getQueueItem(id);
+    if (!item) return;
+    placeQueuedAdmit(
+      Number(id),
+      Number(item.targetBedId || 0),
+      Number(item.targetRnId || 0),
+      Number(item.targetPcaId || 0)
+    );
   }
 
   // --------------------------
@@ -810,6 +881,8 @@
 
   window.removeQueuedAdmit = removeQueuedAdmit;
   window.editQueuedAdmitName = editQueuedAdmitName;
+  window.setQueuedAdmitDraft = setQueuedAdmitDraft;
+  window.placeQueuedAdmitFromDraft = placeQueuedAdmitFromDraft;
 
   window.removeAdmit = removeAdmit;
   window.renameAdmit = renameAdmit;

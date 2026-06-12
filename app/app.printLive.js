@@ -142,6 +142,7 @@
         const notes = (tds[2]?.textContent || "").trim();
 
         if (!room && !level && !notes) return null;
+        if (!/\d/.test(room) && /drop\s+a?\s*patient|assign\s+to/i.test(`${room} ${notes}`)) return null;
         return { room, level, notes };
       })
       .filter(Boolean);
@@ -157,6 +158,17 @@
     return (blocks.length ? blocks : Array.from(wrap.children))
       .map((block) => parseCard(block, kind))
       .filter(Boolean);
+  }
+
+  function withPcaResourceCard(cards, resourceName) {
+    const name = String(resourceName || "").trim();
+    if (!name) return cards || [];
+    return (cards || []).concat({
+      title: `PCA Resource: ${name}`,
+      rows: [],
+      kind: "PCA",
+      isPcaResource: true
+    });
   }
 
   function computePcaTightness(pcaCards) {
@@ -717,13 +729,19 @@
         getValueById("incomingCtaName"),
       ]);
 
+      const pcaResource = firstNonEmpty([
+        getValueById("currentPcaResourceName"),
+        getValueById("incomingPcaResourceName"),
+      ]);
+
       const data = {
         charge,
         mentor,
         cta,
+        pcaResource,
         shift: detectShift(),
         rnCards: extractCardsFrom("liveNurseAssignments", "RN"),
-        pcaCards: extractCardsFrom("livePcaAssignments", "PCA"),
+        pcaCards: withPcaResourceCard(extractCardsFrom("livePcaAssignments", "PCA"), pcaResource),
         pcaOwners: Array.isArray(window.currentPcas) ? window.currentPcas : [],
       };
 

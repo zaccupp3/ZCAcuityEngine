@@ -378,13 +378,48 @@
     return safeArray(arr).filter((o) => o && !isHoldOwner(o)).length;
   }
 
+  function refreshLivePopulateStatus() {
+    try {
+      const pill = document.getElementById("globalLivePopulateStatus");
+      if (!pill) return;
+      const active = getActivePatientsForLive();
+      const total = active.length;
+      const rnSet = new Set();
+      const pcaSet = new Set();
+
+      safeArray(window.currentNurses)
+        .filter((owner) => owner && !isHoldOwner(owner))
+        .forEach((owner) => safeArray(owner.patients).forEach((pid) => rnSet.add(Number(pid))));
+      safeArray(window.currentPcas)
+        .filter((owner) => owner && !isHoldOwner(owner))
+        .forEach((owner) => safeArray(owner.patients).forEach((pid) => pcaSet.add(Number(pid))));
+
+      const populated = active.reduce((sum, patient) => {
+        const pid = Number(patient?.id);
+        return sum + (Number.isFinite(pid) && rnSet.has(pid) && pcaSet.has(pid) ? 1 : 0);
+      }, 0);
+
+      const dot = pill.querySelector(".staffing-status-dot");
+      const text = pill.querySelector(".staffing-status-text");
+      const meta = pill.querySelector(".staffing-status-meta");
+      const complete = total === 0 || populated === total;
+      if (dot) dot.style.background = complete ? "#22c55e" : "#fbbf24";
+      if (text) text.textContent = "Populated";
+      if (meta) meta.textContent = `${populated}/${total}`;
+    } catch (_) {}
+  }
+
+  window.refreshLivePopulateStatus = refreshLivePopulateStatus;
+
   function setSelectValueIfPresent(selectId, value) {
-    const sel = document.getElementById(selectId);
-    if (!sel) return false;
+    const el = document.getElementById(selectId);
+    if (!el) return false;
     try {
       const v = String(value);
-      sel.value = v;
-      return sel.value === v;
+      el.value = v;
+      el.textContent = v;
+      el.setAttribute("data-count", v);
+      return el.value === v || el.textContent === v;
     } catch {
       return false;
     }
@@ -396,17 +431,6 @@
         const rnCount = countNonHoldOwners(window.currentNurses);
         setSelectValueIfPresent("currentNurseCount", rnCount);
 
-        if (typeof window.setupCurrentNurses === "function") {
-          try {
-            window.setupCurrentNurses(rnCount);
-          } catch {
-            try {
-              window.setupCurrentNurses();
-            } catch {}
-          }
-          return;
-        }
-
         if (typeof window.renderCurrentNurseList === "function") {
           window.renderCurrentNurseList();
           return;
@@ -416,17 +440,6 @@
       if (role === "pca") {
         const pcaCount = countNonHoldOwners(window.currentPcas);
         setSelectValueIfPresent("currentPcaCount", pcaCount);
-
-        if (typeof window.setupCurrentPcas === "function") {
-          try {
-            window.setupCurrentPcas(pcaCount);
-          } catch {
-            try {
-              window.setupCurrentPcas();
-            } catch {}
-          }
-          return;
-        }
 
         if (typeof window.renderCurrentPcaList === "function") {
           window.renderCurrentPcaList();
@@ -546,12 +559,10 @@
         background:rgba(255,255,255,0.92);
         box-shadow: 0 6px 18px rgba(0,0,0,.08);
       ">
-        <div style="display:flex;align-items:center;gap:10px;min-width:280px;">
+        <div style="display:flex;align-items:center;gap:10px;min-width:120px;">
           <div style="font-weight:900;white-space:nowrap;">Admit Queue</div>
-          <input id="admitQueueNewLabel" type="text" placeholder="Add admit name…"
-            style="padding:9px 10px;border:1px solid rgba(15,23,42,0.15);border-radius:10px;min-width:190px;" />
           <button id="btnAddAdmitQueue" type="button"
-            style="border:0;background:#111;color:#fff;padding:10px 12px;border-radius:10px;cursor:pointer;font-weight:900;">
+            style="border:0;background:#111;color:#fff;padding:9px 12px;border-radius:10px;cursor:pointer;font-weight:900;">
             + Add
           </button>
         </div>
@@ -559,40 +570,29 @@
         <div style="flex:1;min-width:0;">
           <div id="queueList" style="
             display:flex;
-            gap:10px;
+            flex-direction:column;
+            gap:6px;
+            max-height:280px;
             overflow:auto;
             padding:2px 2px 2px 2px;
-            scroll-snap-type:x proximity;
           "></div>
         </div>
       </div>
     `;
 
-    const input = document.getElementById("admitQueueNewLabel");
     const btn = document.getElementById("btnAddAdmitQueue");
 
     if (btn && !btn.__wired) {
       btn.__wired = true;
 
       const doAdd = () => {
-        const label = (input && input.value ? String(input.value).trim() : "") || "New Admit";
-        const ok = callQueueAddNoPrompt(label);
+        const ok = callQueueAddNoPrompt("New Admit");
         if (!ok) {
           alert("Admit Queue add is not available yet (queue module not loaded). Check script order / refresh.");
         }
-        if (input) input.value = "";
       };
 
       btn.addEventListener("click", doAdd);
-
-      if (input) {
-        input.addEventListener("keydown", (e) => {
-          if (e.key === "Enter") {
-            e.preventDefault();
-            doAdd();
-          }
-        });
-      }
     }
 
     callQueueRender();
@@ -866,12 +866,7 @@
       row.appendChild(right);
     }
 
-    host.innerHTML = `
-      <button id="liveAddRnBtn" type="button"
-        style="border:1px solid rgba(15,23,42,0.18);background:#fff;color:#111;padding:10px 12px;border-radius:12px;cursor:pointer;font-weight:900;box-shadow:0 6px 18px rgba(0,0,0,0.08);">
-        + Add RN
-      </button>
-    `;
+    host.innerHTML = ``;
 
     right.innerHTML = ``;
 
@@ -913,12 +908,7 @@
       row.appendChild(host);
     }
 
-    host.innerHTML = `
-      <button id="liveAddPcaBtn" type="button"
-        style="border:1px solid rgba(15,23,42,0.18);background:#fff;color:#111;padding:10px 12px;border-radius:12px;cursor:pointer;font-weight:900;box-shadow:0 6px 18px rgba(0,0,0,0.08);">
-        + Add PCA
-      </button>
-    `;
+    host.innerHTML = ``;
 
     const btnAdd = document.getElementById("liveAddPcaBtn");
     if (btnAdd && !btnAdd.__wired) {
@@ -1424,6 +1414,10 @@
     const currentPcasAll = safeArray(window.currentPcas);
     const realNurses = currentNursesAll.filter((n) => n && !isHoldOwner(n));
     const realPcas = pcaDisplayOwners(currentPcasAll.filter((p) => p && !isHoldOwner(p)));
+    try {
+      if (typeof window.refreshStaffingCountDisplays === "function") window.refreshStaffingCountDisplays();
+    } catch {}
+    refreshLivePopulateStatus();
 
     nurseContainer.innerHTML = "";
     pcaContainer.innerHTML = "";
@@ -1565,7 +1559,7 @@
             <div>
               <div style="display:flex;align-items:flex-start;gap:10px;">
                 <div>
-                  <strong>${escapeHtml(nurse.name)}</strong> (${escapeHtml(String(nurse.type || "").toUpperCase())})
+                  <strong>${escapeHtml(nurse.name)}</strong>
                 </div>
                 <div class="icon-row">${staffRestrictionIcon}${ruleIcon}</div>
               </div>

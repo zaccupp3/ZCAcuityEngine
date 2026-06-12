@@ -404,12 +404,14 @@
       current: {
         charge: read("currentChargeName"),
         mentor: read("currentMentorName"),
-        cta: read("currentCtaName")
+        cta: read("currentCtaName"),
+        pcaResource: read("currentPcaResourceName")
       },
       incoming: {
         charge: read("incomingChargeName"),
         mentor: read("incomingMentorName"),
-        cta: read("incomingCtaName")
+        cta: read("incomingCtaName"),
+        pcaResource: read("incomingPcaResourceName")
       }
     };
   }
@@ -418,7 +420,8 @@
     const pairs = [
       ["currentChargeName", "incomingChargeName"],
       ["currentMentorName", "incomingMentorName"],
-      ["currentCtaName", "incomingCtaName"]
+      ["currentCtaName", "incomingCtaName"],
+      ["currentPcaResourceName", "incomingPcaResourceName"]
     ];
     pairs.forEach(([currentId, incomingId]) => {
       const currentEl = $(currentId);

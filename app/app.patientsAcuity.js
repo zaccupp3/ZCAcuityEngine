@@ -892,6 +892,7 @@
               <th class="col-room">Bed</th>
               <th>Status</th>
               <th>RN Tags</th>
+              <th class="col-room">Bed</th>
               <th>PCA Tags</th>
             </tr>
           </thead>
@@ -946,6 +947,8 @@
                       ${rnTag(p, "lateDc", "Late DC")}
                     </div>
                   </td>
+
+                  <td class="col-room">${roomLabel}</td>
 
                   <td>
                     <div class="tags-wrap">

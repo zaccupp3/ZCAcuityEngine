@@ -693,6 +693,7 @@
         const from = (tds[3]?.textContent || "").trim();
 
         if (!room && !level && !notes && !from) return null;
+        if (!/\d/.test(room) && /drop\s+a?\s*patient|assign\s+to/i.test(`${room} ${notes} ${from}`)) return null;
         return { room, level, notes, from };
       })
       .filter(Boolean);
@@ -880,6 +881,16 @@
   }
 
   function renderSixNorthPcaBox(card, idx) {
+    if (card?.isPcaResource) {
+      const staffLine = String(card?.pcaResourceName || card?.title || "").replace(/^PCA\s*Resource\s*:\s*/i, "").trim();
+      return `
+        <section class="six-pca-box six-pca-resource">
+          <div class="six-pca-head"><strong>PCA Resource:</strong> <span class="six-staff-name">${escapeHtml(staffLine)}</span></div>
+          <div class="six-pca-rooms"></div>
+        </section>
+      `;
+    }
+
     const staffLine = staffPrintName(card?.title || "", `PCA ${idx + 1}`, "pca");
     const rawTitle = String(card?.title || "");
     const specialLabel = /\bmod\b/i.test(rawTitle) ? "Mod" : (/\bsitter\b/i.test(rawTitle) ? "Sitter" : "");
@@ -935,32 +946,37 @@
   }
 
   function renderSixNorthMap() {
-    const top = ["52","51","50","49","48","47","46","45","44","43","42","41"];
-    const mid = ["53","54","55","56","57","58","59"];
-    const f = ["60","61","62","63","64","65","66"];
-    const right = ["76","75","74","73","72","71","70","69","68","67"];
-    const topTexts = top.map((n, i) => {
-      const x = 20 + (i * 37);
-      return `<text class="map-room" x="${x}" y="30" transform="rotate(90 ${x} 30)">${n}</text>`;
+    const topRooms = ["52","51","50","49","48","47","46","45","44","43","42","41"];
+    const midRooms = ["53","54","55","56","57","58","59"];
+    const rightRooms = ["76","75","74","73","72","71","70","69","68","67"];
+    const fLeftRooms = ["60","61","62","63","64","65","66"];
+    const topText = topRooms.map((room, i) => {
+      const x = 26 + (i * 38);
+      return `<text class="map-room map-room-vertical" x="${x}" y="32" transform="rotate(90 ${x} 32)">${room}</text>`;
     }).join("");
-    const midTexts = mid.map((n, i) => {
-      const x = 22 + (i * 37);
-      return `<text class="map-room" x="${x}" y="132" transform="rotate(90 ${x} 132)">${n}</text>`;
+    const midText = midRooms.map((room, i) => {
+      const x = 26 + (i * 38);
+      return `<text class="map-room map-room-vertical" x="${x}" y="150" transform="rotate(90 ${x} 150)">${room}</text>`;
     }).join("");
-    const fTexts = f.map((n, i) => `<text class="map-room map-room-horizontal" x="333" y="${178 + (i * 28)}">${n}</text>`).join("");
-    const rightTexts = right.map((n, i) => `<text class="map-room map-room-horizontal" x="443" y="${88 + (i * 28)}">${n}</text>`).join("");
+    const rightText = rightRooms.map((room, i) => {
+      return `<text class="map-room" x="470" y="${72 + (i * 28)}">${room}</text>`;
+    }).join("");
+    const fLeftText = fLeftRooms.map((room, i) => {
+      return `<text class="map-room" x="338" y="${182 + (i * 28)}">${room}</text>`;
+    }).join("");
+
     return `
       <div class="six-map">
-        <svg class="six-map-svg" viewBox="0 0 482 375" preserveAspectRatio="xMidYMid meet" aria-label="6 North unit map">
-          <path class="map-outline" d="M1 1 H481 V374 H296 V186 H1 Z" />
-          ${topTexts}
-          ${midTexts}
-          ${fTexts}
-          ${rightTexts}
-          <text class="map-pod" x="143" y="86">E</text>
-          <text class="map-pod" x="380" y="86">D</text>
-          <text class="map-pod" x="389" y="270">F</text>
-          <text class="map-heart" x="35" y="166">&#10084;</text>
+        <svg class="six-map-svg" viewBox="0 0 520 405" preserveAspectRatio="xMidYMid meet" aria-label="6 North unit map">
+          <path class="map-outline" d="M2 2 H518 V403 H320 V205 H2 Z" />
+          ${topText}
+          ${midText}
+          ${rightText}
+          ${fLeftText}
+          <text class="map-pod" x="142" y="92">E</text>
+          <text class="map-pod" x="405" y="92">D</text>
+          <text class="map-pod" x="400" y="290">F</text>
+          <text class="map-heart" x="30" y="178">&#10084;</text>
         </svg>
       </div>
     `;
@@ -969,13 +985,24 @@
   function buildPrintHTMLSixNorth(data) {
     const rnCards = (data.rnCards || []).slice(0, 9);
     while (rnCards.length < 9) rnCards.push({ title: "", rows: [] });
+    const pcaResourceName = String(data.pcaResource || "").trim();
     const pcaCards = (data.pcaCards || [])
+      .filter((card) => !card?.isPcaResource)
       .filter((card, idx) => {
         const hasPatients = Array.isArray(card?.rows) && card.rows.length > 0;
         const staffLine = staffPrintName(card?.title || "", `PCA ${idx + 1}`, "pca");
         return hasPatients || !!staffLine;
-      })
-      .slice(0, 7);
+      });
+    if (pcaResourceName) {
+      pcaCards.push({
+        title: `PCA Resource: ${pcaResourceName}`,
+        pcaResourceName,
+        rows: [],
+        kind: "PCA",
+        isPcaResource: true
+      });
+    }
+    const pcaBoxHeight = pcaCards.length >= 9 ? 0.43 : (pcaCards.length >= 8 ? 0.48 : 0.6);
     const shiftDate = getShiftDateLabel();
     const shift = getShiftTypeLabel(data.rnCards, data.pcaCards);
     const dateShift = `${shiftDate} ${shift && shift !== "-" ? shift : ""}`.trim();
@@ -997,8 +1024,9 @@
   .six-lead span:last-child{ padding:2px 4px; }
   .six-rn-box{ border:1px solid #111; display:flex; flex-direction:column; min-height:0; }
   .six-rn-head{ height:0.42in; background:#fff; border-bottom:1px solid #111; font-size:12.5px; line-height:1.05; padding:2px 4px; overflow:hidden; }
-  .six-rn-line,.six-ratio-line{ display:flex; gap:3px; align-items:baseline; white-space:nowrap; min-width:0; }
-  .six-rn-line strong,.six-ratio-line strong,.six-pca-head strong{ font-weight:800; flex:0 0 0.48in; }
+  .six-rn-line,.six-ratio-line{ display:grid; grid-template-columns:0.58in minmax(0,1fr); column-gap:0.05in; align-items:baseline; white-space:nowrap; min-width:0; }
+  .six-rn-line strong,.six-ratio-line strong{ font-weight:800; }
+  .six-pca-head strong{ font-weight:800; flex:0 0 auto; }
   .six-rn-line span,.six-ratio-line span{ font-weight:700; overflow:hidden; text-overflow:ellipsis; }
   .six-rn-line .six-staff-name,.six-pca-head .six-staff-name{ background:#d9d9d9; padding:1px 3px; }
   .six-rn-line{ max-width:100%; }
@@ -1007,25 +1035,26 @@
   .six-rn-box td.room{ width:0.34in; border-right:1px solid #111; text-align:center; font-weight:700; }
   .six-rn-box td.tele{ width:0.18in; color:#dc2626; text-align:center; font-size:12px; }
   .six-side{ grid-column:3; grid-row:3 / span 5; display:flex; flex-direction:column; min-height:0; }
-  .six-pca-box{ border:1px solid #111; border-bottom:0; height:0.6in; }
-  .six-pca-box:nth-child(7){ border-bottom:1px solid #111; }
-  .six-pca-head{ height:0.2in; font-size:14px; padding:2px 4px; background:#fff; display:flex; gap:3px; align-items:baseline; white-space:nowrap; overflow:hidden; }
+  .six-pca-box{ border:1px solid #111; border-bottom:0; height:var(--pca-box-h, 0.6in); }
+  .six-side .six-pca-box:last-of-type{ border-bottom:1px solid #111; }
+  .six-pca-head{ height:0.2in; font-size:14px; padding:2px 4px; background:#fff; display:flex; gap:0.04in; align-items:baseline; white-space:nowrap; overflow:hidden; }
+  .six-pca-resource .six-pca-head strong{ flex:0 0 auto; }
   .six-pca-head span{ font-weight:700; overflow:hidden; text-overflow:ellipsis; }
-  .six-pca-rooms{ font-size:11.5px; padding:4px; line-height:1.15; }
-  .six-task-row{ border:1px solid #111; border-top:0; min-height:0.39in; font-size:14px; padding:5px 4px; background:#fff; display:flex; align-items:baseline; gap:4px; }
-  .six-task-row strong{ flex:0 0 0.7in; font-weight:800; }
+  .six-pca-rooms{ font-size:11.5px; padding:3px 4px; line-height:1.08; }
+  .six-task-row{ border:1px solid #111; border-top:0; min-height:0.39in; font-size:14px; padding:4px; background:#fff; display:flex; align-items:baseline; gap:0.04in; }
+  .six-task-row strong{ flex:0 0 auto; font-weight:800; }
   .six-task-row span{ font-size:11.5px; min-width:0; overflow-wrap:anywhere; }
   .six-map{ height:1.78in; position:relative; align-self:end; display:flex; align-items:center; justify-content:center; overflow:hidden; }
   .six-map-svg{ width:100%; height:100%; display:block; }
-  .map-outline{ fill:#fff; stroke:#111; stroke-width:1; }
-  .map-room{ font-size:18px; font-weight:800; fill:#000; text-anchor:middle; dominant-baseline:middle; }
-  .map-room-horizontal{ text-anchor:middle; }
-  .map-pod{ font-size:24px; font-weight:900; fill:#000; text-anchor:middle; dominant-baseline:middle; }
-  .map-heart{ font-size:18px; fill:#000; text-anchor:middle; dominant-baseline:middle; }
+  .map-outline{ fill:#fff; stroke:#111; stroke-width:2; vector-effect:non-scaling-stroke; }
+  .map-room{ font-size:22px; font-weight:900; fill:#000; text-anchor:middle; dominant-baseline:middle; }
+  .map-room-vertical{ font-size:21px; }
+  .map-pod{ font-size:28px; font-weight:900; fill:#000; text-anchor:middle; dominant-baseline:middle; }
+  .map-heart{ font-size:22px; font-weight:900; fill:#000; text-anchor:middle; dominant-baseline:middle; }
   .six-unit{ position:absolute; left:-0.18in; top:5.2in; transform:rotate(-90deg); transform-origin:center; font-weight:700; font-size:16px; white-space:nowrap; }
   .pca-rounds-wrap{ margin:0.12in auto 0; display:flex; align-items:flex-start; justify-content:center; gap:0.42in; width:100%; min-height:1.05in; }
   .pca-rounds{ border:1px solid #111; width:0.68in; height:0.5in; display:flex; align-items:center; justify-content:center; text-align:center; font-weight:700; font-size:13px; line-height:1.05; margin-top:0.08in; }
-  .pca-rounds-qr{ width:0.95in; height:0.95in; object-fit:contain; image-rendering:pixelated; display:block; }
+  .pca-rounds-qr{ width:1.02in; height:1.02in; object-fit:contain; display:block; }
   @media print{ .six-wrap{ margin:0; } }
 </style>
 </head>
@@ -1038,7 +1067,7 @@
     <div class="six-unit">6 North</div>
     ${renderSixNorthRnBox(rnCards[0])}
     ${renderSixNorthRnBox(rnCards[1])}
-    <div class="six-side">
+    <div class="six-side" style="--pca-box-h:${pcaBoxHeight}in;">
       ${pcaCards.map(renderSixNorthPcaBox).join("")}
       ${renderSixNorthTaskRows()}
       <div class="pca-rounds-wrap">
@@ -1535,12 +1564,25 @@
   }
 
   function collectOncomingPrintData() {
+    const pcaResource = getValueById("incomingPcaResourceName");
+    const pcaCards = extractCardsFrom("pcaAssignmentOutput", "PCA");
+    if (pcaResource) {
+      pcaCards.push({
+        title: `PCA Resource: ${pcaResource}`,
+        pcaResourceName: pcaResource,
+        rows: [],
+        kind: "PCA",
+        isPcaResource: true
+      });
+    }
+
     return {
       charge: getValueById("incomingChargeName"),
       mentor: getValueById("incomingMentorName"),
       cta: getValueById("incomingCtaName"),
+      pcaResource,
       rnCards: extractCardsFrom("assignmentOutput", "RN"),
-      pcaCards: extractCardsFrom("pcaAssignmentOutput", "PCA"),
+      pcaCards,
       pcaOwners: Array.isArray(window.incomingPcas) ? window.incomingPcas : [],
     };
   }

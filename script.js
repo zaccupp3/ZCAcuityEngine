@@ -1,6 +1,6 @@
 // script.js
 // Tabs + Support Role Persistence + Multi-Unit UI + Finalize Shift + Unit Metrics (minimal wiring)
-// ✅ Environment tab/page removed — environment is now ONLY the header unit selector (#unitSwitcher)
+// ✅ Environment tab/page removed — environment is now ONLY the account menu unit selector (#unitSwitcher)
 
 (function () {
   // Canonical domain guard:
@@ -74,12 +74,21 @@
     // Under-discharge-bin print actions (tab-contextual)
     const globalLivePrintBtn = document.getElementById("globalPrintLiveBtn");
     const globalOncomingPrintBtn = document.getElementById("globalPrintOncomingBtn");
+    const globalLivePopulateStatus = document.getElementById("globalLivePopulateStatus");
+    const globalLiveStaffActions = document.getElementById("globalLiveStaffActions");
+    const globalOncomingStaffActions = document.getElementById("globalOncomingStaffActions");
     if (globalLivePrintBtn) globalLivePrintBtn.style.display = sectionId === "liveAssignmentTab" ? "" : "none";
     if (globalOncomingPrintBtn) globalOncomingPrintBtn.style.display = sectionId === "oncomingAssignmentTab" ? "" : "none";
+    if (globalLivePopulateStatus) globalLivePopulateStatus.style.display = sectionId === "liveAssignmentTab" ? "" : "none";
+    if (globalLiveStaffActions) globalLiveStaffActions.style.display = sectionId === "liveAssignmentTab" ? "flex" : "none";
+    if (globalOncomingStaffActions) globalOncomingStaffActions.style.display = sectionId === "oncomingAssignmentTab" ? "flex" : "none";
 
     // lightweight refresh when entering tabs that depend on unit/settings
     if (sectionId === "unitPulseTab") {
       if (typeof window.renderUnitPulseTab === "function") window.renderUnitPulseTab();
+    }
+    if (sectionId === "advancedMetricsTab") {
+      if (window.advancedMetrics && typeof window.advancedMetrics.render === "function") window.advancedMetrics.render();
     }
 
     // Keep global discharge bin scoped to tab visibility rules.
@@ -120,9 +129,11 @@
       "currentChargeName",
       "currentMentorName",
       "currentCtaName",
+      "currentPcaResourceName",
       "incomingChargeName",
       "incomingMentorName",
       "incomingCtaName",
+      "incomingPcaResourceName",
     ];
 
     ids.forEach((id) => {
@@ -178,7 +189,7 @@
   function canAccessTab(sectionId, role) {
     const target = String(sectionId || "");
     if (target === "highRiskTab") return canAccessHighRisk(role);
-    if (target === "unitPulseTab" || target === "unitMetricsTab") return isOwnerRole(role);
+    if (target === "unitPulseTab" || target === "unitMetricsTab" || target === "advancedMetricsTab") return isOwnerRole(role);
     return true;
   }
 
@@ -204,7 +215,7 @@
     const rows = Array.isArray(window.availableUnits) ? window.availableUnits : [];
     const match = rows.find((r) => String(r?.unit_id || "") === activeId);
     const unitName = getUnitNameFromMembership(match);
-    const titleText = unitName ? `${unitName}: Charge Nurse Platform` : "Charge Nurse Platform";
+    const titleText = unitName ? `${unitName}: CHG Nurse Platform` : "CHG Nurse Platform";
 
     if (el) el.textContent = titleText;
     document.title = titleText;
@@ -212,7 +223,7 @@
 
   function applyRoleTabVisibility() {
     const role = window.activeUnitRole;
-    ["highRiskTab", "unitPulseTab", "unitMetricsTab"].forEach((target) => {
+    ["highRiskTab", "unitPulseTab", "unitMetricsTab", "advancedMetricsTab"].forEach((target) => {
       const btn = document.querySelector(`.tabButton[data-target="${target}"]`);
       const section = document.getElementById(target);
       const hide = !canAccessTab(target, role);
@@ -652,6 +663,15 @@
     if (btn) btn.setAttribute("aria-expanded", show ? "true" : "false");
   };
 
+  function moveUnitSwitcherIntoAuthMenu() {
+    const wrap = document.querySelector(".auth-unit-switcher");
+    const loggedIn = document.getElementById("authLoggedIn");
+    const signOut = document.getElementById("btnSignOut");
+    if (!wrap || !loggedIn || wrap.parentElement === loggedIn) return;
+    if (signOut) loggedIn.insertBefore(wrap, signOut);
+    else loggedIn.appendChild(wrap);
+  }
+
   // -----------------------------
   // Membership refresh hook (so UI updates after auth)
   // -----------------------------
@@ -676,6 +696,7 @@
   // Init
   // -----------------------------
   function init() {
+    moveUnitSwitcherIntoAuthMenu();
     wireTabs();
     supportRolePersistence();
 

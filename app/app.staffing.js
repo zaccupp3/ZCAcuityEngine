@@ -193,6 +193,8 @@
       if (!el) return;
       try {
         el.value = String(val);
+        el.textContent = String(val);
+        el.setAttribute("data-count", String(val));
       } catch (_) {}
     };
 
@@ -203,6 +205,8 @@
     if (cs) set("currentSitterCount", cs);
     if (is) set("incomingSitterCount", is);
   }
+
+  window.refreshStaffingCountDisplays = reflectLegacySelects;
 
   function roomPairKeyFromRoomLabel(room) {
     const m = String(room || "").trim().toUpperCase().match(/^(\d+)/);
@@ -285,17 +289,16 @@
       for (let i = 0; i < count; i++) {
         const prev = old[i];
         const prevRestrictions = prev?.restrictions || getDefaultRestrictions(prev?.restriction);
-        const type = prev?.type || "tele";
         next.push({
           id: i + 1,
           staff_id: prev?.staff_id || null,
           name: prev?.name || `Current RN ${i + 1}`,
-          type,
+          type: "rn",
           restrictions: {
             noNih: !!prevRestrictions.noNih,
             noIso: !!prevRestrictions.noIso
           },
-          maxPatients: type === "tele" ? 4 : 5,
+          maxPatients: 5,
           patients: Array.isArray(prev?.patients) ? prev.patients.slice() : []
         });
       }
@@ -332,17 +335,16 @@
       for (let i = 0; i < count; i++) {
         const prev = old[i];
         const prevRestrictions = prev?.restrictions || getDefaultRestrictions(prev?.restriction);
-        const type = prev?.type || "tele";
         next.push({
           id: i + 1,
           staff_id: prev?.staff_id || null,
           name: prev?.name || `Incoming RN ${i + 1}`,
-          type,
+          type: "rn",
           restrictions: {
             noNih: !!prevRestrictions.noNih,
             noIso: !!prevRestrictions.noIso
           },
-          maxPatients: type === "tele" ? 4 : 5,
+          maxPatients: 5,
           patients: Array.isArray(prev?.patients) ? prev.patients.slice() : []
         });
       }
@@ -379,14 +381,6 @@
                    onblur="updateCurrentNurseName(${index}, this, 'commit')"
                    onchange="updateCurrentNurseName(${index}, this, 'commit')">
           </label>
-          <label>
-            Type:
-            <select onchange="updateCurrentNurseType(${index}, this.value)">
-              <option value="tele" ${n.type === "tele" ? "selected" : ""}>Tele (max 4)</option>
-              <option value="ms" ${n.type === "ms" ? "selected" : ""}>Med-Surg (max 5)</option>
-            </select>
-          </label>
-
           <div class="restrictionsGroup">
             <span>Restrictions:</span>
             <label class="restrictionOption">
@@ -398,6 +392,7 @@
                      onchange="updateCurrentNurseRestriction(${index}, 'noIso', this.checked)"> No ISO
             </label>
           </div>
+          <button type="button" class="staff-row-remove-btn" title="Remove RN" onclick="window.removeStaffOwnerById && window.removeStaffOwnerById('live', 'nurse', ${Number(n.id)})">×</button>
         </div>
       `;
     });
@@ -421,14 +416,6 @@
                    onblur="updateIncomingNurseName(${index}, this, 'commit')"
                    onchange="updateIncomingNurseName(${index}, this, 'commit')">
           </label>
-          <label>
-            Type:
-            <select onchange="updateIncomingNurseType(${index}, this.value)">
-              <option value="tele" ${n.type === "tele" ? "selected" : ""}>Tele (max 4)</option>
-              <option value="ms" ${n.type === "ms" ? "selected" : ""}>Med-Surg (max 5)</option>
-            </select>
-          </label>
-
           <div class="restrictionsGroup">
             <span>Restrictions:</span>
             <label class="restrictionOption">
@@ -440,6 +427,7 @@
                      onchange="updateIncomingNurseRestriction(${index}, 'noIso', this.checked)"> No ISO
             </label>
           </div>
+          <button type="button" class="staff-row-remove-btn" title="Remove RN" onclick="window.removeStaffOwnerById && window.removeStaffOwnerById('incoming', 'nurse', ${Number(n.id)})">×</button>
         </div>
       `;
     });
@@ -460,8 +448,8 @@
   window.updateCurrentNurseType = function (index, value) {
     const n = getCurrentNurseByFilteredIndex(index);
     if (!n) return;
-    n.type = value;
-    n.maxPatients = value === "tele" ? 4 : 5;
+    n.type = "rn";
+    n.maxPatients = 5;
     syncWindowRefs();
     refreshAllViews();
     if (typeof window.saveState === "function") window.saveState();
@@ -470,8 +458,8 @@
   window.updateIncomingNurseType = function (index, value) {
     const n = getIncomingNurseByFilteredIndex(index);
     if (!n) return;
-    n.type = value;
-    n.maxPatients = value === "tele" ? 4 : 5;
+    n.type = "rn";
+    n.maxPatients = 5;
     syncWindowRefs();
     refreshAllViews();
     if (typeof window.saveState === "function") window.saveState();
@@ -687,6 +675,7 @@
             </label>
           </div>
           ${sitterRoomPairControl}
+          <button type="button" class="staff-row-remove-btn" title="Remove PCA" onclick="window.removeStaffOwnerById && window.removeStaffOwnerById('live', 'pca', ${Number(p.id)})">×</button>
         </div>
       `;
     });
@@ -734,6 +723,7 @@
             </label>
           </div>
           ${sitterRoomPairControl}
+          <button type="button" class="staff-row-remove-btn" title="Remove PCA" onclick="window.removeStaffOwnerById && window.removeStaffOwnerById('incoming', 'pca', ${Number(p.id)})">×</button>
         </div>
       `;
     });
@@ -1308,6 +1298,32 @@
     return res && res.ok ? { ok: true } : { ok: false, reason: res?.reason || "Unable to increment." };
   }
 
+  window.adjustStaffingRoster = function (shift, role, delta) {
+    if (isDemoEditLocked()) return warnDemoStaffLocked();
+    const shiftLower = String(shift || "").toLowerCase();
+    const roleUpper = String(role || "").toUpperCase();
+    const d = parseInt(delta || "0", 10);
+    if (!shiftLower || !roleUpper || !d) return false;
+
+    if (shiftLower === "current" && d < 0) {
+      window.showStaffingWarnModal(
+        "Cannot lower Current staff here",
+        "Current decrement is blocked here. Remove staff via the LIVE board or the roster X so patients are handled safely."
+      );
+      return false;
+    }
+
+    const out = d < 0
+      ? decrementIncomingSafely(roleUpper)
+      : incrementShift(roleUpper, shiftLower);
+    if (!out.ok) {
+      window.showStaffingWarnModal("Unable to update staffing", out.reason || "This change is blocked.");
+      return false;
+    }
+    refreshAfterStaffingChange(shiftLower === "incoming" || shiftLower === "oncoming" ? "incoming" : "current");
+    return true;
+  };
+
   function wireStaffingPlusMinusDelegatedOnce() {
     const root =
       document.getElementById("staffingTab") ||
@@ -1340,24 +1356,7 @@
         return;
       }
 
-      if (shift === "incoming" && delta < 0) {
-        const out = decrementIncomingSafely(role);
-        if (!out.ok) {
-          window.showStaffingWarnModal("Unable to lower Oncoming staff", out.reason || "This change is blocked.");
-          return;
-        }
-        refreshAfterStaffingChange("incoming");
-        return;
-      }
-
-      if (delta > 0) {
-        const out = incrementShift(role, shift);
-        if (!out.ok) {
-          window.showStaffingWarnModal("Unable to increase staffing", out.reason || "This change is blocked.");
-          return;
-        }
-        refreshAfterStaffingChange(shift);
-      }
+      window.adjustStaffingRoster(shift, role, delta);
     });
   }
 
@@ -1463,11 +1462,43 @@
 
   function commitStaffingMutation(board, role, renderListFn) {
     syncWindowRefs();
+    reflectLegacySelects();
     try { if (typeof renderListFn === "function") renderListFn(); } catch (_) {}
     refreshAllViews();
     if (typeof window.saveState === "function") window.saveState();
     publishSharedStateSoon(`staff_${board}_${role}_update`);
   }
+
+  window.removeStaffOwnerById = function (board, role, ownerId) {
+    if (isDemoEditLocked()) return warnDemoStaffLocked();
+    const normalizedBoard = (board === "live" || board === "current") ? "live" : "incoming";
+    const normalizedRole = role === "pca" ? "pca" : "nurse";
+
+    if (normalizedBoard === "live" && typeof window.removeLiveOwner === "function") {
+      window.removeLiveOwner(normalizedRole, Number(ownerId));
+      return true;
+    }
+
+    const { list, renderListFn } = ownerCollectionForBoard(normalizedBoard, normalizedRole);
+    const source = safeArray(list);
+    const idx = source.findIndex((entry) => Number(entry?.id) === Number(ownerId));
+    if (idx < 0) return false;
+
+    const [removed] = source.splice(idx, 1);
+    if (normalizedBoard === "incoming") {
+      moveIncomingRemovedOwnerPatientsToUnassigned(normalizedRole === "pca" ? "PCA" : "RN", removed);
+      if (normalizedRole === "pca") incomingPcas = source;
+      else incomingNurses = source;
+    } else {
+      const hold = getHoldBucket(source) || { id: 0, type: "HOLD", name: "Needs to be assigned", patients: [] };
+      hold.patients = uniq(safeArray(hold.patients).concat(safeArray(removed?.patients)));
+      if (normalizedRole === "pca") currentPcas = source.includes(hold) ? source : [hold, ...source];
+      else currentNurses = source.includes(hold) ? source : [hold, ...source];
+    }
+
+    commitStaffingMutation(normalizedBoard, normalizedRole, renderListFn);
+    return true;
+  };
 
   window.renameStaffOwnerById = function (board, role, ownerId, nextName) {
     if (isDemoEditLocked()) return warnDemoStaffLocked();
@@ -2033,12 +2064,12 @@
 
   window.clearCurrentLeadershipTeam = function () {
     if (isDemoEditLocked()) return warnDemoStaffLocked();
-    clearLeadershipFields(["currentChargeName", "currentMentorName", "currentCtaName"]);
+    clearLeadershipFields(["currentChargeName", "currentMentorName", "currentCtaName", "currentPcaResourceName"]);
   };
 
   window.clearIncomingLeadershipTeam = function () {
     if (isDemoEditLocked()) return warnDemoStaffLocked();
-    clearLeadershipFields(["incomingChargeName", "incomingMentorName", "incomingCtaName"]);
+    clearLeadershipFields(["incomingChargeName", "incomingMentorName", "incomingCtaName", "incomingPcaResourceName"]);
   };
 
   // Keep these light touches:

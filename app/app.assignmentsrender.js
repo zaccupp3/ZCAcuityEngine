@@ -71,6 +71,14 @@ if (window.__assignmentsRenderLoaded) {
           data-role="${escapeHtml(role)}"
           data-owner-id="${ownerId}"
         >::</span>
+        ${String(board || "").toLowerCase() === "incoming" ? `
+          <button
+            type="button"
+            class="owner-card-remove-btn"
+            title="Remove ${escapeHtml(String(role || "").toUpperCase())}"
+            onclick="window.removeStaffOwnerById && window.removeStaffOwnerById('incoming', '${escapeHtml(role)}', ${ownerId})"
+          >×</button>
+        ` : ``}
       </div>
     `;
   }
@@ -3304,6 +3312,9 @@ if (window.__assignmentsRenderLoaded) {
 
     const container = document.getElementById("assignmentOutput");
     if (!container) return;
+    try {
+      if (typeof window.refreshStaffingCountDisplays === "function") window.refreshStaffingCountDisplays();
+    } catch {}
 
     if (typeof ensureDefaultPatients === "function") ensureDefaultPatients();
 
@@ -3357,7 +3368,7 @@ if (window.__assignmentsRenderLoaded) {
               <div style="min-width:0;flex:1;">
                 <div style="display:flex;align-items:baseline;justify-content:space-between;gap:12px;">
                   <div style="min-width:0;">
-                    <strong>${escapeHtml(nurse.name)}</strong> (${escapeHtml((nurse.type || "").toUpperCase())})
+                    <strong>${escapeHtml(nurse.name)}</strong>
                   </div>
                   ${staffRestrictionIcon}
                   ${
@@ -3480,6 +3491,9 @@ if (window.__assignmentsRenderLoaded) {
 
     const container = document.getElementById("pcaAssignmentOutput");
     if (!container) return;
+    try {
+      if (typeof window.refreshStaffingCountDisplays === "function") window.refreshStaffingCountDisplays();
+    } catch {}
 
     if (typeof ensureDefaultPatients === "function") ensureDefaultPatients();
 
