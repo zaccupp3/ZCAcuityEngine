@@ -465,7 +465,8 @@ window.addEventListener("DOMContentLoaded", async () => {
     if (__refreshQueued) return;
     __refreshQueued = true;
 
-    Promise.resolve().then(() => {
+    const raf = window.requestAnimationFrame || ((cb) => setTimeout(cb, 16));
+    raf(() => setTimeout(() => {
       __refreshQueued = false;
 
       if (__DBG) {
@@ -474,7 +475,7 @@ window.addEventListener("DOMContentLoaded", async () => {
       }
 
       try { refreshAllUI(); } catch {}
-    });
+    }, 0));
   };
 
   // ✅ Give other modules a single “refresh everything” entrypoint.
@@ -839,14 +840,14 @@ window.addEventListener("DOMContentLoaded", async () => {
       publishQueued = false;
 
       const now = Date.now();
-      const minGapMs = 900;
+      const minGapMs = 500;
       if (now - window.__cloud.lastPublishAt < minGapMs) {
         publishUnitStateDebounced(reason || "cooldown");
         return;
       }
 
       await publishUnitStateNow(reason || "debounced");
-    }, 600);
+    }, 350);
   }
 
   async function loadUnitStateFromCloud(unitId) {
@@ -973,6 +974,21 @@ window.addEventListener("DOMContentLoaded", async () => {
     noteLocalUnitEdit
   };
 
+  if (!window.__cloud.__flushListenersInstalled) {
+    window.__cloud.__flushListenersInstalled = true;
+    const flushIfDirty = (reason) => {
+      try {
+        if (window.__cloud.mutePublishDepth > 0) return;
+        if (!window.__cloud.localDirtyAt && !window.__cloud.lastQueuedSnapshotStr) return;
+        void publishUnitStateNow(reason || "page_lifecycle");
+      } catch (_) {}
+    };
+    window.addEventListener("pagehide", () => flushIfDirty("pagehide"));
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "hidden") flushIfDirty("visibility_hidden");
+    });
+  }
+
   // -----------------------------
   // BOOT (do not assume local is canonical)
   // -----------------------------
@@ -986,6 +1002,7 @@ window.addEventListener("DOMContentLoaded", async () => {
     window.saveState = function wrappedSaveState() {
       try { originalSaveState(); } catch {}
       if (window.__cloud.mutePublishDepth > 0) return;
+      try { noteLocalUnitEdit("saveState"); } catch {}
       try { publishUnitStateDebounced("saveState"); } catch {}
     };
     window.__cloud.__saveWrapped = true;

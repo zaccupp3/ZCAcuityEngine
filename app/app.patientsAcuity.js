@@ -170,6 +170,35 @@
       const wantLive = !skips.skipLive;
       const wantOncoming = !skips.skipOncoming;
       const wantUnitPulse = !skips.skipUnitPulse;
+      const deferOffscreen = opts?.deferOffscreen === true;
+
+      if (deferOffscreen) {
+        const activeBtn = document.querySelector(".tabButton.active[data-target]");
+        const activeId = activeBtn?.getAttribute("data-target") || "";
+        const runVisible = () => {
+          if (activeId === "patientDetailsTab" && wantPatientGrid && typeof window.renderPatientList === "function") window.renderPatientList();
+          else if (activeId === "highRiskTab" && wantHighRisk && typeof window.updateAcuityTiles === "function") window.updateAcuityTiles();
+          else if (activeId === "liveAssignmentTab" && wantLive && typeof window.renderLiveAssignments === "function") window.renderLiveAssignments();
+          else if (activeId === "oncomingAssignmentTab" && wantOncoming) {
+            if (typeof window.renderAssignmentOutput === "function") window.renderAssignmentOutput();
+            if (typeof window.renderPcaAssignmentOutput === "function") window.renderPcaAssignmentOutput();
+          }
+        };
+        const runRest = () => {
+          if (activeId !== "patientDetailsTab" && wantPatientGrid && typeof window.renderPatientList === "function") window.renderPatientList();
+          if (activeId !== "highRiskTab" && wantHighRisk && typeof window.updateAcuityTiles === "function") window.updateAcuityTiles();
+          if (activeId !== "liveAssignmentTab" && wantLive && typeof window.renderLiveAssignments === "function") window.renderLiveAssignments();
+          if (activeId !== "oncomingAssignmentTab" && wantOncoming) {
+            if (typeof window.renderAssignmentOutput === "function") window.renderAssignmentOutput();
+            if (typeof window.renderPcaAssignmentOutput === "function") window.renderPcaAssignmentOutput();
+          }
+          if (wantUnitPulse && typeof window.renderUnitPulseTab === "function") window.renderUnitPulseTab();
+        };
+        try { runVisible(); } catch (_) {}
+        const idle = window.requestIdleCallback || ((cb) => setTimeout(cb, 120));
+        idle(() => { try { runRest(); } catch (_) {} }, { timeout: 900 });
+        return;
+      }
 
       // Prefer canonical global refresh if present AND we want the core full-pass sections.
       // (This avoids a lot of redundant fan-out if other modules also refresh.)
@@ -489,6 +518,17 @@
     } catch (_) {}
   }
 
+  function publishBulkPatientChange(reason) {
+    try {
+      if (typeof window.saveState === "function") window.saveState();
+    } catch (_) {}
+    try {
+      if (window.cloudSync && typeof window.cloudSync.publishUnitStateNow === "function") {
+        void window.cloudSync.publishUnitStateNow(reason || "patient_details_bulk");
+      }
+    } catch (_) {}
+  }
+
   // =========================
   // Assignment clearing helpers (LIVE + Oncoming)
   // =========================
@@ -576,8 +616,8 @@
     }
 
     const afterEmpty = !!p.isEmpty;
-    noteLocalPatientEdit("patient_bed_state_changed");
-    logBedStateChange(p, beforeEmpty, afterEmpty, opts.source || "patient_details");
+    if (!opts.skipLocalEditNote) noteLocalPatientEdit("patient_bed_state_changed");
+    if (!opts.skipEvent) logBedStateChange(p, beforeEmpty, afterEmpty, opts.source || "patient_details");
 
     if (!opts.suppressRefresh) {
       refreshAllTabs({ reason: "bed_state_change" });
@@ -732,12 +772,31 @@
 
     const rows = safeArray(window.patients);
 
+    let changed = 0;
     rows.forEach(p => {
       if (!p) return;
-      setBedEmptyStateInternal(Number(p.id), false, { suppressRefresh: true, source: "patient_details_bulk" });
+      const before = !!p.isEmpty;
+      setBedEmptyStateInternal(Number(p.id), false, {
+        suppressRefresh: true,
+        source: "patient_details_bulk",
+        skipEvent: true,
+        skipLocalEditNote: true
+      });
+      if (before !== !!p.isEmpty) changed += 1;
     });
 
-    refreshAllTabs({ reason: "bulk_activate_all_rooms" });
+    noteLocalPatientEdit("bulk_activate_all_rooms");
+    try {
+      if (typeof window.appendEvent === "function") {
+        window.appendEvent("BULK_BED_STATE_CHANGED", {
+          action: "activate_all_rooms",
+          changed_count: changed,
+          total_rooms: rows.length
+        }, { v: 1, source: "app.patientsAcuity.js" });
+      }
+    } catch (_) {}
+    refreshAllTabs({ reason: "bulk_activate_all_rooms", deferOffscreen: true, skipSave: true });
+    publishBulkPatientChange("bulk_activate_all_rooms");
   }
 
   function emptyAllRooms() {
@@ -751,16 +810,32 @@
 
     const rows = safeArray(window.patients);
 
+    let changed = 0;
     rows.forEach(p => {
       if (!p) return;
+      const before = !!p.isEmpty;
       setBedEmptyStateInternal(Number(p.id), true, {
         suppressRefresh: true,
         source: "patient_details_bulk",
-        skipAssignmentClear: false
+        skipAssignmentClear: false,
+        skipEvent: true,
+        skipLocalEditNote: true
       });
+      if (before !== !!p.isEmpty) changed += 1;
     });
 
-    refreshAllTabs({ reason: "bulk_empty_all_rooms" });
+    noteLocalPatientEdit("bulk_empty_all_rooms");
+    try {
+      if (typeof window.appendEvent === "function") {
+        window.appendEvent("BULK_BED_STATE_CHANGED", {
+          action: "empty_all_rooms",
+          changed_count: changed,
+          total_rooms: rows.length
+        }, { v: 1, source: "app.patientsAcuity.js" });
+      }
+    } catch (_) {}
+    refreshAllTabs({ reason: "bulk_empty_all_rooms", deferOffscreen: true, skipSave: true });
+    publishBulkPatientChange("bulk_empty_all_rooms");
   }
 
   function clearAllPatientAcuityTags() {

@@ -61,6 +61,12 @@
       <div class="owner-card-controls">
         <button
           type="button"
+          class="owner-room-pick-btn"
+          title="Assign rooms"
+          onclick="window.openLiveRoomPicker && window.openLiveRoomPicker('${safeRole}', ${ownerId})"
+        >+</button>
+        <button
+          type="button"
           class="owner-name-edit-btn"
           title="Rename ${safeRole.toUpperCase()}"
           data-owner-edit="1"
@@ -80,6 +86,160 @@
       </div>
     `;
   }
+
+  function getOwnerArrayForLiveRole(role) {
+    return String(role) === "pca" ? safeArray(window.currentPcas) : safeArray(window.currentNurses);
+  }
+
+  function getLiveRoleLabel(role) {
+    return String(role) === "pca" ? "PCA" : "RN";
+  }
+
+  function findLiveOwnerByPatient(role, patientId) {
+    const pid = Number(patientId);
+    return getOwnerArrayForLiveRole(role).find((owner) =>
+      owner && !isHoldOwner(owner) && safeArray(owner.patients).some((id) => Number(id) === pid)
+    ) || null;
+  }
+
+  function activeLivePatientsForPicker() {
+    return safeArray(window.patients)
+      .filter(Boolean)
+      .slice()
+      .sort((a, b) => getRoomNumberSafe(a) - getRoomNumberSafe(b));
+  }
+
+  function closeLiveRoomPicker() {
+    const overlay = document.getElementById("liveRoomPickerOverlay");
+    if (overlay && overlay.parentNode) overlay.parentNode.removeChild(overlay);
+  }
+
+  function openLiveRoomPicker(role, ownerId) {
+    const roleKey = String(role) === "pca" ? "pca" : "nurse";
+    const owners = getOwnerArrayForLiveRole(roleKey);
+    const owner = owners.find((o) => o && Number(o.id) === Number(ownerId));
+    if (!owner || isHoldOwner(owner)) return;
+
+    closeLiveRoomPicker();
+
+    const selected = new Set(safeArray(owner.patients).map(Number).filter(Number.isFinite));
+    const patients = activeLivePatientsForPicker();
+    const label = getLiveRoleLabel(roleKey);
+    const ownerName = String(owner.name || label).trim() || label;
+
+    const overlay = document.createElement("div");
+    overlay.id = "liveRoomPickerOverlay";
+    overlay.className = "live-room-picker-overlay";
+    overlay.innerHTML = `
+      <div class="live-room-picker-card" role="dialog" aria-modal="true" aria-label="Assign rooms to ${escapeHtml(ownerName)}">
+        <div class="live-room-picker-header">
+          <div>
+            <div class="live-room-picker-title">Assign Rooms</div>
+            <div class="live-room-picker-subtitle">${escapeHtml(ownerName)} (${label})</div>
+          </div>
+          <button type="button" class="live-room-picker-close" onclick="window.closeLiveRoomPicker && window.closeLiveRoomPicker()">×</button>
+        </div>
+        <div class="live-room-picker-grid">
+          ${patients.slice(0, 36).map((p) => {
+            const pid = Number(p.id);
+            const room = String(p.room || p.id || "");
+            const isEmpty = !!p.isEmpty;
+            const isChecked = selected.has(pid);
+            const assignedOwner = !isEmpty ? findLiveOwnerByPatient(roleKey, pid) : null;
+            const otherOwner = assignedOwner && Number(assignedOwner.id) !== Number(owner.id) ? assignedOwner : null;
+            return `
+              <label class="live-room-picker-cell ${isEmpty ? "is-empty" : ""} ${otherOwner ? "is-other-owner" : ""} ${isChecked && !otherOwner ? "is-selected" : ""}">
+                <input
+                  type="checkbox"
+                  value="${pid}"
+                  ${isChecked ? "checked" : ""}
+                  ${isEmpty ? "disabled" : ""}
+                />
+                <span class="live-room-picker-room">${escapeHtml(room)}</span>
+                <span class="live-room-picker-note">${isEmpty ? "Empty" : otherOwner ? escapeHtml(otherOwner.name || "Assigned") : isChecked ? "Assigned" : "Active"}</span>
+              </label>
+            `;
+          }).join("")}
+        </div>
+        <div class="live-room-picker-actions">
+          <button type="button" onclick="window.closeLiveRoomPicker && window.closeLiveRoomPicker()">Cancel</button>
+          <button type="button" class="live-room-picker-accept" onclick="window.acceptLiveRoomPicker && window.acceptLiveRoomPicker('${roleKey}', ${Number(owner.id)})">Accept</button>
+        </div>
+      </div>
+    `;
+
+    overlay.addEventListener("click", (event) => {
+      if (event.target === overlay) closeLiveRoomPicker();
+    });
+    document.body.appendChild(overlay);
+  }
+
+  function acceptLiveRoomPicker(role, ownerId) {
+    const roleKey = String(role) === "pca" ? "pca" : "nurse";
+    const overlay = document.getElementById("liveRoomPickerOverlay");
+    if (!overlay) return;
+    const owners = getOwnerArrayForLiveRole(roleKey);
+    const owner = owners.find((o) => o && Number(o.id) === Number(ownerId));
+    if (!owner || isHoldOwner(owner)) {
+      closeLiveRoomPicker();
+      return;
+    }
+
+    const selectedIds = Array.from(overlay.querySelectorAll(".live-room-picker-grid input[type='checkbox']:checked"))
+      .map((input) => Number(input.value))
+      .filter((id) => Number.isFinite(id) && id > 0);
+    const selectedSet = new Set(selectedIds);
+
+    owners.forEach((candidate) => {
+      if (!candidate) return;
+      candidate.patients = safeArray(candidate.patients).filter((pid) => {
+        const n = Number(pid);
+        if (Number(candidate.id) === Number(owner.id)) return selectedSet.has(n);
+        return !selectedSet.has(n);
+      });
+    });
+
+    owner.patients = selectedIds;
+
+    try {
+      if (roleKey === "pca") window.currentPcas = owners;
+      else window.currentNurses = owners;
+      if (roleKey === "pca" && typeof currentPcas !== "undefined") currentPcas = window.currentPcas;
+      if (roleKey !== "pca" && typeof currentNurses !== "undefined") currentNurses = window.currentNurses;
+    } catch (_) {}
+
+    try {
+      if (window.cloudSync && typeof window.cloudSync.noteLocalUnitEdit === "function") {
+        window.cloudSync.noteLocalUnitEdit("live_room_picker");
+      }
+    } catch (_) {}
+
+    try {
+      if (typeof window.appendEvent === "function") {
+        window.appendEvent("ASSIGNMENT_BULK_PICKED", {
+          role: getLiveRoleLabel(roleKey),
+          owner_id: Number(owner.id),
+          owner_name: owner.name || "",
+          patient_ids: selectedIds
+        }, { v: 1, source: "app.liveAssignments.js" });
+      }
+    } catch (_) {}
+
+    try { if (typeof window.saveState === "function") window.saveState(); } catch (_) {}
+    try {
+      if (window.cloudSync && typeof window.cloudSync.publishUnitStateNow === "function") {
+        void window.cloudSync.publishUnitStateNow("live_room_picker");
+      }
+    } catch (_) {}
+    closeLiveRoomPicker();
+    try { if (typeof window.renderLiveAssignments === "function") window.renderLiveAssignments(); } catch (_) {}
+    try { if (typeof window.renderPatientList === "function") window.renderPatientList(); } catch (_) {}
+    try { if (typeof window.updateAcuityTiles === "function") window.updateAcuityTiles(); } catch (_) {}
+  }
+
+  window.openLiveRoomPicker = openLiveRoomPicker;
+  window.closeLiveRoomPicker = closeLiveRoomPicker;
+  window.acceptLiveRoomPicker = acceptLiveRoomPicker;
 
   function clamp(n, a, b) {
     const x = Number.isFinite(Number(n)) ? Number(n) : 0;

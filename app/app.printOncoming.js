@@ -1006,6 +1006,13 @@
     const shiftDate = getShiftDateLabel();
     const shift = getShiftTypeLabel(data.rnCards, data.pcaCards);
     const dateShift = `${shiftDate} ${shift && shift !== "-" ? shift : ""}`.trim();
+    const pcaRoundsQrSrc = (() => {
+      try {
+        return new URL("assets/pca-rounds-qr.png", window.location.href).href;
+      } catch (e) {
+        return "assets/pca-rounds-qr.png";
+      }
+    })();
 
     return `<!doctype html>
 <html>
@@ -1052,9 +1059,9 @@
   .map-pod{ font-size:28px; font-weight:900; fill:#000; text-anchor:middle; dominant-baseline:middle; }
   .map-heart{ font-size:22px; font-weight:900; fill:#000; text-anchor:middle; dominant-baseline:middle; }
   .six-unit{ position:absolute; left:-0.18in; top:5.2in; transform:rotate(-90deg); transform-origin:center; font-weight:700; font-size:16px; white-space:nowrap; }
-  .pca-rounds-wrap{ margin:0.12in auto 0; display:flex; align-items:flex-start; justify-content:center; gap:0.42in; width:100%; min-height:1.05in; }
-  .pca-rounds{ border:1px solid #111; width:0.68in; height:0.5in; display:flex; align-items:center; justify-content:center; text-align:center; font-weight:700; font-size:13px; line-height:1.05; margin-top:0.08in; }
-  .pca-rounds-qr{ width:1.02in; height:1.02in; object-fit:contain; display:block; }
+  .pca-rounds-wrap{ margin:0.08in auto 0; display:flex; align-items:flex-start; justify-content:center; gap:0.18in; width:100%; min-height:1.38in; }
+  .pca-rounds{ border:1px solid #111; width:0.68in; height:0.5in; display:flex; align-items:center; justify-content:center; text-align:center; font-weight:700; font-size:13px; line-height:1.05; margin-top:0.2in; }
+  .pca-rounds-qr{ width:1.32in; height:1.32in; object-fit:contain; display:block; background:#fff; image-rendering:pixelated; }
   @media print{ .six-wrap{ margin:0; } }
 </style>
 </head>
@@ -1072,7 +1079,7 @@
       ${renderSixNorthTaskRows()}
       <div class="pca-rounds-wrap">
         <div class="pca-rounds">PCA<br>Rounds</div>
-        <img class="pca-rounds-qr" src="assets/pca-rounds-qr.svg" alt="PCA Rounds QR" />
+        <img class="pca-rounds-qr" src="${escapeHtml(pcaRoundsQrSrc)}" alt="PCA Rounds QR" />
       </div>
     </div>
     ${renderSixNorthRnBox(rnCards[2])}
