@@ -5,19 +5,40 @@
   window.__unitMetricsSingletonLoaded = true;
 
   const $ = (id) => document.getElementById(id);
-  const ACUITY_KEYS = ["tele","drip","nih","bg","ciwa","emu","restraint","sitter","vpo","isolation","admit","lateDc"];
+  const ACUITY_KEYS = ["tele","drip","nih","bg","ciwa","cows","psych","prns","emu","restraint","sitter","vpo","isolation","admit","lateDc"];
   const SHIFT_WINDOWS = { last_3_shifts: 3, last_6_shifts: 6, last_12_shifts: 12 };
   let __req = 0;
   let __last = null;
   let __lastReq = 0;
 
   const num = (x, d = 0) => Number.isFinite(Number(x)) ? Number(x) : d;
+  const arr = (v) => Array.isArray(v) ? v : [];
   const esc = (v) => String(v || "").replace(/[&<>"']/g, (m) => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;" }[m]));
   const ymd = (d) => new Date(d).toISOString().slice(0, 10);
+  function addDaysYmd(date, days) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(String(date || ""))) return "";
+    const d = new Date(`${date}T00:00:00`);
+    d.setDate(d.getDate() + Number(days || 0));
+    return ymd(d);
+  }
+  function eventLocalParts(eventLike) {
+    const d = new Date(eventLike?.created_at || eventLike?.ts || Date.now());
+    if (Number.isNaN(d.getTime())) return { date: "", hour: 0 };
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, "0");
+    const day = String(d.getDate()).padStart(2, "0");
+    return { date: `${year}-${month}-${day}`, hour: d.getHours() };
+  }
   const activeUnitId = () => (window.activeUnitId ? String(window.activeUnitId) : "");
   const sbReady = () => !!(window.sb && window.sb.client && typeof window.sb.client.from === "function");
-  const shiftRank = (s) => (String(s).toLowerCase() === "day" ? 1 : 2);
-  const shiftKey = (date, shift) => `${date}|${String(shift || "").toLowerCase()}`;
+  const normalizeShift = (s) => {
+    const v = String(s || "").trim().toLowerCase();
+    if (v === "day" || v.includes("day")) return "day";
+    if (v === "night" || v === "noc" || v.includes("night") || v.includes("noc")) return "night";
+    return v;
+  };
+  const shiftRank = (s) => (normalizeShift(s) === "day" ? 1 : 2);
+  const shiftKey = (date, shift) => `${date}|${normalizeShift(shift)}`;
   const aliasKey = () => `cupp_staff_profile_aliases_${activeUnitId() || "local"}`;
   const dismissKey = () => `cupp_staff_profile_dismissals_${activeUnitId() || "local"}`;
   const hiddenKey = () => `cupp_staff_profile_hidden_${activeUnitId() || "local"}`;
@@ -62,6 +83,8 @@
     if (!n) return true;
     return (
       /^incoming\s+(rn|pca)\s*\d*$/.test(n) ||
+      /^current\s+(rn|pca)\s*\d*$/.test(n) ||
+      /^oncoming\s+(rn|pca)\s*\d*$/.test(n) ||
       /^(noc|day|night)\s+rn\s*\d*$/.test(n) ||
       /^(noc|day|night)\s+pca\s*\d*$/.test(n) ||
       /^(rn|pca)\s*staff$/.test(n) ||
@@ -110,29 +133,25 @@
     const host = document.querySelector("#unitMetricsTab .staff-inline-controls");
     if (!host || $("metricsViewMode")) return;
     const wrap = document.createElement("div");
-    wrap.style.cssText = "display:flex;align-items:center;gap:10px;flex-wrap:wrap;width:100%;margin-top:8px;";
+    wrap.style.cssText = "display:contents;";
     wrap.innerHTML = `
-      <label><strong>View:</strong></label>
-      <select id="metricsViewMode"><option value="unit">Unit</option><option value="staff">Staff</option></select>
-      <label><strong>Interval:</strong></label>
+      <label for="metricsInterval"><strong>Interval:</strong></label>
       <select id="metricsInterval">
+        <option value="all_time" selected>All time</option>
+        <option value="selected_dates">Selected dates</option>
         <option value="last_3_shifts">Last 3 shifts</option>
         <option value="last_6_shifts">Last 6 shifts</option>
-        <option value="last_12_shifts" selected>Last 12 shifts</option>
+        <option value="last_12_shifts">Last 12 shifts</option>
         <option value="last_3_months">Last 3 months</option>
         <option value="last_6_months">Last 6 months</option>
         <option value="last_12_months">Last 12 months</option>
-        <option value="all_time">All-Time</option>
       </select>
-      <label><strong>Staff:</strong></label>
-      <div style="display:grid;grid-template-columns:36px minmax(220px,280px) 36px;align-items:center;gap:6px;">
-        <button id="metricsStaffPrev" type="button" disabled style="width:36px;height:36px;padding:0;">&larr;</button>
-        <div id="metricsStaffCurrent" style="width:100%;padding:6px 10px;border:1px solid rgba(15,23,42,.12);border-radius:10px;background:#fff;font-size:13px;box-sizing:border-box;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">Select staff</div>
-        <button id="metricsStaffNext" type="button" disabled style="width:36px;height:36px;padding:0;">&rarr;</button>
-      </div>
+      <input id="metricsViewMode" type="hidden" value="unit" />
+      <button id="metricsStaffPrev" type="button" disabled style="display:none;">&larr;</button>
+      <div id="metricsStaffCurrent" style="display:none;">Select staff</div>
+      <button id="metricsStaffNext" type="button" disabled style="display:none;">&rarr;</button>
       <select id="metricsStaffSelect" disabled style="display:none;min-width:180px;"><option value="">Select staff</option></select>
-      <label><strong>Report:</strong></label>
-      <select id="metricsReportDepth"><option value="quick">Quick paragraph</option><option value="extensive">Extensive report</option></select>
+      <select id="metricsReportDepth" style="display:none;"><option value="quick">Quick paragraph</option><option value="extensive">Extensive report</option></select>
       <button id="btnBackfillMetrics" type="button">Backfill Stored Metrics</button>
       <button id="btnMetricsPrune" type="button" style="display:none;border-radius:999px;padding:7px 12px;">Prune Staff Data</button>
     `;
@@ -147,20 +166,20 @@
     if ($("metricsQuad1Body") && $("metricsQuad2Body") && $("metricsQuad3Body") && $("metricsQuad4Body")) return;
     root.innerHTML = `
       <div class="staff-card">
-        <div class="staff-card-header">Insights Summary</div>
+        <div id="metricsQuad1Title" class="staff-card-header">Unit Summary</div>
         <div id="pulseSummaryMetrics" style="font-size:13px;line-height:1.45;"></div>
         <div id="metricsNarrativeQuick" style="margin-top:8px;font-size:13px;line-height:1.5;"></div>
         <div id="metricsNarrativeFull" style="margin-top:8px;font-size:12px;line-height:1.5;opacity:.9;"></div>
+        <div id="metricsQuad1Body" style="padding-top:12px;"></div>
         <div id="metricsFocusedReport" style="margin-top:12px;"></div>
         <div id="metricsMergeSuggestion" style="margin-top:10px;"></div>
         <div id="metricsPrunePanel" style="margin-top:10px;"></div>
       </div>
       <div style="display:flex;flex-wrap:wrap;gap:12px;margin-top:12px;">
-        <div class="staff-card" style="flex:1;min-width:320px;"><div id="metricsQuad1Title" class="staff-card-header">Summary A</div><div id="metricsQuad1Body" style="padding:12px;"></div></div>
         <div class="staff-card" style="flex:1;min-width:320px;"><div id="metricsQuad2Title" class="staff-card-header">Summary B</div><div id="metricsQuad2Body" style="padding:12px;"></div></div>
+        <div class="staff-card" style="flex:1;min-width:320px;"><div id="metricsQuad3Title" class="staff-card-header">Summary C</div><div id="metricsQuad3Body" style="padding:12px;"></div></div>
       </div>
       <div style="display:flex;flex-wrap:wrap;gap:12px;margin-top:12px;">
-        <div class="staff-card" style="flex:1;min-width:320px;"><div id="metricsQuad3Title" class="staff-card-header">Summary C</div><div id="metricsQuad3Body" style="padding:12px;"></div></div>
         <div class="staff-card" style="flex:1;min-width:320px;"><div id="metricsQuad4Title" class="staff-card-header">Summary D</div><div id="metricsQuad4Body" style="padding:12px;"></div></div>
       </div>
       <div id="pulseTableDetailsSlot" style="display:none;"></div>
@@ -256,6 +275,288 @@
       </div>
     `;
   }
+
+  function barColor(index) {
+    const colors = ["#2563eb", "#059669", "#d97706", "#7c3aed", "#dc2626", "#0891b2"];
+    return colors[index % colors.length];
+  }
+
+  function renderBarChart(hostId, items, emptyText) {
+    const el = $(hostId);
+    if (!el) return;
+    const list = (Array.isArray(items) ? items : [])
+      .map((it) => ({ ...it, v: num(it.v, 0) }))
+      .filter((it) => it.v > 0 || it.keepZero)
+      .slice(0, 12);
+    if (!list.length) {
+      el.innerHTML = `<div style="opacity:.7;font-size:12px;">${esc(emptyText || "No chart data.")}</div>`;
+      return;
+    }
+    const max = Math.max(1, ...list.map((it) => Math.abs(num(it.v, 0))));
+    el.innerHTML = `
+      <div style="display:flex;flex-direction:column;gap:10px;">
+        ${list.map((it, idx) => {
+          const width = Math.max(3, Math.round((Math.abs(num(it.v, 0)) / max) * 100));
+          return `
+            <div style="display:grid;grid-template-columns:minmax(92px,150px) 1fr auto;gap:10px;align-items:center;">
+              <div style="font-size:12px;font-weight:800;color:#475569;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${esc(it.k)}</div>
+              <div style="height:14px;border-radius:999px;background:#e2e8f0;overflow:hidden;">
+                <div style="width:${width}%;height:100%;border-radius:999px;background:${barColor(idx)};"></div>
+              </div>
+              <div style="font-size:12px;font-weight:900;color:#0f172a;min-width:42px;text-align:right;">${esc(String(it.label ?? it.v))}</div>
+              ${it.sub ? `<div style="grid-column:2 / 4;font-size:11px;color:#64748b;margin-top:-6px;">${esc(String(it.sub))}</div>` : ``}
+            </div>
+          `;
+        }).join("")}
+      </div>
+    `;
+  }
+
+  function renderLineChart(hostId, chart, emptyText) {
+    const el = $(hostId);
+    if (!el) return;
+    const series = Array.isArray(chart?.series) ? chart.series : [];
+    const validSeries = series
+      .map((s) => ({
+        ...s,
+        points: (Array.isArray(s.points) ? s.points : [])
+          .map((p) => ({ ...p, v: num(p.v, NaN) }))
+          .filter((p) => Number.isFinite(p.v))
+      }))
+      .filter((s) => s.points.length);
+
+    if (!validSeries.length) {
+      el.innerHTML = `<div style="opacity:.7;font-size:12px;">${esc(emptyText || "No line graph data.")}</div>`;
+      return;
+    }
+
+    const labels = [];
+    validSeries.forEach((s) => {
+      s.points.forEach((p) => {
+        const k = String(p.k || "");
+        if (k && !labels.includes(k)) labels.push(k);
+      });
+    });
+    const allValues = validSeries.flatMap((s) => s.points.map((p) => p.v));
+    const minValRaw = Math.min(...allValues, 0);
+    const maxValRaw = Math.max(...allValues, 1);
+    const pad = Math.max(1, (maxValRaw - minValRaw) * 0.12);
+    const minVal = Math.max(0, minValRaw - pad);
+    const maxVal = maxValRaw + pad;
+    const width = 640;
+    const height = 220;
+    const left = 44;
+    const right = 18;
+    const top = 18;
+    const bottom = 46;
+    const plotW = width - left - right;
+    const plotH = height - top - bottom;
+    const xFor = (k) => {
+      const idx = Math.max(0, labels.indexOf(String(k || "")));
+      return labels.length <= 1 ? left + plotW / 2 : left + (idx / (labels.length - 1)) * plotW;
+    };
+    const yFor = (v) => top + (1 - ((num(v, 0) - minVal) / Math.max(1, maxVal - minVal))) * plotH;
+    const ticks = [0, 0.5, 1].map((t) => {
+      const value = minVal + (maxVal - minVal) * (1 - t);
+      const y = top + plotH * t;
+      return { y, value };
+    });
+
+    const svgSeries = validSeries.map((s, idx) => {
+      const color = s.color || barColor(idx);
+      const points = s.points.map((p) => `${xFor(p.k).toFixed(1)},${yFor(p.v).toFixed(1)}`).join(" ");
+      const dots = s.points.map((p) => `
+        <circle cx="${xFor(p.k).toFixed(1)}" cy="${yFor(p.v).toFixed(1)}" r="4" fill="${esc(color)}">
+          <title>${esc(`${s.name || "Series"} ${p.k}: ${p.v.toFixed(1)}`)}</title>
+        </circle>
+      `).join("");
+      return `<polyline fill="none" stroke="${esc(color)}" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" points="${points}" />${dots}`;
+    }).join("");
+
+    const labelEvery = Math.max(1, Math.ceil(labels.length / 5));
+    el.innerHTML = `
+      <div style="grid-column:1 / -1;width:100%;overflow:hidden;">
+        <svg viewBox="0 0 ${width} ${height}" role="img" aria-label="${esc(chart?.title || "Line graph")}" style="width:100%;height:auto;display:block;">
+          <rect x="0" y="0" width="${width}" height="${height}" fill="#fff" rx="8"></rect>
+          ${ticks.map((tick) => `
+            <line x1="${left}" y1="${tick.y.toFixed(1)}" x2="${width - right}" y2="${tick.y.toFixed(1)}" stroke="#e2e8f0" stroke-width="1"></line>
+            <text x="${left - 8}" y="${(tick.y + 4).toFixed(1)}" text-anchor="end" font-size="11" fill="#64748b">${tick.value.toFixed(1)}</text>
+          `).join("")}
+          ${labels.map((label, idx) => idx % labelEvery === 0 ? `
+            <text x="${xFor(label).toFixed(1)}" y="${height - 20}" text-anchor="middle" font-size="10" fill="#64748b">${esc(label.replace("|", " "))}</text>
+          ` : "").join("")}
+          ${svgSeries}
+        </svg>
+        <div style="display:flex;gap:12px;flex-wrap:wrap;margin-top:8px;font-size:12px;color:#475569;">
+          ${validSeries.map((s, idx) => `
+            <span style="display:inline-flex;align-items:center;gap:6px;">
+              <span style="width:18px;height:3px;border-radius:999px;background:${esc(s.color || barColor(idx))};display:inline-block;"></span>
+              ${esc(s.name || `Series ${idx + 1}`)}
+            </span>
+          `).join("")}
+        </div>
+      </div>
+    `;
+  }
+
+  function renderSplitLineCharts(hostId, charts, emptyText) {
+    const el = $(hostId);
+    if (!el) return;
+    const list = Array.isArray(charts) ? charts : [];
+    if (!list.length) {
+      el.innerHTML = `<div style="opacity:.7;font-size:12px;">${esc(emptyText || "No trend data.")}</div>`;
+      return;
+    }
+    el.innerHTML = `
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:12px;width:100%;grid-column:1 / -1;">
+        ${list.map((chart, idx) => `
+          <div style="border:1px solid rgba(15,23,42,.10);border-radius:8px;background:#fff;padding:8px;">
+            <div style="font-size:12px;font-weight:900;color:#334155;margin-bottom:4px;">${esc(chart.title || `Trend ${idx + 1}`)}</div>
+            <div id="${hostId}Split${idx}"></div>
+          </div>
+        `).join("")}
+      </div>
+    `;
+    list.forEach((chart, idx) => renderLineChart(`${hostId}Split${idx}`, chart, emptyText));
+  }
+
+  function compactShiftLabel(row) {
+    const d = String(row?.date || row?.shift_date || "");
+    const mmdd = /^\d{4}-\d{2}-\d{2}$/.test(d) ? d.slice(5).replace("-", "/") : d;
+    const s = normalizeShift(row?.shift || row?.shift_type || "");
+    return `${mmdd}|${s === "night" ? "N" : s === "day" ? "D" : "All"}`;
+  }
+
+  function buildTagTrendChart(rows, keys, title) {
+    const list = Array.isArray(rows) ? rows : [];
+    const labels = list.map(compactShiftLabel);
+    return {
+      title,
+      series: (keys || []).map((key, idx) => ({
+        name: key,
+        color: barColor(idx),
+        points: list.map((row, i) => ({
+          k: labels[i],
+          v: num(row?.tagsObj?.[key], 0)
+        }))
+      }))
+    };
+  }
+
+  function buildSingleTrendChart(rows, seriesList, title) {
+    const list = Array.isArray(rows) ? rows : [];
+    const labels = list.map(compactShiftLabel);
+    return {
+      title,
+      series: (seriesList || []).map((s, idx) => ({
+        name: s.name,
+        color: s.color || barColor(idx),
+        points: list.map((row, i) => ({ k: labels[i], v: num(s.value(row), 0) }))
+      }))
+    };
+  }
+
+  function buildAverageWorkloadTrendCharts(rows, staffRows) {
+    const list = Array.isArray(rows) ? rows : [];
+    const labels = list.map(compactShiftLabel);
+    const byShiftRole = new Map();
+    (staffRows || []).forEach((r) => {
+      const role = String(r.role || "").toUpperCase();
+      if (role !== "RN" && role !== "PCA") return;
+      if (isFillerStaffName(r.staff_name)) return;
+      const key = `${shiftKey(r.shift_date, r.shift_type)}|${role}`;
+      if (!byShiftRole.has(key)) byShiftRole.set(key, { total: 0, count: 0 });
+      const rec = byShiftRole.get(key);
+      rec.total += num(r.workload_score, 0);
+      rec.count += 1;
+    });
+    const make = (role, color) => ({
+      title: `${role} average workload`,
+      series: [{
+        name: `${role} average workload`,
+        color,
+        points: list.map((row, i) => {
+          const rec = byShiftRole.get(`${shiftKey(row.date, row.shift)}|${role}`);
+          return { k: labels[i], v: rec?.count ? rec.total / rec.count : 0 };
+        })
+      }]
+    });
+    return [make("RN", "#2563eb"), make("PCA", "#059669")];
+  }
+
+  function selectedTrendTags(top) {
+    const defaults = (top || []).slice(0, 5).map((x) => x.k);
+    const current = Array.isArray(window.__metricsSelectedTrendTags) ? window.__metricsSelectedTrendTags : defaults;
+    const allowed = new Set((top || []).map((x) => x.k));
+    const clean = current.filter((k) => allowed.has(k));
+    return Array.isArray(window.__metricsSelectedTrendTags) ? clean : defaults;
+  }
+
+  function renderTrendSelector(metaId, top) {
+    const host = $(metaId);
+    if (!host) return;
+    const selected = new Set(selectedTrendTags(top));
+    const options = (top || []).slice(0, 8);
+    host.innerHTML = `
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+        <span>Show lines:</span>
+        ${options.map((x) => `
+          <label style="display:inline-flex;gap:4px;align-items:center;font-size:12px;">
+            <input type="checkbox" data-metrics-tag-line="${esc(x.k)}" ${selected.has(x.k) ? "checked" : ""} />
+            ${esc(x.k)}
+          </label>
+        `).join("")}
+      </div>
+    `;
+    host.querySelectorAll("[data-metrics-tag-line]").forEach((input) => {
+      input.addEventListener("change", () => {
+        window.__metricsSelectedTrendTags = Array.from(host.querySelectorAll("[data-metrics-tag-line]:checked"))
+          .map((el) => el.getAttribute("data-metrics-tag-line"))
+          .filter(Boolean);
+        if (__last) renderAll(__last, __lastReq);
+      });
+    });
+  }
+
+  function renderAnalyticsReportIndex(rows, snapshots, staff, events) {
+    const host = $("pulseTableDetailsSlot");
+    if (!host) return;
+    const canBuild = typeof window.__advancedMetricsBuildReports === "function" && typeof window.__advancedMetricsReportRows === "function";
+    if (!canBuild) {
+      host.style.display = "";
+      host.innerHTML = `<div class="staff-card"><div class="staff-card-header">Report Index</div><div style="font-size:12px;color:#64748b;">Report index is loading. Reload metrics after Advanced Metrics code finishes loading.</div></div>`;
+      return;
+    }
+    const reports = window.__advancedMetricsBuildReports({
+      rows: (rows || []).map((r) => ({
+        ...r,
+        shift_date: r.date || r.shift_date,
+        shift_type: r.shift || r.shift_type
+      })),
+      snapshots: snapshots || [],
+      staff: staff || [],
+      events: events || []
+    });
+    host.style.display = "";
+    host.innerHTML = `
+      <div class="staff-card" style="margin-top:12px;">
+        <div class="staff-card-header">Report Index</div>
+        <div style="font-size:12px;line-height:1.45;color:#475569;margin-bottom:10px;">
+          Unit-level index for acuity balance, handoff efficiency, patient safety, flow, and patient experience pressure.
+        </div>
+        ${window.__advancedMetricsReportRows(reports)}
+        ${typeof window.__advancedMetricsMetricCard === "function" ? `
+          <div style="margin-top:12px;font-size:12px;line-height:1.45;color:#475569;">
+            Scoring rationale cards show what each index watches and how the score is being interpreted. These are intentionally editable signals for future refinement.
+          </div>
+          <div class="advanced-report-grid" style="margin-top:10px;">
+            ${reports.map((r) => window.__advancedMetricsMetricCard(r)).join("")}
+          </div>
+        ` : ""}
+      </div>
+    `;
+  }
+
   function renderSummaryTiles(items, emptyText) {
     const host = $("pulseSummaryMetrics");
     if (!host) return;
@@ -286,6 +587,9 @@
       <div id="metricsQuad${id}Meta" style="padding-top:12px;font-size:12px;opacity:.75;"></div>
     `;
     if (mode === "tags") renderTagTiles(`metricsQuad${id}Tiles`, items, emptyText);
+    else if (mode === "bars") renderBarChart(`metricsQuad${id}Tiles`, items, emptyText);
+    else if (mode === "lines") renderLineChart(`metricsQuad${id}Tiles`, items, emptyText);
+    else if (mode === "splitLines") renderSplitLineCharts(`metricsQuad${id}Tiles`, items, emptyText);
     else renderMetricTiles(`metricsQuad${id}Tiles`, items, emptyText);
     const metaEl = $(`metricsQuad${id}Meta`);
     if (metaEl) metaEl.textContent = meta || "";
@@ -475,6 +779,28 @@
     if (row?.metrics?.tag_counts && typeof row.metrics.tag_counts === "object") return row.metrics.tag_counts;
     return {};
   }
+  function nextShiftFromSnapshot(snap) {
+    const shift = normalizeShift(snap?.shift_type || "");
+    if (!snap?.shift_date || (shift !== "day" && shift !== "night")) return null;
+    return {
+      shift_date: shift === "night" ? addDaysYmd(snap.shift_date, 1) : snap.shift_date,
+      shift_type: shift === "night" ? "day" : "night",
+      source_shift_date: snap.shift_date,
+      source_shift_type: shift
+    };
+  }
+  function snapshotForStaffRow(snapMap, row) {
+    const direct = snapMap.get(shiftKey(row?.shift_date, row?.shift_type));
+    if (direct) return direct;
+    if (row?.details?.starter_only && row.details.source_shift_date && row.details.source_shift_type) {
+      return snapMap.get(shiftKey(row.details.source_shift_date, row.details.source_shift_type)) || null;
+    }
+    return null;
+  }
+  function rowShiftLabel(row) {
+    const shift = normalizeShift(row?.shift_type || row?.shift || "");
+    return row?.details?.starter_only ? `${shift} start` : shift;
+  }
   function merge(into, src) { Object.keys(src || {}).forEach((k) => { into[k] = (into[k] || 0) + num(src[k], 0); }); }
   function topTags(obj, n = 10) { return Object.entries(obj || {}).map(([k, v]) => ({ k, v: num(v, 0) })).filter((x) => x.v > 0).sort((a, b) => b.v - a.v).slice(0, n); }
   function avgTagsPerShift(obj, shiftCount, n = 10) {
@@ -484,6 +810,36 @@
       .filter((x) => x.v > 0)
       .sort((a, b) => b.v - a.v)
       .slice(0, n);
+  }
+  function buildRnAverageTagTrendChart(rows, staffRows, snaps, keys) {
+    const snapMap = new Map();
+    (snaps || []).forEach((s) => snapMap.set(shiftKey(s.shift_date, s.shift_type), s));
+    const byShift = new Map();
+    (staffRows || [])
+      .filter((r) => String(r.role || "").toUpperCase() === "RN" && !isFillerStaffName(r.staff_name))
+      .forEach((r) => {
+        const key = shiftKey(r.shift_date, r.shift_type);
+        if (!byShift.has(key)) byShift.set(key, { count: 0, tags: {} });
+        const rec = byShift.get(key);
+        rec.count += 1;
+        const snap = snapshotForStaffRow(snapMap, r);
+        const pats = Array.isArray(snap?.state?.patients) ? snap.state.patients : [];
+        const ids = new Set(Array.isArray(r.details?.patient_ids) ? r.details.patient_ids.map(Number) : []);
+        merge(rec.tags, tagsFromPatients(pats, ids));
+      });
+    const list = Array.isArray(rows) ? rows : [];
+    const labels = list.map(compactShiftLabel);
+    return {
+      title: "Average RN assignment acuity tags by shift",
+      series: (keys || []).map((key, idx) => ({
+        name: `RN avg ${key}`,
+        color: barColor(idx + 1),
+        points: list.map((row, i) => {
+          const rec = byShift.get(shiftKey(row.date, row.shift));
+          return { k: labels[i], v: rec?.count ? num(rec.tags?.[key], 0) / rec.count : 0 };
+        })
+      }))
+    };
   }
   function ordinal(n) {
     const x = Math.max(1, Math.floor(num(n, 1)));
@@ -506,6 +862,209 @@
       const cut = monthCutoff(m); return list.filter((r) => r.date >= cut).sort((a, b) => a.date.localeCompare(b.date) || (shiftRank(a.shift) - shiftRank(b.shift)));
     }
     return list.sort((a, b) => a.date.localeCompare(b.date) || (shiftRank(a.shift) - shiftRank(b.shift)));
+  }
+
+  function staffRowsFromSnapshots(snaps, existingRows) {
+    const existing = new Set(arr(existingRows).map((r) =>
+      `${shiftKey(r.shift_date, r.shift_type)}|${String(r.role || "").toUpperCase()}|${normName(r.staff_name)}`
+    ));
+    const rows = [];
+
+    arr(snaps).forEach((snap) => {
+      const date = snap?.shift_date || "";
+      const shift = normalizeShift(snap?.shift_type || "");
+      const profiles = arr(snap?.state?.staff_profiles);
+      profiles.forEach((profile) => {
+        const role = String(profile?.role || "").toUpperCase();
+        const name = String(profile?.name || profile?.staff_name || "").trim();
+        if (!date || !shift || !role || !name) return;
+        const key = `${shiftKey(date, shift)}|${role}|${normName(name)}`;
+        if (existing.has(key)) return;
+        existing.add(key);
+        rows.push({
+          unit_id: snap.unit_id || "",
+          shift_date: date,
+          shift_type: shift,
+          staff_id: profile.staff_id || null,
+          staff_name: name,
+          role,
+          patients_assigned: num(profile.patients_assigned, arr(profile?.details?.patient_ids).length),
+          workload_score: num(profile.workload_score, 0),
+          details: profile.details || {},
+          source: "shift_snapshot"
+        });
+      });
+    });
+
+    return rows;
+  }
+
+  function starterPatientScore(role, p) {
+    const r = String(role || "").toUpperCase();
+    let score = 0;
+    if (r === "PCA") {
+      score += 1;
+      if (p?.chg) score += 1;
+      if (p?.q2turns || p?.q2Turns) score += 1;
+      if (p?.isolation || p?.iso) score += 1;
+      if (p?.feeder || p?.feeders) score += 1;
+      return score;
+    }
+    score += 1;
+    if (p?.drip) score += 3;
+    if (p?.nih) score += 3;
+    if (p?.bg) score += 3;
+    if (p?.tf) score += 2;
+    if (p?.ciwa) score += 3;
+    if (p?.cows) score += 3;
+    if (p?.psych) score += 3;
+    if (p?.prns) score += 3;
+    if (p?.emu) score += 3;
+    if (p?.restraint) score += 3;
+    if (p?.sitter) score += 3;
+    if (p?.vpo) score += 3;
+    if (p?.isolation) score += 1;
+    if (p?.admit) score += 3;
+    if (p?.lateDc) score += 1;
+    if (p?.sitter && p?.restraint) score += 3;
+    const behavior = !!(p?.ciwa || p?.cows || p?.ciwaCows || p?.psych || p?.prns);
+    if (behavior && p?.sitter) score += 3;
+    if (p?.emu && p?.sitter) score += 3;
+    if (p?.drip && behavior) score += 3;
+    if (p?.drip && p?.emu) score += 3;
+    if (p?.drip && p?.sitter) score += 4;
+    if (p?.nih && p?.bg) score += 2;
+    return score;
+  }
+
+  function starterStackingBonus(role, patients) {
+    const pts = arr(patients).filter((p) => p && !p.isEmpty);
+    if (String(role || "").toUpperCase() === "PCA") {
+      return 0;
+    }
+    const bg = pts.filter((p) => p.bg).length;
+    const iso = pts.filter((p) => p.isolation).length;
+    const drip = pts.filter((p) => p.drip).length;
+    const behavior = pts.filter((p) => p.ciwa || p.cows || p.ciwaCows || p.psych || p.prns).length;
+    const emu = pts.filter((p) => p.emu).length;
+    const sitter = pts.filter((p) => p.sitter).length;
+    const vpo = pts.filter((p) => p.vpo).length;
+    let bonus = 0;
+    if (bg >= 3) bonus += 4;
+    if (iso >= 3) bonus += 4;
+    if (drip >= 2) bonus += 6;
+    if (behavior >= 1 && sitter >= 1) bonus += 4;
+    if (emu >= 1 && sitter >= 1) bonus += 4;
+    if (vpo >= 1 && behavior >= 1) bonus += 3;
+    if (vpo >= 1 && emu >= 1) bonus += 3;
+    return bonus;
+  }
+
+  function starterWorkloadScore(role, patients) {
+    const pts = arr(patients).filter((p) => p && !p.isEmpty);
+    return pts.reduce((sum, p) => sum + starterPatientScore(role, p), 0) + starterStackingBonus(role, pts);
+  }
+
+  function recalcStaffRowsWithCurrentScoring(rows, snaps) {
+    const snapMap = new Map();
+    arr(snaps).forEach((snap) => snapMap.set(shiftKey(snap.shift_date, snap.shift_type), snap));
+    return arr(rows).map((row) => {
+      const snap = snapshotForStaffRow(snapMap, row);
+      const patients = arr(snap?.state?.patients);
+      const ids = arr(row?.details?.patient_ids).map(Number).filter(Number.isFinite);
+      if (!snap || !ids.length || !patients.length) return row;
+      const patientById = new Map(patients.map((p) => [Number(p?.id), p]));
+      const assigned = ids.map((id) => patientById.get(id)).filter((p) => p && !p.isEmpty);
+      if (!assigned.length) return row;
+      return {
+        ...row,
+        workload_score: starterWorkloadScore(row.role, assigned),
+        patients_assigned: assigned.length,
+        details: {
+          ...(row.details || {}),
+          analytics_scoring_version: "2026-07-01-current",
+          recalculated_from_snapshot: true
+        }
+      };
+    });
+  }
+
+  function starterRowsFromSnapshots(snaps, existingStaffRows, existingAnalyticsRows) {
+    const existingStaff = new Set(arr(existingStaffRows).map((r) =>
+      `${shiftKey(r.shift_date, r.shift_type)}|${String(r.role || "").toUpperCase()}|${normName(r.staff_name)}`
+    ));
+    const existingAnalytics = new Set(arr(existingAnalyticsRows).map((r) => shiftKey(r.shift_date, r.shift_type)));
+    const staff = [];
+    const analytics = [];
+
+    arr(snaps).forEach((snap) => {
+      const next = nextShiftFromSnapshot(snap);
+      if (!next) return;
+      const state = snap?.state && typeof snap.state === "object" ? snap.state : {};
+      const oncoming = state.oncoming_assignment && typeof state.oncoming_assignment === "object" ? state.oncoming_assignment : {};
+      const patients = arr(state.patients);
+      const patientById = new Map(patients.map((p) => [Number(p?.id), p]));
+      const hasOncoming = arr(oncoming.nurses).length || arr(oncoming.pcas).length;
+      if (!hasOncoming) return;
+
+      const makeStaff = (role, owners) => arr(owners).forEach((owner) => {
+        const name = String(owner?.name || "").trim();
+        if (!name || isFillerStaffName(name)) return;
+        const roleKey = String(role || "").toUpperCase();
+        const key = `${shiftKey(next.shift_date, next.shift_type)}|${roleKey}|${normName(name)}`;
+        if (existingStaff.has(key)) return;
+        existingStaff.add(key);
+        const ids = arr(owner?.patients).map(Number).filter(Number.isFinite);
+        const assigned = ids.map((id) => patientById.get(Number(id))).filter((p) => p && !p.isEmpty);
+        staff.push({
+          unit_id: snap.unit_id || "",
+          shift_date: next.shift_date,
+          shift_type: next.shift_type,
+          staff_id: owner?.staff_id || owner?.staffId || null,
+          staff_name: name,
+          role: roleKey,
+          patients_assigned: assigned.length,
+          workload_score: starterWorkloadScore(roleKey, assigned),
+          details: {
+            patient_ids: ids,
+            patient_rooms: assigned.map((p) => String(p.room || p.id || "")).filter(Boolean),
+            expected_discharges: assigned.filter((p) => !!p.expectedDischarge).length,
+            admits: 0,
+            discharges: 0,
+            acuity_changes: 0,
+            assignment_changes: 0,
+            event_count: 0,
+            starter_only: true,
+            projected_full_shift: true,
+            starter_source: "analytics_snapshot_fallback",
+            source_shift_date: next.source_shift_date,
+            source_shift_type: next.source_shift_type,
+            shift_snapshot_id: snap.id || null
+          },
+          source: "shift_snapshot_starter"
+        });
+      });
+
+      makeStaff("RN", oncoming.nurses);
+      makeStaff("PCA", oncoming.pcas);
+
+      if (!existingAnalytics.has(shiftKey(next.shift_date, next.shift_type))) {
+        existingAnalytics.add(shiftKey(next.shift_date, next.shift_type));
+        analytics.push({
+          date: next.shift_date,
+          shift: next.shift_type,
+          totalPts: num(state.total_pts, patients.filter((p) => p && !p.isEmpty).length),
+          admits: 0,
+          discharges: 0,
+          tagsObj: tagsFromPatients(patients),
+          starterOnly: true,
+          source_shift_date: next.source_shift_date,
+          source_shift_type: next.source_shift_type
+        });
+      }
+    });
+
+    return { staff, analytics };
   }
 
   function workloadBucket(score, role) {
@@ -546,7 +1105,10 @@
   function renderUnit(rows, snaps, events, depth, staffRows) {
     renderFocusedStaffReport(null);
     renderMergeSuggestion(null, []);
-    renderPrunePanel(staffRows);
+    const pruneHost = $("metricsPrunePanel");
+    if (pruneHost) pruneHost.innerHTML = "";
+    const pruneBtn = $("btnMetricsPrune");
+    if (pruneBtn) pruneBtn.style.display = "none";
     const n = rows.length;
     const avgPts = n ? rows.reduce((s, r) => s + num(r.totalPts, 0), 0) / n : 0;
     const avgA = n ? rows.reduce((s, r) => s + num(r.admits, 0), 0) / n : 0;
@@ -557,23 +1119,25 @@
     const avgTagTiles = avgTagsPerShift(tags, n, 10);
 
     renderSummaryTiles([
-      { k: "Shifts Reviewed", v: n, sub: "Selected interval" },
-      { k: "Average Census", v: avgPts.toFixed(1), sub: "Patients per shift" },
+      { k: "Shifts Reviewed", v: n, sub: "All matching shifts" },
+      { k: "Average Census", v: avgPts.toFixed(1), sub: "All shifts measured" },
       { k: "Average Admits", v: avgA.toFixed(1), sub: "Per shift" },
-      { k: "Average Discharges", v: avgD.toFixed(1), sub: "Per shift" }
+      { k: "Average Discharges", v: avgD.toFixed(1), sub: "Per shift" },
+      { k: "Top Acuity", v: top[0]?.k || "-", sub: top[0] ? `${top[0].v} observations` : "No tags" }
     ], "No unit metrics are available in this time range.");
-    $("metricsNarrativeQuick").textContent = n ? "The 2x2 summary below shows the unit's most common acuity needs and average flow patterns across the selected shifts." : "No unit metrics are available in this time range.";
+    $("metricsNarrativeQuick").textContent = n ? "Unit analytics are shown as all matching shifts by default. Use the compact query bar for date, shift, and interval filters." : "No unit metrics are available in this time range.";
     $("metricsNarrativeFull").innerHTML = "";
 
-    const modeSet = new Set(rows.map((r) => String(r.shift || "").toLowerCase()).filter((s) => s === "day" || s === "night"));
-    let flowMode = String(window.__metricsUnitSummaryMode || "");
-    if (!modeSet.has(flowMode)) flowMode = modeSet.has("day") ? "day" : modeSet.has("night") ? "night" : "";
-    window.__metricsUnitSummaryMode = flowMode;
-    const flowRows = flowMode ? rows.filter((r) => String(r.shift || "").toLowerCase() === flowMode) : rows.slice();
-    const flowCount = flowRows.length;
-    const avgCensus = flowCount ? flowRows.reduce((sum, r) => sum + num(r.totalPts, 0), 0) / flowCount : 0;
-    const avgDischarges = flowCount ? flowRows.reduce((sum, r) => sum + num(r.discharges, 0), 0) / flowCount : 0;
-    const avgAdmits = flowCount ? flowRows.reduce((sum, r) => sum + num(r.admits, 0), 0) / flowCount : 0;
+    const flowStats = (label, subset) => {
+      const count = subset.length;
+      return [
+        { k: `${label} Census`, v: count ? subset.reduce((sum, r) => sum + num(r.totalPts, 0), 0) / count : 0, label: count ? (subset.reduce((sum, r) => sum + num(r.totalPts, 0), 0) / count).toFixed(1) : "0.0", sub: `${count} shifts`, keepZero: true },
+        { k: `${label} Admits`, v: count ? subset.reduce((sum, r) => sum + num(r.admits, 0), 0) / count : 0, label: count ? (subset.reduce((sum, r) => sum + num(r.admits, 0), 0) / count).toFixed(1) : "0.0", sub: "Per shift", keepZero: true },
+        { k: `${label} DCs`, v: count ? subset.reduce((sum, r) => sum + num(r.discharges, 0), 0) / count : 0, label: count ? (subset.reduce((sum, r) => sum + num(r.discharges, 0), 0) / count).toFixed(1) : "0.0", sub: "Per shift", keepZero: true }
+      ];
+    };
+    const dayRows = rows.filter((r) => normalizeShift(r.shift) === "day");
+    const nightRows = rows.filter((r) => normalizeShift(r.shift) === "night");
 
     const snapMap = new Map();
     (snaps || []).forEach((s) => snapMap.set(shiftKey(s.shift_date, s.shift_type), s));
@@ -581,41 +1145,33 @@
     const rnRows = (staffRows || []).filter((r) => String(r.role || "").toUpperCase() === "RN" && !isFillerStaffName(r.staff_name) && !isHiddenStaffName(r.staff_name, hidden));
     const rnTagTotals = {};
     rnRows.forEach((r) => {
-      const s = snapMap.get(shiftKey(r.shift_date, r.shift_type));
+      const s = snapshotForStaffRow(snapMap, r);
       const pats = Array.isArray(s?.state?.patients) ? s.state.patients : [];
       const ids = new Set(Array.isArray(r.details?.patient_ids) ? r.details.patient_ids.map(Number) : []);
       merge(rnTagTotals, tagsFromPatients(pats, ids));
     });
     const avgRnTagTiles = avgTagsPerShift(rnTagTotals, rnRows.length, 10);
 
-    setQuad(1, "Total Acuity Tags Over Time", "tags", top.slice(0, 10), n ? `Collected across ${n} shift${n === 1 ? "" : "s"} in this view.` : "No shift data.", "No tag data.");
-    setQuad(2, "Average Acuity Tags Per Shift", "tags", avgTagTiles.slice(0, 10), avgTagTiles.length ? "Average acuity-tag frequency per shift." : "No shift data.", "No average tag data.");
-    setQuad(3, "Average Unit Flow", "metrics", [
-      { k: "Average Census", v: avgCensus.toFixed(1), sub: flowMode ? `${flowMode.toUpperCase()} shifts` : "Selected shifts" },
-      { k: "Average Discharges", v: avgDischarges.toFixed(1), sub: flowMode ? `${flowMode.toUpperCase()} shifts` : "Selected shifts" },
-      { k: "Average Admits", v: avgAdmits.toFixed(1), sub: flowMode ? `${flowMode.toUpperCase()} shifts` : "Selected shifts" }
-    ], flowCount ? `${flowCount} ${flowMode || "selected"} shift${flowCount === 1 ? "" : "s"} included.` : "No matching shifts in this view.", "No shift data.");
-    setQuad(4, "Average Acuity Tags Per RN Assignment", "tags", avgRnTagTiles, rnRows.length ? `Average acuity-tag frequency across ${rnRows.length} RN assignments.` : "No RN assignment data.", "No RN assignment data.");
-
-    const q3Meta = $("metricsQuad3Meta");
-    if (q3Meta) {
-      q3Meta.innerHTML = `
-        <div style="display:flex;gap:8px;flex-wrap:wrap;">
-          <button id="metricsUnitModeDay" type="button" style="padding:6px 12px;border-radius:999px;border:1px solid rgba(15,23,42,.12);background:${flowMode === "day" ? "#e2ecff" : "#fff"};font-weight:${flowMode === "day" ? "800" : "600"};">Day</button>
-          <button id="metricsUnitModeNight" type="button" style="padding:6px 12px;border-radius:999px;border:1px solid rgba(15,23,42,.12);background:${flowMode === "night" ? "#e2ecff" : "#fff"};font-weight:${flowMode === "night" ? "800" : "600"};">Night</button>
-          <span style="align-self:center;">${flowCount ? `${flowCount} shift${flowCount === 1 ? "" : "s"} included.` : "No matching shifts."}</span>
-        </div>
-      `;
-      const dayBtn = $("metricsUnitModeDay");
-      const nightBtn = $("metricsUnitModeNight");
-      if (dayBtn) dayBtn.onclick = () => { window.__metricsUnitSummaryMode = "day"; if (__last) renderAll(__last, __lastReq); };
-      if (nightBtn) nightBtn.onclick = () => { window.__metricsUnitSummaryMode = "night"; if (__last) renderAll(__last, __lastReq); };
-    }
+    setQuad(1, "Unit Summary", "metrics", [
+      { k: "All Shifts", v: n, sub: "Current filter" },
+      { k: "Day Shifts", v: dayRows.length, sub: "Measured" },
+      { k: "Night Shifts", v: nightRows.length, sub: "Measured" },
+      { k: "Acuity Obs", v: Object.values(tags).reduce((s, v) => s + num(v, 0), 0), sub: "Total tag count" }
+    ], n ? "Top-level unit summary for the selected interval." : "No shift data.", "No summary data.");
+    setQuad(2, "Average Unit Flow", "bars", [
+      ...flowStats("All", rows),
+      ...flowStats("Day", dayRows),
+      ...flowStats("Night", nightRows)
+    ], n ? "Average census, admits, and discharges by shift category." : "No shift data.", "No flow data.");
+    const trendTags = selectedTrendTags(top);
+    setQuad(3, "Acuity Tags Over Time", "lines", buildTagTrendChart(rows, trendTags, "Acuity tag trends by shift"), n ? `${n} shifts. Hover points for shift/date values.` : "No shift data.", "No tag trend data.");
+    renderTrendSelector("metricsQuad3Meta", top);
+    setQuad(4, "Average Workload Over Time", "splitLines", buildAverageWorkloadTrendCharts(rows, staffRows), "RN and PCA workload trends are shown separately because the scoring scales are different.", "No workload trend data.");
+    renderAnalyticsReportIndex(rows, snaps, staffRows, events);
 
     let table = `<div style="overflow:auto;"><table style="width:100%;min-width:760px;border-collapse:separate;border-spacing:0;"><thead><tr style="font-size:12px;opacity:.75;text-align:left;"><th style="padding:10px 12px;border-bottom:1px solid rgba(15,23,42,.12);">Date</th><th style="padding:10px 12px;border-bottom:1px solid rgba(15,23,42,.12);">Shift</th><th style="padding:10px 12px;border-bottom:1px solid rgba(15,23,42,.12);">Pts</th><th style="padding:10px 12px;border-bottom:1px solid rgba(15,23,42,.12);">Admits</th><th style="padding:10px 12px;border-bottom:1px solid rgba(15,23,42,.12);">Discharges</th><th style="padding:10px 12px;border-bottom:1px solid rgba(15,23,42,.12);">Top tags</th></tr></thead><tbody>`;
-    rows.forEach((r) => { table += `<tr style="font-size:13px;"><td style="padding:10px 12px;border-bottom:1px solid rgba(15,23,42,.06);">${esc(r.date)}</td><td style="padding:10px 12px;border-bottom:1px solid rgba(15,23,42,.06);">${esc(r.shift)}</td><td style="padding:10px 12px;border-bottom:1px solid rgba(15,23,42,.06);">${num(r.totalPts, 0)}</td><td style="padding:10px 12px;border-bottom:1px solid rgba(15,23,42,.06);">${num(r.admits, 0)}</td><td style="padding:10px 12px;border-bottom:1px solid rgba(15,23,42,.06);">${num(r.discharges, 0)}</td><td style="padding:10px 12px;border-bottom:1px solid rgba(15,23,42,.06);">${esc(topTags(r.tagsObj || {},3).map((x) => `${x.k}:${x.v}`).join(", ") || "-")}</td></tr>`; });
+    rows.forEach((r) => { table += `<tr style="font-size:13px;"><td style="padding:10px 12px;border-bottom:1px solid rgba(15,23,42,.06);">${esc(r.date)}</td><td style="padding:10px 12px;border-bottom:1px solid rgba(15,23,42,.06);">${esc(r.starterOnly ? `${r.shift} start` : r.shift)}</td><td style="padding:10px 12px;border-bottom:1px solid rgba(15,23,42,.06);">${num(r.totalPts, 0)}</td><td style="padding:10px 12px;border-bottom:1px solid rgba(15,23,42,.06);">${num(r.admits, 0)}</td><td style="padding:10px 12px;border-bottom:1px solid rgba(15,23,42,.06);">${num(r.discharges, 0)}</td><td style="padding:10px 12px;border-bottom:1px solid rgba(15,23,42,.06);">${esc(topTags(r.tagsObj || {},3).map((x) => `${x.k}:${x.v}`).join(", ") || "-")}</td></tr>`; });
     table += `</tbody></table></div>`;
-    if ($("pulseTableDetailsSlot")) $("pulseTableDetailsSlot").innerHTML = table;
     if ($("pulseTable")) $("pulseTable").innerHTML = table;
   }
 
@@ -636,7 +1192,7 @@
     const snapMap = new Map(); snaps.forEach((s) => snapMap.set(shiftKey(s.shift_date, s.shift_type), s));
     const tagTotals = {};
     mine.forEach((r) => {
-      const s = snapMap.get(shiftKey(r.shift_date, r.shift_type)); if (!s) return;
+      const s = snapshotForStaffRow(snapMap, r); if (!s) return;
       const pats = Array.isArray(s.state?.patients) ? s.state.patients : [];
       const ids = new Set(Array.isArray(r.details?.patient_ids) ? r.details.patient_ids.map(Number) : []);
       merge(tagTotals, tagsFromPatients(pats, ids));
@@ -645,8 +1201,12 @@
     const totalTagBurden = Object.values(tagTotals).reduce((sum, v) => sum + num(v, 0), 0);
     const avgTagBurden = n ? totalTagBurden / n : 0;
     const avgTagTiles = avgTagsPerShift(tagTotals, n, 10);
-    const firstShift = mine[0] || null;
-    const lastShift = mine[mine.length - 1] || null;
+    const mineSorted = mine.slice().sort((a, b) =>
+      String(a.shift_date || "").localeCompare(String(b.shift_date || "")) ||
+      (shiftRank(a.shift_type) - shiftRank(b.shift_type))
+    );
+    const firstShift = mineSorted[0] || null;
+    const lastShift = mineSorted[mineSorted.length - 1] || null;
     const startWorkload = firstShift ? num(firstShift.workload_score, 0) : 0;
     const endWorkload = lastShift ? num(lastShift.workload_score, 0) : 0;
     const workloadDelta = endWorkload - startWorkload;
@@ -660,7 +1220,7 @@
       if (!peerExposureMap.has(key)) peerExposureMap.set(key, { total: 0, shifts: 0, tags: {} });
       const rec = peerExposureMap.get(key);
       rec.shifts += 1;
-      const s = snapMap.get(shiftKey(r.shift_date, r.shift_type));
+      const s = snapshotForStaffRow(snapMap, r);
       if (!s) return;
       const pats = Array.isArray(s.state?.patients) ? s.state.patients : [];
       const ids = new Set(Array.isArray(r.details?.patient_ids) ? r.details.patient_ids.map(Number) : []);
@@ -681,6 +1241,26 @@
     const selectedPeerKey = sel;
     const totalRank = Math.max(1, peerRankings.findIndex((x) => x.key === selectedPeerKey) + 1 || 1);
     const avgRank = Math.max(1, peerRankings.slice().sort((a, b) => b.avg - a.avg || b.total - a.total || a.key.localeCompare(b.key)).findIndex((x) => x.key === selectedPeerKey) + 1 || 1);
+    const unitByShift = new Map();
+    peers.forEach((r) => {
+      const key = shiftKey(r.shift_date, r.shift_type);
+      if (!unitByShift.has(key)) unitByShift.set(key, { load: 0, patients: 0, count: 0 });
+      const rec = unitByShift.get(key);
+      rec.load += num(r.workload_score, 0);
+      rec.patients += num(r.patients_assigned, 0);
+      rec.count += 1;
+    });
+    const comparisonLabel = (r) => `${r.shift_date}|${normalizeShift(r.shift_type).toUpperCase()}`;
+    const staffLoadPoints = mineSorted.map((r) => ({ k: comparisonLabel(r), v: num(r.workload_score, 0) }));
+    const unitLoadPoints = mineSorted.map((r) => {
+      const rec = unitByShift.get(shiftKey(r.shift_date, r.shift_type));
+      return { k: comparisonLabel(r), v: rec?.count ? rec.load / rec.count : 0 };
+    });
+    const staffPatientPoints = mineSorted.map((r) => ({ k: comparisonLabel(r), v: num(r.patients_assigned, 0) }));
+    const unitPatientPoints = mineSorted.map((r) => {
+      const rec = unitByShift.get(shiftKey(r.shift_date, r.shift_type));
+      return { k: comparisonLabel(r), v: rec?.count ? rec.patients / rec.count : 0 };
+    });
 
     renderPrunePanel(rows);
     renderSummaryTiles([
@@ -698,27 +1278,29 @@
       { k: "Load Score", v: avgL.toFixed(1), sub: "Average per worked shift" },
       { k: "Acuity Tags", v: avgTagBurden.toFixed(1), sub: "Average per worked shift" }
     ], n ? `${n} worked shift${n === 1 ? "" : "s"} reviewed.` : "No worked shifts.", "No worked shifts.");
-    setQuad(2, "Trend Over Time", "metrics", [
-      { k: "Start Load", v: startWorkload.toFixed(1) },
-      { k: "End Load", v: endWorkload.toFixed(1) },
-      { k: "Load Change", v: `${workloadDelta > 0 ? "+" : ""}${workloadDelta.toFixed(1)}` },
-      { k: "Patient Range", v: `${minPatients}-${maxPatients}` }
-    ], "Shift trend across the selected worked shifts.", "No trend data.");
-    setQuad(3, "Average Acuity Tags Per Worked Shift", "tags", avgTagTiles.length ? avgTagTiles : top.slice(0, 10), compare ? `Rank: ${ordinal(totalRank)} total exposure and ${ordinal(avgRank)} average exposure.` : "Average historical acuity tags per worked shift.", "No acuity-tag data.");
-    setQuad(4, "Peer Comparison", "metrics", [
-      { k: "Workload vs RN Avg", v: `${(avgL - peerL).toFixed(1) >= 0 ? "+" : ""}${(avgL - peerL).toFixed(1)}`, sub: "Compared with RN peers" },
-      { k: "Patients vs RN Avg", v: `${(avgP - peerP).toFixed(1) >= 0 ? "+" : ""}${(avgP - peerP).toFixed(1)}`, sub: "Compared with RN peers" },
-      { k: "Total Exposure Rank", v: ordinal(totalRank) },
-      { k: "Average Exposure Rank", v: ordinal(avgRank) }
-    ], compare ? "Peer comparison based on worked-shift exposure." : "Peer comparison is off.", "No peer comparison data.");
+    setQuad(2, "Workload vs Unit Average", "lines", {
+      title: "Selected staff workload compared with unit RN average",
+      series: [
+        { name: currentGroup?.label || "Selected staff", color: "#2563eb", points: staffLoadPoints },
+        { name: "Unit RN average", color: "#059669", points: unitLoadPoints }
+      ]
+    }, `Start ${startWorkload.toFixed(1)}, end ${endWorkload.toFixed(1)}, change ${workloadDelta > 0 ? "+" : ""}${workloadDelta.toFixed(1)}.`, "No trend data.");
+    setQuad(3, "Average Acuity Tags Per Worked Shift", "bars", (avgTagTiles.length ? avgTagTiles : top.slice(0, 10)).map((x) => ({ k: x.k, v: x.v, label: num(x.v, 0).toFixed(1) })), compare ? `Rank: ${ordinal(totalRank)} total exposure and ${ordinal(avgRank)} average exposure.` : "Average historical acuity tags per worked shift.", "No acuity-tag data.");
+    setQuad(4, "Patients vs Unit Average", "lines", {
+      title: "Selected staff patient count compared with unit RN average",
+      series: [
+        { name: currentGroup?.label || "Selected staff", color: "#7c3aed", points: staffPatientPoints },
+        { name: "Unit RN average", color: "#d97706", points: unitPatientPoints }
+      ]
+    }, compare ? `Average load rank ${ordinal(avgRank)} among visible RN peers.` : "Peer comparison is off.", "No peer comparison data.");
 
     let table = `<div style="overflow:auto;"><table style="width:100%;min-width:920px;border-collapse:separate;border-spacing:0;"><thead><tr style="font-size:12px;opacity:.75;text-align:left;"><th style="padding:10px 12px;border-bottom:1px solid rgba(15,23,42,.12);">Date</th><th style="padding:10px 12px;border-bottom:1px solid rgba(15,23,42,.12);">Shift</th><th style="padding:10px 12px;border-bottom:1px solid rgba(15,23,42,.12);">Staff</th><th style="padding:10px 12px;border-bottom:1px solid rgba(15,23,42,.12);">Patients</th><th style="padding:10px 12px;border-bottom:1px solid rgba(15,23,42,.12);">Workload</th><th style="padding:10px 12px;border-bottom:1px solid rgba(15,23,42,.12);">Top tag exposure</th></tr></thead><tbody>`;
     mine.forEach((r) => {
-      const s = snapMap.get(shiftKey(r.shift_date, r.shift_type));
+      const s = snapshotForStaffRow(snapMap, r);
       const pats = Array.isArray(s?.state?.patients) ? s.state.patients : [];
       const ids = new Set(Array.isArray(r.details?.patient_ids) ? r.details.patient_ids.map(Number) : []);
       const rowTags = topTags(tagsFromPatients(pats, ids), 3).map((x) => `${x.k}:${x.v}`).join(", ") || "-";
-      table += `<tr style="font-size:13px;"><td style="padding:10px 12px;border-bottom:1px solid rgba(15,23,42,.06);">${esc(r.shift_date)}</td><td style="padding:10px 12px;border-bottom:1px solid rgba(15,23,42,.06);">${esc(r.shift_type)}</td><td style="padding:10px 12px;border-bottom:1px solid rgba(15,23,42,.06);">${esc(r.staff_name)}</td><td style="padding:10px 12px;border-bottom:1px solid rgba(15,23,42,.06);">${num(r.patients_assigned, 0)}</td><td style="padding:10px 12px;border-bottom:1px solid rgba(15,23,42,.06);">${num(r.workload_score, 0).toFixed(1)}</td><td style="padding:10px 12px;border-bottom:1px solid rgba(15,23,42,.06);">${esc(rowTags)}</td></tr>`;
+      table += `<tr style="font-size:13px;"><td style="padding:10px 12px;border-bottom:1px solid rgba(15,23,42,.06);">${esc(r.shift_date)}</td><td style="padding:10px 12px;border-bottom:1px solid rgba(15,23,42,.06);">${esc(rowShiftLabel(r))}</td><td style="padding:10px 12px;border-bottom:1px solid rgba(15,23,42,.06);">${esc(r.staff_name)}</td><td style="padding:10px 12px;border-bottom:1px solid rgba(15,23,42,.06);">${num(r.patients_assigned, 0)}</td><td style="padding:10px 12px;border-bottom:1px solid rgba(15,23,42,.06);">${num(r.workload_score, 0).toFixed(1)}</td><td style="padding:10px 12px;border-bottom:1px solid rgba(15,23,42,.06);">${esc(rowTags)}</td></tr>`;
     });
     table += `</tbody></table></div>`;
     if ($("pulseTableDetailsSlot")) $("pulseTableDetailsSlot").innerHTML = table;
@@ -728,22 +1310,40 @@
   function renderAll(data, reqId) {
     if (reqId !== __req) return;
     ensureShell();
-    const interval = String($("metricsInterval")?.value || "last_12_shifts");
-    const view = String($("metricsViewMode")?.value || "unit");
+    const interval = String($("metricsInterval")?.value || "all_time");
+    const view = "unit";
     const depth = String($("metricsReportDepth")?.value || "quick");
     const compare = true;
-    const shift = String($("pulseShiftType")?.value || "");
+    const shift = normalizeShift($("pulseShiftType")?.value || "");
     const shiftFilter = (shift === "day" || shift === "night") ? shift : "";
+    const fromDate = String($("pulseFrom")?.value || "");
+    const toDate = String($("pulseTo")?.value || "");
+    const inDateRange = (date) => {
+      const d = String(date || "");
+      return !!d && (!fromDate || d >= fromDate) && (!toDate || d <= toDate);
+    };
+    const shiftMatches = (shiftType) => !shiftFilter || normalizeShift(shiftType) === shiftFilter;
 
-    const analytics = data.analytics.map((r) => ({ shift_date: r.shift_date || r.date || "", shift_type: r.shift_type || r.shift || "", totalPts: num(r.total_pts ?? r.metrics?.totals?.total_pts, 0), admits: num(r.admits ?? r.metrics?.totals?.admits, 0), discharges: num(r.discharges ?? r.metrics?.totals?.discharges, 0), tagsObj: extractTagCounts(r), raw: r })).filter((r) => r.shift_date && (!shiftFilter || String(r.shift_type).toLowerCase() === shiftFilter));
-    const snapshots = data.snapshots.filter((s) => s.shift_date && (!shiftFilter || String(s.shift_type || "").toLowerCase() === shiftFilter));
-    const staff = data.staff.filter((r) => r.shift_date && (!shiftFilter || String(r.shift_type || "").toLowerCase() === shiftFilter));
-    setStaffOptions(staff);
-    $("metricsStaffSelect").disabled = view !== "staff";
+    const allSnapshots = data.snapshots.filter((s) => s && s.shift_date);
+    const starterFallback = starterRowsFromSnapshots(allSnapshots, data.staff, data.analytics);
+    const analytics = data.analytics
+      .map((r) => ({ shift_date: r.shift_date || r.date || "", shift_type: normalizeShift(r.shift_type || r.shift || ""), totalPts: num(r.total_pts ?? r.metrics?.totals?.total_pts, 0), admits: num(r.admits ?? r.metrics?.totals?.admits, 0), discharges: num(r.discharges ?? r.metrics?.totals?.discharges, 0), tagsObj: extractTagCounts(r), starterOnly: !!r.metrics?.starter_only, raw: r }))
+      .filter((r) => inDateRange(r.shift_date) && shiftMatches(r.shift_type));
+    const fallbackAnalytics = starterFallback.analytics
+      .filter((r) => inDateRange(r.date) && shiftMatches(r.shift));
+    const snapshots = allSnapshots.filter((s) => inDateRange(s.shift_date) && shiftMatches(s.shift_type));
+    const staffBase = data.staff.filter((r) => inDateRange(r.shift_date) && shiftMatches(r.shift_type));
+    const fallbackStaff = starterFallback.staff
+      .filter((r) => inDateRange(r.shift_date) && shiftMatches(r.shift_type));
+    const staff = staffBase.concat(staffRowsFromSnapshots(snapshots, staffBase)).concat(fallbackStaff);
 
     const rowsCombined = [];
     const by = new Map();
-    analytics.forEach((a) => by.set(shiftKey(a.shift_date, a.shift_type), { date: a.shift_date, shift: a.shift_type, totalPts: a.totalPts, admits: a.admits, discharges: a.discharges, tagsObj: a.tagsObj }));
+    analytics.forEach((a) => by.set(shiftKey(a.shift_date, a.shift_type), { date: a.shift_date, shift: a.shift_type, totalPts: a.totalPts, admits: a.admits, discharges: a.discharges, tagsObj: a.tagsObj, starterOnly: a.starterOnly }));
+    fallbackAnalytics.forEach((a) => {
+      const key = shiftKey(a.date, a.shift);
+      if (!by.has(key)) by.set(key, a);
+    });
     snapshots.forEach((s) => {
       const k = shiftKey(s.shift_date, s.shift_type);
       const pats = Array.isArray(s.state?.patients) ? s.state.patients : [];
@@ -764,13 +1364,45 @@
     });
     by.forEach((v) => rowsCombined.push(v));
     const rowsWindow = applyInterval(rowsCombined, interval);
+    const activeKeys = new Set(rowsWindow.map((r) => shiftKey(r.date, r.shift)));
+    const selectedShifts = rowsWindow.map((r) => ({ date: r.date, shift: normalizeShift(r.shift) }));
     const minDate = rowsWindow[0]?.date || "0000-00-00", maxDate = rowsWindow[rowsWindow.length - 1]?.date || "9999-99-99";
-    const eventsWin = data.events.filter((e) => { const d = ymd(e.created_at || e.ts || Date.now()); if (d < minDate || d > maxDate) return false; if (!shiftFilter) return true; const h = new Date(e.created_at || e.ts || Date.now()).getHours(); return (shiftFilter === "day" ? (h >= 7 && h < 19) : (h < 7 || h >= 19)); });
-    const staffWindow = applyInterval(staff.map((r) => ({ ...r, date: r.shift_date, shift: r.shift_type })), interval).map((r) => r.raw || r);
+    const eventsWin = data.events.filter((e) => {
+      const parts = eventLocalParts(e);
+      if (!parts.date) return false;
+      if (selectedShifts.length) {
+        return selectedShifts.some((row) => {
+          if (row.shift === "day") return parts.date === row.date && parts.hour >= 7 && parts.hour < 19;
+          if (row.shift === "night") {
+            return (parts.date === row.date && parts.hour >= 19) ||
+              (parts.date === addDaysYmd(row.date, 1) && parts.hour < 7);
+          }
+          return parts.date === row.date;
+        });
+      }
+      if (parts.date < minDate || parts.date > maxDate) return false;
+      if (!shiftFilter) return true;
+      return shiftFilter === "day" ? (parts.hour >= 7 && parts.hour < 19) : (parts.hour < 7 || parts.hour >= 19);
+    });
+    const staffWindowRaw = staff
+      .map((r) => ({ ...r, date: r.shift_date, shift: normalizeShift(r.shift_type) }))
+      .filter((r) => !activeKeys.size || activeKeys.has(shiftKey(r.date, r.shift)))
+      .map((r) => r.raw || r);
+    const staffWindow = recalcStaffRowsWithCurrentScoring(staffWindowRaw, allSnapshots);
+    const sourceKeys = new Set();
+    staffWindow.forEach((r) => {
+      if (r?.details?.starter_only && r.details.source_shift_date && r.details.source_shift_type) {
+        sourceKeys.add(shiftKey(r.details.source_shift_date, r.details.source_shift_type));
+      }
+    });
+    const snapshotsWindow = activeKeys.size
+      ? allSnapshots.filter((s) => activeKeys.has(shiftKey(s.shift_date, s.shift_type)) || sourceKeys.has(shiftKey(s.shift_date, s.shift_type)))
+      : allSnapshots;
+    setStaffOptions(staffWindow);
+    if ($("metricsStaffSelect")) $("metricsStaffSelect").disabled = true;
 
-    if (view === "staff") renderStaff(staffWindow, snapshots, depth, compare);
-    else renderUnit(rowsWindow, snapshots, eventsWin, depth, staffWindow);
-    setStatus(`Loaded analytics:${data.analytics.length}, snapshots:${data.snapshots.length}, staff:${data.staff.length}, events:${data.events.length}`);
+    renderUnit(rowsWindow, snapshotsWindow, eventsWin, depth, staffWindow);
+    setStatus(`Loaded filtered shifts:${rowsWindow.length}, staff rows:${staffWindow.length}, snapshots:${snapshotsWindow.length}. Source totals analytics:${data.analytics.length}, staff:${data.staff.length}.`);
   }
 
   async function loadUnitMetrics() {
@@ -868,8 +1500,10 @@
   }
 
   window.addEventListener("DOMContentLoaded", () => {
-    if ($("pulseTo") && !$("pulseTo").value) $("pulseTo").value = ymd(Date.now());
-    if ($("pulseFrom") && !$("pulseFrom").value) { const d = new Date(); d.setDate(d.getDate() - 30); $("pulseFrom").value = ymd(d); }
+    if ($("pulseTo") && !$("pulseTo").value) $("pulseTo").value = "";
+    if ($("pulseFrom") && !$("pulseFrom").value) $("pulseFrom").value = "";
+    if ($("pulseShiftType") && !$("pulseShiftType").value) $("pulseShiftType").value = "";
+    if ($("metricsInterval")) $("metricsInterval").value = "all_time";
     ensureControls();
     ensureShell();
     wire();

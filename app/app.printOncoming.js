@@ -198,6 +198,9 @@
     { id: "isolations", label: "Isolations", autoKey: "isolation" },
     { id: "nih", label: "NIH", autoKey: "nih" },
     { id: "ciwa", label: "CIWA", autoKey: "ciwa" },
+    { id: "cows", label: "COWS", autoKey: "cows" },
+    { id: "psych", label: "Psych", autoKey: "psych" },
+    { id: "prns", label: "PRNs", autoKey: "prns" },
     { id: "emu", label: "EMU", autoKey: "emu" },
     { id: "sitters", label: "Sitters", autoKey: "sitter" },
     { id: "co", label: "C/O", autoKey: "" },
@@ -517,6 +520,7 @@
         .hr-row-tall{ min-height:82px; }
         .hr-rich-wrap{ min-height:28px; }
         .hr-rich-toolbar{ display:flex; flex-wrap:wrap; gap:3px; padding:3px 5px; border-bottom:1px solid #d1d5db; background:#f8fafc; }
+        .hr-rich-wrap:not(:focus-within) .hr-rich-toolbar{ display:none; }
         .hr-rich-toolbar button{ border:1px solid #cbd5e1; background:#fff; color:#111827; border-radius:4px; min-height:24px; padding:2px 7px; font-size:12px; font-weight:700; }
         .hr-rich-input{ min-height:28px; padding:4px 9px; font-size:18px; line-height:1.2; outline:none; overflow-wrap:anywhere; }
         .hr-rich-tall .hr-rich-input{ min-height:64px; }
@@ -865,17 +869,17 @@
       .sort((a, b) => roomSortKey(a.room).localeCompare(roomSortKey(b.room)))
       .map((r) => {
         const tele = String(r.level || "").trim() ? "&#10084;" : "";
-        return `<tr><td class="room">${escapeHtml(stripPins(r.room || ""))}</td><td class="tele">${tele}</td><td>${escapeHtml(r.notes || "")}</td></tr>`;
+        return `<tr><td class="tele">${tele}</td><td class="room">${escapeHtml(stripPins(r.room || ""))}</td><td class="spacer"></td><td class="notes">${escapeHtml(r.notes || "")}</td></tr>`;
       })
       .join("");
 
     return `
       <section class="six-rn-box">
         <div class="six-rn-head">
-          <div class="six-rn-line"><strong>RN:</strong> <span class="six-staff-name">${escapeHtml(staffLine)}</span></div>
-          <div class="six-ratio-line"><strong>Ratio:</strong> <span>${ratioCap}:1</span></div>
+          <div class="six-rn-labels"><strong>RN:</strong><strong>Ratio:</strong></div>
+          <div class="six-rn-values"><span class="six-staff-name">${escapeHtml(staffLine)}</span><span>${ratioCap}:1</span></div>
         </div>
-        <table><tbody>${rows || `<tr><td class="room"></td><td class="tele"></td><td></td></tr>`}</tbody></table>
+        <table><tbody>${rows || `<tr><td class="tele"></td><td class="room"></td><td class="spacer"></td><td class="notes"></td></tr>`}</tbody></table>
       </section>
     `;
   }
@@ -1030,17 +1034,19 @@
   .six-lead span:first-child{ border-right:1px solid #111; height:100%; padding:2px 4px; }
   .six-lead span:last-child{ padding:2px 4px; }
   .six-rn-box{ border:1px solid #111; display:flex; flex-direction:column; min-height:0; }
-  .six-rn-head{ height:0.42in; background:#fff; border-bottom:1px solid #111; font-size:12.5px; line-height:1.05; padding:2px 4px; overflow:hidden; }
-  .six-rn-line,.six-ratio-line{ display:grid; grid-template-columns:0.58in minmax(0,1fr); column-gap:0.05in; align-items:baseline; white-space:nowrap; min-width:0; }
-  .six-rn-line strong,.six-ratio-line strong{ font-weight:800; }
+  .six-rn-head{ height:0.42in; background:#fff; border-bottom:1px solid #111; font-size:12.5px; line-height:1.05; overflow:hidden; display:grid; grid-template-columns:0.42in minmax(0,1fr); }
+  .six-rn-labels{ padding:2px 3px; display:grid; grid-template-rows:1fr 1fr; align-items:center; border-right:1px solid #111; }
+  .six-rn-labels strong{ font-weight:800; }
+  .six-rn-values{ background:#d9d9d9; padding:2px 4px; display:grid; grid-template-rows:1fr 1fr; align-items:center; min-width:0; }
   .six-pca-head strong{ font-weight:800; flex:0 0 auto; }
-  .six-rn-line span,.six-ratio-line span{ font-weight:700; overflow:hidden; text-overflow:ellipsis; }
-  .six-rn-line .six-staff-name,.six-pca-head .six-staff-name{ background:#d9d9d9; padding:1px 3px; }
-  .six-rn-line{ max-width:100%; }
+  .six-rn-values span{ font-weight:700; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .six-pca-head .six-staff-name{ background:#d9d9d9; padding:1px 3px; }
   .six-rn-box table{ width:100%; border-collapse:collapse; table-layout:fixed; flex:1; }
-  .six-rn-box td{ font-size:11.5px; line-height:1.12; padding:2px 3px; vertical-align:top; border:0; }
-  .six-rn-box td.room{ width:0.34in; border-right:1px solid #111; text-align:center; font-weight:700; }
-  .six-rn-box td.tele{ width:0.18in; color:#dc2626; text-align:center; font-size:12px; }
+  .six-rn-box td{ font-size:11.5px; line-height:1.08; padding:1px 3px; vertical-align:top; border:0; }
+  .six-rn-box td.tele{ width:0.1in; color:#000; text-align:left; font-size:8.5px; line-height:1; border-right:1px solid #111; padding:2px 0 0 1px; }
+  .six-rn-box td.room{ width:0.32in; text-align:left; font-weight:800; padding-left:3px; }
+  .six-rn-box td.spacer{ width:auto; }
+  .six-rn-box td.notes{ width:33%; text-align:left; font-size:10.5px; overflow-wrap:anywhere; padding-left:1px; }
   .six-side{ grid-column:3; grid-row:3 / span 5; display:flex; flex-direction:column; min-height:0; }
   .six-pca-box{ border:1px solid #111; border-bottom:0; height:var(--pca-box-h, 0.6in); }
   .six-side .six-pca-box:last-of-type{ border-bottom:1px solid #111; }

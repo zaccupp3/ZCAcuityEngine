@@ -75,24 +75,34 @@
   function rnPatientScore(p) {
     if (!p || p.isEmpty) return 0;
     if (typeof window.getRnPatientScore === "function") return window.getRnPatientScore(p);
-    if (typeof window.getPatientScore === "function") return window.getPatientScore(p);
-    return 0;
+    let score = 1;
+    if (p.drip || p.drips) score += 3;
+    if (p.nih) score += 3;
+    if (p.bg || p.bgChecks) score += 3;
+    if (p.tf) score += 2;
+    if (p.ciwa || p.ciwaCows) score += 3;
+    if (p.cows) score += 3;
+    if (p.psych) score += 3;
+    if (p.prns) score += 3;
+    if (p.emu) score += 3;
+    if (p.restraint || p.restraints) score += 3;
+    if (p.sitter) score += 3;
+    if (p.vpo) score += 3;
+    if (p.isolation || p.iso) score += 1;
+    if (p.admit) score += 3;
+    if (p.lateDc || p.lateDC || p.latedc) score += 1;
+    return score;
   }
 
   function pcaPatientScore(p) {
     if (!p || p.isEmpty) return 0;
     if (typeof window.getPcaPatientScore === "function") return window.getPcaPatientScore(p);
 
-    let score = 0;
-    if (p.isolation || p.isoPca || p.iso) score += 3;
-    if (p.admit || p.admitPca) score += 3;
-    if (p.lateDc || p.lateDcPca) score += 2;
-    if (p.telePca || p.tele) score += 1;
-    if (p.chg) score += 3;
-    if (p.foley) score += 3;
-    if (p.q2turns || p.q2Turns) score += 4;
-    if (p.feeder || p.feeders) score += 3;
-    if (p.strictIo || p.heavy) score += 2;
+    let score = 1;
+    if (p.chg) score += 1;
+    if (p.q2turns || p.q2Turns) score += 1;
+    if (p.isolation || p.isoPca || p.iso) score += 1;
+    if (p.feeder || p.feeders) score += 1;
     return score;
   }
 
@@ -146,7 +156,7 @@
     nih: ["nih"],
     bg: ["bg", "bgChecks"],
     tf: ["tf"],
-    ciwa: ["ciwa", "cows", "ciwaCows"],
+    ciwa: ["ciwa", "cows", "ciwaCows", "psych", "prns"],
     emu: ["emu"],
     restraint: ["restraint", "restraints"],
     sitter: ["sitter"],

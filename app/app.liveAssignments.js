@@ -61,12 +61,6 @@
       <div class="owner-card-controls">
         <button
           type="button"
-          class="owner-room-pick-btn"
-          title="Assign rooms"
-          onclick="window.openLiveRoomPicker && window.openLiveRoomPicker('${safeRole}', ${ownerId})"
-        >+</button>
-        <button
-          type="button"
           class="owner-name-edit-btn"
           title="Rename ${safeRole.toUpperCase()}"
           data-owner-edit="1"
@@ -74,6 +68,12 @@
           data-role="${safeRole}"
           data-owner-id="${ownerId}"
         >Edit</button>
+        <button
+          type="button"
+          class="owner-room-pick-btn"
+          title="Assign rooms"
+          onclick="window.openLiveRoomPicker && window.openLiveRoomPicker('${safeRole}', ${ownerId}, '${safeBoard}')"
+        >+</button>
         <span
           class="owner-card-drag-handle"
           draggable="true"
@@ -87,9 +87,157 @@
     `;
   }
 
-  function getOwnerArrayForLiveRole(role) {
-    return String(role) === "pca" ? safeArray(window.currentPcas) : safeArray(window.currentNurses);
+  function getOwnerArrayForRole(role, board) {
+    const isIncoming = String(board || "").toLowerCase() === "incoming" || String(board || "").toLowerCase() === "oncoming";
+    if (String(role) === "pca") return safeArray(isIncoming ? window.incomingPcas : window.currentPcas);
+    return safeArray(isIncoming ? window.incomingNurses : window.currentNurses);
   }
+
+  const ASSIGNMENT_UNDO_LIMIT = 20;
+
+  function normalizeAssignmentUndoBoard(board) {
+    const key = String(board || "").trim().toLowerCase();
+    return key === "incoming" || key === "oncoming" ? "incoming" : "live";
+  }
+
+  function assignmentUndoKeys(board) {
+    return normalizeAssignmentUndoBoard(board) === "incoming"
+      ? { nurses: "incomingNurses", pcas: "incomingPcas", label: "oncoming" }
+      : { nurses: "currentNurses", pcas: "currentPcas", label: "live" };
+  }
+
+  function assignmentUndoOwnerSnapshot(owner) {
+    return {
+      id: owner?.id ?? null,
+      staffId: owner?.staff_id || owner?.staffId || owner?.staffID || null,
+      name: String(owner?.name || ""),
+      isHold: !!isHoldOwner(owner),
+      patients: safeArray(owner?.patients).map((id) => Number(id)).filter(Number.isFinite)
+    };
+  }
+
+  function snapshotAssignmentOwners(list) {
+    return safeArray(list).filter(Boolean).map(assignmentUndoOwnerSnapshot);
+  }
+
+  function findUndoOwnerSnapshot(owner, snapshots, usedIndexes) {
+    const staffId = owner?.staff_id || owner?.staffId || owner?.staffID || null;
+    const id = owner?.id ?? null;
+    const name = String(owner?.name || "");
+    const isHold = !!isHoldOwner(owner);
+
+    const predicates = [
+      (snap) => isHold && snap.isHold,
+      (snap) => staffId && snap.staffId && String(snap.staffId) === String(staffId),
+      (snap) => id !== null && id !== undefined && snap.id !== null && snap.id !== undefined && Number(snap.id) === Number(id),
+      (snap) => name && snap.name && snap.name === name
+    ];
+
+    for (const predicate of predicates) {
+      const idx = snapshots.findIndex((snap, snapIdx) => !usedIndexes.has(snapIdx) && predicate(snap));
+      if (idx >= 0) {
+        usedIndexes.add(idx);
+        return snapshots[idx];
+      }
+    }
+    return null;
+  }
+
+  function restoreAssignmentOwnerPatients(list, snapshots) {
+    const used = new Set();
+    safeArray(list).forEach((owner) => {
+      if (!owner) return;
+      const snap = findUndoOwnerSnapshot(owner, safeArray(snapshots), used);
+      owner.patients = snap ? safeArray(snap.patients).slice() : [];
+    });
+  }
+
+  function syncAssignmentUndoGlobals(board) {
+    try {
+      if (board === "incoming") {
+        if (Array.isArray(window.incomingNurses) && typeof incomingNurses !== "undefined") incomingNurses = window.incomingNurses;
+        if (Array.isArray(window.incomingPcas) && typeof incomingPcas !== "undefined") incomingPcas = window.incomingPcas;
+      } else {
+        if (Array.isArray(window.currentNurses) && typeof currentNurses !== "undefined") currentNurses = window.currentNurses;
+        if (Array.isArray(window.currentPcas) && typeof currentPcas !== "undefined") currentPcas = window.currentPcas;
+      }
+    } catch (_) {}
+  }
+
+  function refreshAssignmentUndoBoard(board, reason) {
+    const boardKey = normalizeAssignmentUndoBoard(board);
+    syncAssignmentUndoGlobals(boardKey);
+    try { if (typeof window.saveState === "function") window.saveState(); } catch (_) {}
+    try {
+      if (window.cloudSync && typeof window.cloudSync.noteLocalUnitEdit === "function") {
+        window.cloudSync.noteLocalUnitEdit(reason || `${boardKey}_assignment_undo`);
+      }
+      if (window.cloudSync && typeof window.cloudSync.publishUnitStateDebounced === "function") {
+        window.cloudSync.publishUnitStateDebounced(reason || `${boardKey}_assignment_undo`);
+      }
+    } catch (_) {}
+    try {
+      if (boardKey === "incoming") {
+        if (typeof window.renderOncomingAll === "function") window.renderOncomingAll();
+        else {
+          if (typeof window.renderAssignmentOutput === "function") window.renderAssignmentOutput();
+          if (typeof window.renderPcaAssignmentOutput === "function") window.renderPcaAssignmentOutput();
+        }
+      } else if (typeof window.renderLiveAssignments === "function") {
+        window.renderLiveAssignments();
+      }
+      if (typeof window.renderPatientList === "function") window.renderPatientList();
+      if (typeof window.updateAcuityTiles === "function") window.updateAcuityTiles();
+    } catch (_) {}
+  }
+
+  function setAssignmentUndoStatus(board, text, meta) {
+    const boardKey = normalizeAssignmentUndoBoard(board);
+    const pill = boardKey === "incoming"
+      ? document.getElementById("oncomingPopulateStatus")
+      : document.getElementById("globalLivePopulateStatus");
+    const textEl = pill?.querySelector(".staffing-status-text");
+    const metaEl = pill?.querySelector(".staffing-status-meta");
+    if (textEl && text) textEl.textContent = text;
+    if (metaEl) metaEl.textContent = meta || "";
+  }
+
+  window.pushAssignmentUndoSnapshot = function pushAssignmentUndoSnapshot(board, label) {
+    const boardKey = normalizeAssignmentUndoBoard(board);
+    const keys = assignmentUndoKeys(boardKey);
+    window.__assignmentUndoStack = safeArray(window.__assignmentUndoStack);
+    window.__assignmentUndoStack.push({
+      board: boardKey,
+      label: String(label || "Assignment change"),
+      ts: Date.now(),
+      nurses: snapshotAssignmentOwners(window[keys.nurses]),
+      pcas: snapshotAssignmentOwners(window[keys.pcas])
+    });
+    if (window.__assignmentUndoStack.length > ASSIGNMENT_UNDO_LIMIT) {
+      window.__assignmentUndoStack.splice(0, window.__assignmentUndoStack.length - ASSIGNMENT_UNDO_LIMIT);
+    }
+  };
+
+  window.undoAssignmentChange = function undoAssignmentChange(board) {
+    const boardKey = normalizeAssignmentUndoBoard(board);
+    const stack = safeArray(window.__assignmentUndoStack);
+    const idx = stack.map((entry, entryIdx) => ({ entry, entryIdx }))
+      .reverse()
+      .find((item) => item.entry?.board === boardKey)?.entryIdx;
+    if (idx === undefined) {
+      setAssignmentUndoStatus(boardKey, "Nothing to undo", "");
+      return false;
+    }
+
+    const snapshot = stack.splice(idx, 1)[0];
+    window.__assignmentUndoStack = stack;
+    const keys = assignmentUndoKeys(boardKey);
+    restoreAssignmentOwnerPatients(window[keys.nurses], snapshot.nurses);
+    restoreAssignmentOwnerPatients(window[keys.pcas], snapshot.pcas);
+    refreshAssignmentUndoBoard(boardKey, `${boardKey}_assignment_undo`);
+    setAssignmentUndoStatus(boardKey, "Undo applied", snapshot.label || "");
+    return true;
+  };
 
   function getLiveRoleLabel(role) {
     return String(role) === "pca" ? "PCA" : "RN";
@@ -97,7 +245,14 @@
 
   function findLiveOwnerByPatient(role, patientId) {
     const pid = Number(patientId);
-    return getOwnerArrayForLiveRole(role).find((owner) =>
+    return getOwnerArrayForRole(role, "current").find((owner) =>
+      owner && !isHoldOwner(owner) && safeArray(owner.patients).some((id) => Number(id) === pid)
+    ) || null;
+  }
+
+  function findOwnerByPatient(role, patientId, board) {
+    const pid = Number(patientId);
+    return getOwnerArrayForRole(role, board).find((owner) =>
       owner && !isHoldOwner(owner) && safeArray(owner.patients).some((id) => Number(id) === pid)
     ) || null;
   }
@@ -114,9 +269,10 @@
     if (overlay && overlay.parentNode) overlay.parentNode.removeChild(overlay);
   }
 
-  function openLiveRoomPicker(role, ownerId) {
+  function openLiveRoomPicker(role, ownerId, board = "current") {
     const roleKey = String(role) === "pca" ? "pca" : "nurse";
-    const owners = getOwnerArrayForLiveRole(roleKey);
+    const boardKey = String(board || "").toLowerCase() === "incoming" || String(board || "").toLowerCase() === "oncoming" ? "incoming" : "current";
+    const owners = getOwnerArrayForRole(roleKey, boardKey);
     const owner = owners.find((o) => o && Number(o.id) === Number(ownerId));
     if (!owner || isHoldOwner(owner)) return;
 
@@ -145,7 +301,7 @@
             const room = String(p.room || p.id || "");
             const isEmpty = !!p.isEmpty;
             const isChecked = selected.has(pid);
-            const assignedOwner = !isEmpty ? findLiveOwnerByPatient(roleKey, pid) : null;
+            const assignedOwner = !isEmpty ? findOwnerByPatient(roleKey, pid, boardKey) : null;
             const otherOwner = assignedOwner && Number(assignedOwner.id) !== Number(owner.id) ? assignedOwner : null;
             return `
               <label class="live-room-picker-cell ${isEmpty ? "is-empty" : ""} ${otherOwner ? "is-other-owner" : ""} ${isChecked && !otherOwner ? "is-selected" : ""}">
@@ -161,9 +317,11 @@
             `;
           }).join("")}
         </div>
-        <div class="live-room-picker-actions">
+        <div class="live-room-picker-actions" style="display:flex;align-items:center;gap:10px;justify-content:flex-end;">
+          <button type="button" class="live-room-picker-drop" style="margin-right:auto;" onclick="window.dropLiveRoomPickerGroup && window.dropLiveRoomPickerGroup('${roleKey}', ${Number(owner.id)}, '${boardKey}')">Drop Group</button>
+          <span style="flex:1;"></span>
           <button type="button" onclick="window.closeLiveRoomPicker && window.closeLiveRoomPicker()">Cancel</button>
-          <button type="button" class="live-room-picker-accept" onclick="window.acceptLiveRoomPicker && window.acceptLiveRoomPicker('${roleKey}', ${Number(owner.id)})">Accept</button>
+          <button type="button" class="live-room-picker-accept" onclick="window.acceptLiveRoomPicker && window.acceptLiveRoomPicker('${roleKey}', ${Number(owner.id)}, '${boardKey}')">Accept</button>
         </div>
       </div>
     `;
@@ -174,11 +332,12 @@
     document.body.appendChild(overlay);
   }
 
-  function acceptLiveRoomPicker(role, ownerId) {
+  function acceptLiveRoomPicker(role, ownerId, board = "current") {
     const roleKey = String(role) === "pca" ? "pca" : "nurse";
+    const boardKey = String(board || "").toLowerCase() === "incoming" || String(board || "").toLowerCase() === "oncoming" ? "incoming" : "current";
     const overlay = document.getElementById("liveRoomPickerOverlay");
     if (!overlay) return;
-    const owners = getOwnerArrayForLiveRole(roleKey);
+    const owners = getOwnerArrayForRole(roleKey, boardKey);
     const owner = owners.find((o) => o && Number(o.id) === Number(ownerId));
     if (!owner || isHoldOwner(owner)) {
       closeLiveRoomPicker();
@@ -189,6 +348,7 @@
       .map((input) => Number(input.value))
       .filter((id) => Number.isFinite(id) && id > 0);
     const selectedSet = new Set(selectedIds);
+    try { if (typeof window.pushAssignmentUndoSnapshot === "function") window.pushAssignmentUndoSnapshot(boardKey, "Room picker"); } catch (_) {}
 
     owners.forEach((candidate) => {
       if (!candidate) return;
@@ -202,22 +362,30 @@
     owner.patients = selectedIds;
 
     try {
-      if (roleKey === "pca") window.currentPcas = owners;
-      else window.currentNurses = owners;
-      if (roleKey === "pca" && typeof currentPcas !== "undefined") currentPcas = window.currentPcas;
-      if (roleKey !== "pca" && typeof currentNurses !== "undefined") currentNurses = window.currentNurses;
-    } catch (_) {}
-
-    try {
-      if (window.cloudSync && typeof window.cloudSync.noteLocalUnitEdit === "function") {
-        window.cloudSync.noteLocalUnitEdit("live_room_picker");
+      if (boardKey === "incoming") {
+        if (roleKey === "pca") window.incomingPcas = owners;
+        else window.incomingNurses = owners;
+        if (roleKey === "pca" && typeof incomingPcas !== "undefined") incomingPcas = window.incomingPcas;
+        if (roleKey !== "pca" && typeof incomingNurses !== "undefined") incomingNurses = window.incomingNurses;
+      } else {
+        if (roleKey === "pca") window.currentPcas = owners;
+        else window.currentNurses = owners;
+        if (roleKey === "pca" && typeof currentPcas !== "undefined") currentPcas = window.currentPcas;
+        if (roleKey !== "pca" && typeof currentNurses !== "undefined") currentNurses = window.currentNurses;
       }
     } catch (_) {}
 
     try {
-      if (typeof window.appendEvent === "function") {
+      if (window.cloudSync && typeof window.cloudSync.noteLocalUnitEdit === "function") {
+        window.cloudSync.noteLocalUnitEdit(`${boardKey}_room_picker`);
+      }
+    } catch (_) {}
+
+    try {
+      if (boardKey !== "incoming" && typeof window.appendEvent === "function") {
         window.appendEvent("ASSIGNMENT_BULK_PICKED", {
           role: getLiveRoleLabel(roleKey),
+          board: boardKey,
           owner_id: Number(owner.id),
           owner_name: owner.name || "",
           patient_ids: selectedIds
@@ -228,18 +396,64 @@
     try { if (typeof window.saveState === "function") window.saveState(); } catch (_) {}
     try {
       if (window.cloudSync && typeof window.cloudSync.publishUnitStateNow === "function") {
-        void window.cloudSync.publishUnitStateNow("live_room_picker");
+        void window.cloudSync.publishUnitStateNow(`${boardKey}_room_picker`);
       }
     } catch (_) {}
     closeLiveRoomPicker();
-    try { if (typeof window.renderLiveAssignments === "function") window.renderLiveAssignments(); } catch (_) {}
+    try {
+      if (boardKey === "incoming" && typeof window.renderAssignmentOutput === "function") window.renderAssignmentOutput();
+      if (boardKey === "incoming" && typeof window.renderPcaAssignmentOutput === "function") window.renderPcaAssignmentOutput();
+      if (boardKey !== "incoming" && typeof window.renderLiveAssignments === "function") window.renderLiveAssignments();
+    } catch (_) {}
     try { if (typeof window.renderPatientList === "function") window.renderPatientList(); } catch (_) {}
     try { if (typeof window.updateAcuityTiles === "function") window.updateAcuityTiles(); } catch (_) {}
+  }
+
+  function dropLiveRoomPickerGroup(role, ownerId, board = "current") {
+    const roleKey = String(role) === "pca" ? "pca" : "nurse";
+    const boardKey = String(board || "").toLowerCase() === "incoming" || String(board || "").toLowerCase() === "oncoming" ? "incoming" : "current";
+    const owners = getOwnerArrayForRole(roleKey, boardKey);
+    const owner = owners.find((o) => o && Number(o.id) === Number(ownerId));
+    if (!owner || isHoldOwner(owner)) {
+      closeLiveRoomPicker();
+      return;
+    }
+    try { if (typeof window.pushAssignmentUndoSnapshot === "function") window.pushAssignmentUndoSnapshot(boardKey, "Drop group"); } catch (_) {}
+    owner.patients = [];
+    try {
+      if (boardKey === "incoming") {
+        if (roleKey === "pca") window.incomingPcas = owners;
+        else window.incomingNurses = owners;
+        if (roleKey === "pca" && typeof incomingPcas !== "undefined") incomingPcas = window.incomingPcas;
+        if (roleKey !== "pca" && typeof incomingNurses !== "undefined") incomingNurses = window.incomingNurses;
+      } else {
+        if (roleKey === "pca") window.currentPcas = owners;
+        else window.currentNurses = owners;
+        if (roleKey === "pca" && typeof currentPcas !== "undefined") currentPcas = window.currentPcas;
+        if (roleKey !== "pca" && typeof currentNurses !== "undefined") currentNurses = window.currentNurses;
+      }
+    } catch (_) {}
+    try { if (typeof window.saveState === "function") window.saveState(); } catch (_) {}
+    try {
+      if (window.cloudSync && typeof window.cloudSync.noteLocalUnitEdit === "function") {
+        window.cloudSync.noteLocalUnitEdit(`${boardKey}_room_picker_drop_group`);
+      }
+      if (window.cloudSync && typeof window.cloudSync.publishUnitStateNow === "function") {
+        void window.cloudSync.publishUnitStateNow(`${boardKey}_room_picker_drop_group`);
+      }
+    } catch (_) {}
+    closeLiveRoomPicker();
+    try {
+      if (boardKey === "incoming" && typeof window.renderAssignmentOutput === "function") window.renderAssignmentOutput();
+      if (boardKey === "incoming" && typeof window.renderPcaAssignmentOutput === "function") window.renderPcaAssignmentOutput();
+      if (boardKey !== "incoming" && typeof window.renderLiveAssignments === "function") window.renderLiveAssignments();
+    } catch (_) {}
   }
 
   window.openLiveRoomPicker = openLiveRoomPicker;
   window.closeLiveRoomPicker = closeLiveRoomPicker;
   window.acceptLiveRoomPicker = acceptLiveRoomPicker;
+  window.dropLiveRoomPickerGroup = dropLiveRoomPickerGroup;
 
   function clamp(n, a, b) {
     const x = Number.isFinite(Number(n)) ? Number(n) : 0;
@@ -384,7 +598,9 @@
     const title = cap === 4
       ? `4:1 required because this RN group has ${reasons.join(", ")}`
       : "5:1 allowed for med-surg-only RN group";
-    return `<span class="rn-ratio-badge ratio-${cap === 4 ? "four" : "five"}" title="${escapeHtml(title)}">Ratio: ${cap}:1${escapeHtml(reasonText)}</span>`;
+    const exceeded = rows.length > cap;
+    const cls = exceeded ? ` ratio-${cap === 4 ? "four" : "five"}` : "";
+    return `<span class="rn-ratio-badge${cls}" title="${escapeHtml(title)}">Ratio: ${cap}:1${escapeHtml(reasonText)}</span>`;
   }
 
   function getPatientByIdSafe(id) {
@@ -1686,6 +1902,7 @@
       const removeBtn = `
         <button
           type="button"
+          class="owner-card-remove-btn"
           title="Remove RN"
           onclick="removeLiveOwner('nurse', ${Number(nurse.id)})"
           style="
@@ -1712,22 +1929,22 @@
              ondragover="window.onOwnerTileDragOver && window.onOwnerTileDragOver(event)"
              ondrop="window.onOwnerTileDrop && window.onOwnerTileDrop(event, 'live', 'nurse', ${Number(nurse.id)})"
              style="${accentStyle}">
-          <div class="assignment-header"
-               style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;"
+          <div class="assignment-header assignment-header--compact"
                ondragover="window.onOwnerTileDragOver && window.onOwnerTileDragOver(event)"
                ondrop="window.onOwnerTileDrop && window.onOwnerTileDrop(event, 'live', 'nurse', ${Number(nurse.id)})">
-            <div>
-              <div style="display:flex;align-items:flex-start;gap:10px;">
-                <div>
-                  <strong>${escapeHtml(nurse.name)}</strong>
+            <div class="assignment-header-top">
+              <div class="assignment-header-name-actions">
+                <strong class="assignment-staff-name">${escapeHtml(nurse.name)}</strong>
+                <div class="assignment-header-actions">
+                  ${ownerHeaderControlsHtml("live", "nurse", nurse)}
+                  ${removeBtn}
                 </div>
-                <div class="icon-row">${staffRestrictionIcon}${ruleIcon}</div>
+                <div class="assignment-header-icons">${staffRestrictionIcon}${ruleIcon}</div>
               </div>
-              <div>Patients: ${pts.length} | Load Score: ${loadScore} | ${rnRatioBadgeHtml(pts)}</div>
             </div>
-            <div style="display:flex;align-items:center;gap:8px;">
-              ${ownerHeaderControlsHtml("live", "nurse", nurse)}
-              ${removeBtn}
+            <div class="assignment-header-meta-row">
+              <div class="assignment-header-primary-meta">Patients: ${pts.length} | Load Score: ${loadScore}</div>
+              <div class="assignment-header-side-meta">${rnRatioBadgeHtml(pts)}</div>
             </div>
           </div>
 
@@ -1846,6 +2063,7 @@
       const removeBtn = `
         <button
           type="button"
+          class="owner-card-remove-btn"
           title="Remove PCA"
           onclick="removeLiveOwner('pca', ${Number(pca.id)})"
           style="
@@ -1873,22 +2091,21 @@
               ondragover="window.onOwnerTileDragOver && window.onOwnerTileDragOver(event)"
              ondrop="window.onOwnerTileDrop && window.onOwnerTileDrop(event, 'live', 'pca', ${Number(pca.id)})"
              style="${accentStyle}">
-          <div class="assignment-header"
-               style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;"
+          <div class="assignment-header assignment-header--compact"
                ondragover="window.onOwnerTileDragOver && window.onOwnerTileDragOver(event)"
                ondrop="window.onOwnerTileDrop && window.onOwnerTileDrop(event, 'live', 'pca', ${Number(pca.id)})">
-            <div>
-              <div style="display:flex;align-items:flex-start;gap:10px;">
-                <div>
-                  <strong>${escapeHtml(pca.name)}</strong> (${escapeHtml(titleRole)})${isSpecialPca ? ` ${pts.length}${sitterRoomsLabel ? ` | ${escapeHtml(sitterRoomsLabel)}` : ``}` : ``}
+            <div class="assignment-header-top">
+              <div class="assignment-header-name-actions">
+                <strong class="assignment-staff-name">${escapeHtml(pca.name)}</strong><span class="assignment-staff-role">(${escapeHtml(titleRole)})${isSpecialPca ? ` ${pts.length}${sitterRoomsLabel ? ` | ${escapeHtml(sitterRoomsLabel)}` : ``}` : ``}</span>
+                <div class="assignment-header-actions">
+                  ${ownerHeaderControlsHtml("live", "pca", pca)}
+                  ${removeBtn}
                 </div>
-                <div class="icon-row">${staffRestrictionIcon}${ruleIcon}</div>
+                <div class="assignment-header-icons">${staffRestrictionIcon}${ruleIcon}</div>
               </div>
-              <div>Patients: ${pts.length} | Load Score: ${loadScore}</div>
             </div>
-            <div style="display:flex;align-items:center;gap:8px;">
-              ${ownerHeaderControlsHtml("live", "pca", pca)}
-              ${removeBtn}
+            <div class="assignment-header-meta-row">
+              <div class="assignment-header-primary-meta">Patients: ${pts.length} | Load Score: ${loadScore}</div>
             </div>
           </div>
 

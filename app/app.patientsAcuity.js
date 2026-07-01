@@ -291,7 +291,7 @@
   // Tag impact mapping (RN vs PCA vs Shared)
   // =========================
 
-  const RN_ONLY_KEYS = new Set(["drip","nih","bg","tf","ciwa","emu","restraint","sitter","vpo"]);
+  const RN_ONLY_KEYS = new Set(["drip","nih","bg","tf","ciwa","cows","psych","prns","emu","restraint","sitter","vpo"]);
   const PCA_ONLY_KEYS = new Set(["chg","foley","q2turns","strictIo","heavy","feeder"]);
   const SHARED_KEYS = new Set(["tele","isolation","admit","lateDc"]); // shared meaning: affects both RN/PCA analytics
   const RN_META_KEYS = new Set(["gender"]);
@@ -317,6 +317,120 @@
   // Event logging helpers (with attribution)
   // =========================
 
+  const ACUITY_TIMELINE_TAG_KEYS = [
+    "tele", "drip", "nih", "bg", "tf", "ciwa", "cows", "psych", "prns", "emu", "restraint", "sitter", "vpo",
+    "isolation", "admit", "lateDc", "chg", "foley", "q2turns", "strictIo", "heavy", "feeder"
+  ];
+
+  function activeTagList(patient) {
+    const p = patient || {};
+    return ACUITY_TIMELINE_TAG_KEYS.filter((key) => !!p[key]);
+  }
+
+  function clonePatientWithChanges(patient, changes, useBefore) {
+    const out = patient && typeof patient === "object" ? { ...patient } : {};
+    safeArray(changes).forEach((change) => {
+      const key = String(change?.key || "");
+      if (!key) return;
+      out[key] = useBefore ? change.before : change.after;
+      if (key === "strictIo") out.heavy = out.strictIo;
+      if (key === "heavy") out.strictIo = out.heavy;
+    });
+    return out;
+  }
+
+  function getPcaPatientScore(p) {
+    if (!p || p.isEmpty) return 0;
+    let score = 1;
+    if (p.chg) score += 1;
+    if (p.q2turns || p.q2Turns) score += 1;
+    if (p.isolation || p.iso) score += 1;
+    if (p.feeder || p.feeders) score += 1;
+    return score;
+  }
+
+  function getPatientAcuitySnapshot(patient) {
+    const p = patient || {};
+    return {
+      patient_id: Number(p.id) || null,
+      room: String(p.room || p.id || ""),
+      is_empty: !!p.isEmpty,
+      tags: activeTagList(p),
+      total_score: getPatientScore(p),
+      rn_score: getRnPatientScore(p) + computeRnPerPatientComboBonus(p),
+      pca_score: getPcaPatientScore(p)
+    };
+  }
+
+  function getOwnerLoadScoreWithPatientOverride(owner, role, patientOverride) {
+    if (!owner) return null;
+    const overrideId = Number(patientOverride?.id);
+    const pts = safeArray(owner.patients)
+      .map((id) => {
+        const pid = Number(id);
+        if (Number.isFinite(overrideId) && pid === overrideId) return patientOverride;
+        return getPatientById(pid);
+      })
+      .filter((p) => p && !p.isEmpty);
+
+    if (String(role || "").toUpperCase() === "PCA") {
+      const base = pts.reduce((sum, p) => sum + getPcaPatientScore(p), 0);
+      return base + computePcaStackingBonus(pts);
+    }
+
+    const base = pts.reduce((sum, p) => sum + getRnPatientScore(p), 0);
+    const combo = pts.reduce((sum, p) => sum + computeRnPerPatientComboBonus(p), 0);
+    return base + combo + computeRnStackingBonus(pts);
+  }
+
+  function getAssignedOwnerByContext(ctx, role) {
+    if (String(role || "").toUpperCase() === "PCA") {
+      const id = ctx?.pcaId;
+      const sid = ctx?.pcaStaffId;
+      return safeArray(window.currentPcas).find((pca) =>
+        (id != null && Number(pca?.id) === Number(id)) ||
+        (sid != null && String(pca?.staff_id || "") === String(sid))
+      ) || null;
+    }
+
+    const id = ctx?.rnId;
+    const sid = ctx?.rnStaffId;
+    return safeArray(window.currentNurses).find((rn) =>
+      (id != null && Number(rn?.id) === Number(id)) ||
+      (sid != null && String(rn?.staff_id || "") === String(sid))
+    ) || null;
+  }
+
+  function buildAcuityTimelinePayload(patient, changes, ctx) {
+    const beforePatient = clonePatientWithChanges(patient, changes, true);
+    const afterPatient = clonePatientWithChanges(patient, changes, false);
+    const rnOwner = getAssignedOwnerByContext(ctx, "RN");
+    const pcaOwner = getAssignedOwnerByContext(ctx, "PCA");
+
+    return {
+      v: 1,
+      live_shift_key: String(window.liveShiftKey || ""),
+      patient: {
+        before: getPatientAcuitySnapshot(beforePatient),
+        after: getPatientAcuitySnapshot(afterPatient)
+      },
+      rn_load: rnOwner ? {
+        owner_id: rnOwner.id ?? null,
+        staff_id: rnOwner.staff_id ?? null,
+        name: rnOwner.name || "",
+        before: getOwnerLoadScoreWithPatientOverride(rnOwner, "RN", beforePatient),
+        after: getOwnerLoadScoreWithPatientOverride(rnOwner, "RN", afterPatient)
+      } : null,
+      pca_load: pcaOwner ? {
+        owner_id: pcaOwner.id ?? null,
+        staff_id: pcaOwner.staff_id ?? null,
+        name: pcaOwner.name || "",
+        before: getOwnerLoadScoreWithPatientOverride(pcaOwner, "PCA", beforePatient),
+        after: getOwnerLoadScoreWithPatientOverride(pcaOwner, "PCA", afterPatient)
+      } : null
+    };
+  }
+
   function appendWithAttribution(type, payload, meta) {
     if (typeof window.appendEvent !== "function") return;
 
@@ -341,6 +455,14 @@
           rn: impact.affectsRn ? { id: ctx.rnId, staff_id: ctx.rnStaffId, name: ctx.rnName } : null,
           pca: impact.affectsPca ? { id: ctx.pcaId, staff_id: ctx.pcaStaffId, name: ctx.pcaName } : null
         };
+
+        if (String(type || "").toUpperCase() === "ACUITY_CHANGED") {
+          p.acuity_timeline = buildAcuityTimelinePayload(
+            getPatientById(pid) || { id: pid, room: p.bed },
+            p.changes,
+            ctx
+          );
+        }
       }
 
       const nextMeta = Object.assign({ v: 2, source: "app.patientsAcuity.js" }, (meta || {}));
@@ -451,10 +573,8 @@
       p.bgChecks = !!p.bg;
     }
 
-    if (k === "ciwa") {
-      const v = !!p.ciwa;
-      p.cows = v;
-      p.ciwaCows = v;
+    if (k === "ciwa" || k === "cows") {
+      p.ciwaCows = !!(p.ciwa || p.cows);
     }
 
     if (k === "isolation") {
@@ -495,12 +615,12 @@
 
     [
       // Canonical RN/PCA fields
-      "tele", "drip", "nih", "bg", "tf", "ciwa", "emu", "restraint", "sitter", "vpo",
+      "tele", "drip", "nih", "bg", "tf", "ciwa", "cows", "psych", "prns", "emu", "restraint", "sitter", "vpo",
       "isolation", "admit", "lateDc", "chg", "foley", "q2turns", "strictIo", "heavy",
       "feeder", "expectedDischarge", "reviewed",
 
       // Legacy/alias fields used by older engines, imports, or print/render paths
-      "drips", "bgChecks", "cows", "ciwaCows", "iso", "isoPca", "telePca",
+      "drips", "bgChecks", "ciwaCows", "iso", "isoPca", "telePca",
       "admitPca", "lateDcPca", "q2Turns", "lateDC", "latedc", "late_dc",
       "restraints", "feeders", "Q2", "q2", "totalCare"
     ].forEach((key) => {
@@ -687,6 +807,9 @@
       "bg",
       "tf",
       "ciwa",
+      "cows",
+      "psych",
+      "prns",
       "emu",
       "restraint",
       "sitter",
@@ -705,7 +828,6 @@
 
     const aliasKeys = [
       "bgChecks",
-      "cows",
       "ciwaCows",
       "iso",
       "q2Turns",
@@ -1012,7 +1134,10 @@
                       ${rnTag(p, "nih", "NIH")}
                       ${rnTag(p, "bg", "BG")}
                       ${rnTag(p, "tf", "TF")}
-                      ${rnTag(p, "ciwa", "CIWA/COWS")}
+                      ${rnTag(p, "ciwa", "CIWA")}
+                      ${rnTag(p, "cows", "COWS")}
+                      ${rnTag(p, "psych", "Psych")}
+                      ${rnTag(p, "prns", "PRNs")}
                       ${rnTag(p, "emu", "EMU")}
                       ${rnTag(p, "restraint", "Restraint")}
                       ${rnTag(p, "sitter", "Sitter")}
@@ -1082,45 +1207,29 @@
   const TELE_WEIGHT_PCA = 3;
 
   function getPatientScore(p) {
-    let score = 0;
-    if (p.tele) score += 2;
-    if (p.drip) score += 6;
-    if (p.nih) score += 4;
-    if (p.bg) score += 2;
-    if (p.tf) score += 2;
-    if (p.ciwa) score += 4;
-    if (p.emu) score += 4;
-    if (p.restraint) score += 6;
-    if (p.sitter) score += 5;
-    if (p.vpo) score += 4;
-    if (p.isolation) score += 3;
-    if (p.admit) score += 4;
-    if (p.lateDc) score += 2;
-
-    if (p.chg) score += 2;
-    if (p.foley) score += 3;
-    if (p.q2turns) score += 4;
-    if (p.feeder) score += 2;
-    return score;
+    if (!p || p.isEmpty) return 0;
+    return getRnPatientScore(p) + getPcaPatientScore(p) + computeRnPerPatientComboBonus(p);
   }
 
   function getRnPatientScore(p) {
-    let score = 0;
+    if (!p || p.isEmpty) return 0;
+    let score = 1;
 
-    if (p.tele) score += TELE_WEIGHT_RN;
-
-    if (p.drip) score += 7;
-    if (p.nih) score += 5;
-    if (p.bg) score += 2;
+    if (p.drip) score += 3;
+    if (p.nih) score += 3;
+    if (p.bg) score += 3;
     if (p.tf) score += 2;
-    if (p.ciwa) score += 5;
-    if (p.emu) score += 5;
-    if (p.restraint) score += 6;
-    if (p.sitter) score += 7;
-    if (p.vpo) score += 4;
-    if (p.isolation) score += 3;
-    if (p.admit) score += 4;
-    if (p.lateDc) score += 2;
+    if (p.ciwa) score += 3;
+    if (p.cows) score += 3;
+    if (p.psych) score += 3;
+    if (p.prns) score += 3;
+    if (p.emu) score += 3;
+    if (p.restraint) score += 3;
+    if (p.sitter) score += 3;
+    if (p.vpo) score += 3;
+    if (p.isolation) score += 1;
+    if (p.admit) score += 3;
+    if (p.lateDc) score += 1;
 
     return score;
   }
@@ -1130,9 +1239,10 @@
 
     let b = 0;
     if (p.sitter && p.restraint) b += 3;
-    if (p.ciwa && p.sitter) b += 3;
+    const behavior = !!(p.ciwa || p.cows || p.ciwaCows || p.psych || p.prns);
+    if (behavior && p.sitter) b += 3;
     if (p.emu && p.sitter) b += 3;
-    if (p.drip && p.ciwa) b += 3;
+    if (p.drip && behavior) b += 3;
     if (p.drip && p.emu) b += 3;
     if (p.drip && p.sitter) b += 4;
     if (p.nih && p.bg) b += 2;
@@ -1144,14 +1254,14 @@
     const pts = safeArray(patientsInAssignment);
     if (!pts.length) return 0;
 
-    let bg = 0, iso = 0, drip = 0, ciwa = 0, emu = 0, sitter = 0, vpo = 0;
+    let bg = 0, iso = 0, drip = 0, behavior = 0, emu = 0, sitter = 0, vpo = 0;
 
     pts.forEach(p => {
       if (!p || p.isEmpty) return;
       if (p.bg) bg++;
       if (p.isolation) iso++;
       if (p.drip) drip++;
-      if (p.ciwa) ciwa++;
+      if (p.ciwa || p.cows || p.ciwaCows || p.psych || p.prns) behavior++;
       if (p.emu) emu++;
       if (p.sitter) sitter++;
       if (p.vpo) vpo++;
@@ -1161,31 +1271,16 @@
     if (bg >= 3) bonus += 4;
     if (iso >= 3) bonus += 4;
     if (drip >= 2) bonus += 6;
-    if (ciwa >= 1 && sitter >= 1) bonus += 4;
+    if (behavior >= 1 && sitter >= 1) bonus += 4;
     if (emu >= 1 && sitter >= 1) bonus += 4;
-    if (vpo >= 1 && ciwa >= 1) bonus += 3;
+    if (vpo >= 1 && behavior >= 1) bonus += 3;
     if (vpo >= 1 && emu >= 1) bonus += 3;
 
     return bonus;
   }
 
   function computePcaStackingBonus(patientsInAssignment) {
-    const pts = safeArray(patientsInAssignment);
-    if (!pts.length) return 0;
-
-    let Totals = 0, iso = 0;
-
-    pts.forEach(p => {
-      if (!p || p.isEmpty) return;
-      if (p.q2turns) Totals++;
-      if (p.isolation) iso++;
-    });
-
-    let bonus = 0;
-    if (Totals >= 2) bonus += 4;
-    if (iso >= 3) bonus += 4;
-
-    return bonus;
+    return 0;
   }
 
   function getNurseLoadScore(nurse) {
@@ -1205,21 +1300,7 @@
       .map(id => getPatientById(id))
       .filter(p => p && !p.isEmpty);
 
-    const base = pts.reduce((sum, p) => {
-      let score = 0;
-
-      if (p.tele) score += TELE_WEIGHT_PCA;
-
-      if (p.isolation) score += 3;
-      if (p.admit) score += 3;
-      if (p.lateDc) score += 2;
-      if (p.chg) score += 3;
-      if (p.foley) score += 3;
-      if (p.q2turns) score += 4;
-      if (p.feeder) score += 3;
-
-      return sum + score;
-    }, 0);
+    const base = pts.reduce((sum, p) => sum + getPcaPatientScore(p), 0);
 
     const bonus = computePcaStackingBonus(pts);
     return base + bonus;
@@ -1262,13 +1343,16 @@
 
   function getRnDriversSummaryFromPatientIds(patientIds) {
     const ids = safeArray(patientIds);
-    const counts = { Drip:0, CIWA:0, EMU:0, Sitter:0, Restraint:0, VPO:0, NIH:0, BG:0, TF:0, ISO:0, Admit:0, "Late DC":0 };
+    const counts = { Drip:0, CIWA:0, COWS:0, Psych:0, PRNs:0, EMU:0, Sitter:0, Restraint:0, VPO:0, NIH:0, BG:0, TF:0, ISO:0, Admit:0, "Late DC":0 };
 
     ids.forEach(id => {
       const p = getPatientById(id);
       if (!p || p.isEmpty) return;
       if (p.drip) counts.Drip++;
       if (p.ciwa) counts.CIWA++;
+      if (p.cows) counts.COWS++;
+      if (p.psych) counts.Psych++;
+      if (p.prns) counts.PRNs++;
       if (p.emu) counts.EMU++;
       if (p.sitter) counts.Sitter++;
       if (p.restraint) counts.Restraint++;
@@ -1281,7 +1365,7 @@
       if (p.lateDc) counts["Late DC"]++;
     });
 
-    const order = ["Drip","CIWA","EMU","Sitter","Restraint","VPO","NIH","BG","TF","ISO","Admit","Late DC"];
+    const order = ["Drip","CIWA","COWS","Psych","PRNs","EMU","Sitter","Restraint","VPO","NIH","BG","TF","ISO","Admit","Late DC"];
     return fmtDriversFromCounts(order, counts);
   }
 
@@ -1309,7 +1393,10 @@
 
   function rnTagString(p) {
     const tags = [];
-    if (p.ciwa) tags.push("CIWA/COWS");
+    if (p.ciwa) tags.push("CIWA");
+    if (p.cows || (!p.ciwa && p.ciwaCows)) tags.push("COWS");
+    if (p.psych) tags.push("Psych");
+    if (p.prns) tags.push("PRNs");
     if (p.emu) tags.push("EMU");
     if (p.vpo) tags.push("VPO");
     if (p.nih) tags.push("NIH");
@@ -1354,7 +1441,10 @@
       { id: "nih", label: "NIH", key: "nih" },
       { id: "bg", label: "BG Checks", key: "bg" },
       { id: "tf", label: "Tube Feeds", key: "tf" },
-      { id: "ciwa", label: "CIWA/COWS", key: "ciwa" },
+      { id: "ciwa", label: "CIWA", key: "ciwa" },
+      { id: "cows", label: "COWS", key: "cows" },
+      { id: "psych", label: "Psych", key: "psych" },
+      { id: "prns", label: "PRNs", key: "prns" },
       { id: "emu", label: "EMU", key: "emu" },
       { id: "restraint", label: "Restraints", key: "restraint" },
       { id: "sitter", label: "Sitters", key: "sitter" },
@@ -1362,6 +1452,7 @@
       { id: "isolation", label: "Isolation", key: "isolation" },
       { id: "admit", label: "Admits", key: "admit" },
       { id: "lateDc", label: "Late DC", key: "lateDc" },
+      { id: "expectedDischarge", label: "Expected DC", key: "expectedDischarge" },
       { id: "chg", label: "CHG", key: "chg" },
       { id: "foley", label: "Foley", key: "foley" },
       { id: "q2turns", label: "Totals", key: "q2turns" },
@@ -1402,7 +1493,10 @@
       const tags = [];
       if (p.drip) tags.push("Drip");
       if (p.nih) tags.push("NIH");
-      if (p.ciwa) tags.push("CIWA/COWS");
+      if (p.ciwa) tags.push("CIWA");
+      if (p.cows || (!p.ciwa && p.ciwaCows)) tags.push("COWS");
+      if (p.psych) tags.push("Psych");
+      if (p.prns) tags.push("PRNs");
       if (p.emu) tags.push("EMU");
       if (p.restraint) tags.push("Restraint");
       if (p.sitter) tags.push("Sitter");
@@ -1552,26 +1646,18 @@
     }
 
     const rnItems = [
-      ["profTele", "Tele", !!p.tele],
       ["profDrip", "Drip", !!p.drip],
       ["profNih", "NIH", !!p.nih],
       ["profBg", "BG", !!(p.bg || p.bgChecks)],
       ["profTf", "TF", !!p.tf],
-      ["profCiwa", "CIWA/COWS", !!(p.ciwa || p.cows || p.ciwaCows)],
+      ["profCiwa", "CIWA", !!(p.ciwa || (!p.cows && p.ciwaCows))],
+      ["profCows", "COWS", !!p.cows],
+      ["profPrns", "PRNs", !!p.prns],
       ["profEmu", "EMU", !!p.emu],
-      ["profRestraint", "Restraint", !!(p.restraint || p.restraints)],
       ["profSitter", "Sitter", !!p.sitter],
-      ["profVpo", "VPO", !!p.vpo],
-      ["profIso", "Isolation", !!(p.isolation || p.iso)],
-      ["profAdmit", "Admit", !!p.admit],
-      ["profLateDc", "Late DC", !!(p.lateDc || p.lateDC || p.latedc)],
     ];
 
     const pcaItems = [
-      ["profTelePca", "Tele", !!p.tele],
-      ["profIsoPca", "Isolation", !!(p.isolation || p.iso)],
-      ["profAdmitPca", "Admit", !!p.admit],
-      ["profLateDcPca", "Late DC", !!(p.lateDc || p.lateDC || p.latedc)],
       ["profChg", "CHG", !!p.chg],
       ["profFoley", "Foley", !!p.foley],
       ["profQ2", "Totals", !!(p.q2turns || p.q2Turns)],
@@ -1579,9 +1665,26 @@
       ["profFeeder", "Feeder", !!(p.feeder || p.feeders)],
     ];
 
+    const sharedItems = [
+      ["profTele", "Tele", !!p.tele],
+      ["profPsych", "Psych", !!p.psych],
+      ["profRestraint", "Restraint", !!(p.restraint || p.restraints)],
+      ["profVpo", "VPO", !!p.vpo],
+      ["profIso", "Isolation", !!(p.isolation || p.iso)],
+      ["profAdmit", "Admit", !!p.admit],
+      ["profLateDc", "Late DC", !!(p.lateDc || p.lateDC || p.latedc)],
+    ];
+
     if (bodyEl) {
       bodyEl.innerHTML = `
         <div class="pp-grid">
+          <div class="pp-col">
+            <h4>Shared Acuity Tags</h4>
+            <div class="pp-taglist">
+              ${sharedItems.map(x => item(x[0], x[1], x[2])).join("")}
+            </div>
+          </div>
+
           <div class="pp-col">
             <h4>RN Acuity Tags</h4>
             <div class="pp-taglist">
@@ -1632,7 +1735,7 @@
     const before = {
       gender: p.gender || "",
       tele: !!p.tele, drip: !!p.drip, nih: !!p.nih, bg: !!p.bg, tf: !!p.tf,
-      ciwa: !!p.ciwa, emu: !!p.emu, restraint: !!p.restraint, sitter: !!p.sitter, vpo: !!p.vpo,
+      ciwa: !!p.ciwa, cows: !!p.cows, psych: !!p.psych, prns: !!p.prns, emu: !!p.emu, restraint: !!p.restraint, sitter: !!p.sitter, vpo: !!p.vpo,
       isolation: !!p.isolation, admit: !!p.admit, lateDc: !!p.lateDc,
       chg: !!p.chg, foley: !!p.foley, q2turns: !!p.q2turns, strictIo: !!(p.strictIo || p.heavy), feeder: !!p.feeder
     };
@@ -1642,7 +1745,7 @@
       return !!(el && el.checked);
     };
 
-    p.tele = getCheck("profTele") || getCheck("profTelePca");
+    p.tele = getCheck("profTele");
 
     p.drip = getCheck("profDrip");
     p.nih = getCheck("profNih");
@@ -1652,8 +1755,10 @@
     p.tf = getCheck("profTf");
 
     p.ciwa = getCheck("profCiwa");
-    p.cows = p.ciwa;
-    p.ciwaCows = p.ciwa;
+    p.cows = getCheck("profCows");
+    p.psych = getCheck("profPsych");
+    p.prns = getCheck("profPrns");
+    p.ciwaCows = !!(p.ciwa || p.cows);
     p.emu = getCheck("profEmu");
 
     p.restraint = getCheck("profRestraint");
@@ -1662,12 +1767,12 @@
     p.sitter = getCheck("profSitter");
     p.vpo = getCheck("profVpo");
 
-    p.isolation = getCheck("profIso") || getCheck("profIsoPca");
+    p.isolation = getCheck("profIso");
     p.iso = p.isolation;
 
-    p.admit = getCheck("profAdmit") || getCheck("profAdmitPca");
+    p.admit = getCheck("profAdmit");
 
-    p.lateDc = getCheck("profLateDc") || getCheck("profLateDcPca");
+    p.lateDc = getCheck("profLateDc");
     p.lateDC = p.lateDc;
     p.latedc = p.lateDc;
 
@@ -1691,7 +1796,7 @@
     const after = {
       gender: p.gender || "",
       tele: !!p.tele, drip: !!p.drip, nih: !!p.nih, bg: !!p.bg, tf: !!p.tf,
-      ciwa: !!p.ciwa, emu: !!p.emu, restraint: !!p.restraint, sitter: !!p.sitter, vpo: !!p.vpo,
+      ciwa: !!p.ciwa, cows: !!p.cows, psych: !!p.psych, prns: !!p.prns, emu: !!p.emu, restraint: !!p.restraint, sitter: !!p.sitter, vpo: !!p.vpo,
       isolation: !!p.isolation, admit: !!p.admit, lateDc: !!p.lateDc,
       chg: !!p.chg, foley: !!p.foley, q2turns: !!p.q2turns, strictIo: !!(p.strictIo || p.heavy), feeder: !!p.feeder
     };
@@ -1725,8 +1830,10 @@
   window.renderPatientList = renderPatientList;
 
   window.getPatientScore = getPatientScore;
+  window.getPatientAcuitySnapshot = getPatientAcuitySnapshot;
   window.getNurseLoadScore = getNurseLoadScore;
   window.getPcaLoadScore = getPcaLoadScore;
+  window.getOwnerLoadScoreWithPatientOverride = getOwnerLoadScoreWithPatientOverride;
   window.getLoadClass = getLoadClass;
 
   window.getLoadCategory = window.getLoadCategory || getLoadCategory;

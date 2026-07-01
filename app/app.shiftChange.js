@@ -17,7 +17,7 @@
 (function () {
   const $ = (id) => document.getElementById(id);
   const safeArray = (v) => (Array.isArray(v) ? v : []);
-  const ANALYTICS_TAG_KEYS = ["tele", "drip", "nih", "bg", "ciwa", "emu", "restraint", "sitter", "vpo", "isolation", "admit", "lateDc"];
+  const ANALYTICS_TAG_KEYS = ["tele", "drip", "nih", "bg", "ciwa", "cows", "psych", "prns", "emu", "restraint", "sitter", "vpo", "isolation", "admit", "lateDc"];
 
   const VERSION = "shiftChange_v2026-03-20_live_finalize_profiles";
   function log(...args) { console.log("[shiftChange]", ...args); }
@@ -162,10 +162,14 @@
 
   function isHoldOwner(owner) {
     if (!owner) return false;
+    const name = normalizeName(owner.name);
     if (Number(owner.id) === 0) return true;
     if (owner.__hold) return true;
     if (String(owner.type || "").toLowerCase() === "hold") return true;
-    return String(owner.name || "").trim().toLowerCase() === "needs to be assigned";
+    return name === "needs to be assigned" ||
+      /^incoming\s+(rn|pca)\s*\d*$/.test(name) ||
+      /^current\s+(rn|pca)\s*\d*$/.test(name) ||
+      /^oncoming\s+(rn|pca)\s*\d*$/.test(name);
   }
 
   function stableStaffId(owner) {
@@ -176,6 +180,24 @@
     const t = Date.now();
     const r = Math.random().toString(36).slice(2, 10);
     return `live_${t}_${r}`;
+  }
+
+  function addDaysYmd(date, days) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(String(date || ""))) return "";
+    const d = new Date(`${date}T00:00:00`);
+    d.setDate(d.getDate() + Number(days || 0));
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, "0");
+    const day = String(d.getDate()).padStart(2, "0");
+    return `${year}-${month}-${day}`;
+  }
+
+  function getNextShiftIdentity(shiftDate, shiftType) {
+    const type = shiftType === "night" ? "night" : "day";
+    return {
+      shift_date: type === "night" ? addDaysYmd(shiftDate, 1) : shiftDate,
+      shift_type: type === "night" ? "day" : "night"
+    };
   }
 
   function getEventType(ev) {
@@ -290,6 +312,69 @@
     };
   }
 
+  function buildStarterStaffProfiles(role, owners, patients, source) {
+    const patientList = safeArray(patients);
+    const patientById = new Map(patientList.map((p) => [Number(p?.id), p]));
+    const scoreFn = role === "PCA" ? window.getPcaLoadScore : window.getNurseLoadScore;
+
+    return safeArray(owners)
+      .filter((owner) => owner && !isHoldOwner(owner) && String(owner.name || "").trim())
+      .map((owner) => {
+        const patient_ids = safeArray(owner.patients).map(Number).filter(Number.isFinite);
+        const assignedPatients = patient_ids.map((pid) => patientById.get(Number(pid))).filter((p) => p && !p.isEmpty);
+        const patient_rooms = assignedPatients.map((p) => String(p.room || p.id || ""));
+        const expected_discharges = assignedPatients.filter((p) => !!p.expectedDischarge).length;
+
+        return {
+          role,
+          owner,
+          patient_ids,
+          patient_rooms,
+          expected_discharges,
+          patients_assigned: assignedPatients.length,
+          workload_score: typeof scoreFn === "function" ? (scoreFn(owner) || 0) : 0,
+          details: {
+            patient_ids,
+            patient_rooms,
+            expected_discharges,
+            admits: 0,
+            discharges: 0,
+            acuity_changes: 0,
+            assignment_changes: 0,
+            event_count: 0,
+            starter_only: true,
+            projected_full_shift: true,
+            starter_source: "oncoming_promoted_to_live",
+            source_shift_date: source.shift_date,
+            source_shift_type: source.shift_type,
+            live_shift_key: String(window.liveShiftKey || ""),
+            local_owner_id: owner?.id ?? null
+          }
+        };
+      });
+  }
+
+  function buildNextShiftStarterMetrics(sourceShiftDate, sourceShiftType, patients) {
+    const next = getNextShiftIdentity(sourceShiftDate, sourceShiftType);
+    if (!next.shift_date || !next.shift_type) return null;
+    const source = { shift_date: sourceShiftDate, shift_type: sourceShiftType };
+    const rnProfiles = buildStarterStaffProfiles("RN", window.incomingNurses, patients, source);
+    const pcaProfiles = buildStarterStaffProfiles("PCA", window.incomingPcas, patients, source);
+    const profiles = rnProfiles.concat(pcaProfiles);
+    if (!profiles.length) return null;
+    return {
+      ...next,
+      profiles,
+      metrics: {
+        starter_only: true,
+        projected_full_shift: true,
+        starter_source: "oncoming_promoted_to_live",
+        source_shift_date: sourceShiftDate,
+        source_shift_type: sourceShiftType
+      }
+    };
+  }
+
   function buildLiveStaffProfiles() {
     const currentRn = safeArray(window.currentNurses).filter((owner) => owner && !isHoldOwner(owner));
     const currentPca = safeArray(window.currentPcas).filter((owner) => owner && !isHoldOwner(owner));
@@ -398,6 +483,121 @@
     return summary;
   }
 
+  function maxNum(current, next) {
+    const n = Number(next);
+    if (!Number.isFinite(n)) return current;
+    return Math.max(Number(current) || 0, n);
+  }
+
+  function absDelta(a, b) {
+    const x = Number(a);
+    const y = Number(b);
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return 0;
+    return Math.abs(y - x);
+  }
+
+  function buildPatientOwnerMap(owners) {
+    const out = new Map();
+    safeArray(owners).forEach((owner) => {
+      if (!owner || isHoldOwner(owner)) return;
+      safeArray(owner.patients).forEach((pid) => {
+        const id = Number(pid);
+        if (Number.isFinite(id)) out.set(id, owner);
+      });
+    });
+    return out;
+  }
+
+  function averageNonEmptyCounts(sets) {
+    const counts = safeArray(sets).map((set) => set?.size || 0).filter((n) => n > 0);
+    if (!counts.length) return 0;
+    return counts.reduce((sum, n) => sum + n, 0) / counts.length;
+  }
+
+  function maxSetSize(sets) {
+    return safeArray(sets).reduce((max, set) => Math.max(max, set?.size || 0), 0);
+  }
+
+  function buildHandoffSourceSummaryForRole(currentOwners, oncomingOwners) {
+    const currentMap = buildPatientOwnerMap(currentOwners);
+    const oncomingMap = buildPatientOwnerMap(oncomingOwners);
+    const incomingSources = new Map();
+    const outgoingDestinations = new Map();
+
+    safeArray(oncomingOwners).forEach((owner) => {
+      if (!owner || isHoldOwner(owner)) return;
+      incomingSources.set(owner, new Set());
+    });
+    safeArray(currentOwners).forEach((owner) => {
+      if (!owner || isHoldOwner(owner)) return;
+      outgoingDestinations.set(owner, new Set());
+    });
+
+    oncomingMap.forEach((oncomingOwner, pid) => {
+      const currentOwner = currentMap.get(Number(pid));
+      if (!currentOwner || !oncomingOwner) return;
+      if (!incomingSources.has(oncomingOwner)) incomingSources.set(oncomingOwner, new Set());
+      if (!outgoingDestinations.has(currentOwner)) outgoingDestinations.set(currentOwner, new Set());
+      incomingSources.get(oncomingOwner).add(currentOwner);
+      outgoingDestinations.get(currentOwner).add(oncomingOwner);
+    });
+
+    return {
+      incoming_avg_sources: averageNonEmptyCounts(Array.from(incomingSources.values())),
+      incoming_max_sources: maxSetSize(Array.from(incomingSources.values())),
+      outgoing_avg_destinations: averageNonEmptyCounts(Array.from(outgoingDestinations.values())),
+      outgoing_max_destinations: maxSetSize(Array.from(outgoingDestinations.values()))
+    };
+  }
+
+  function buildHandoffSourceSummary() {
+    return {
+      rn: buildHandoffSourceSummaryForRole(window.currentNurses, window.incomingNurses),
+      pca: buildHandoffSourceSummaryForRole(window.currentPcas, window.incomingPcas)
+    };
+  }
+
+  function buildLiveTimelineSummary() {
+    const summary = {
+      acuity_timeline_events: 0,
+      assignment_timeline_events: 0,
+      max_patient_total_score: 0,
+      max_patient_rn_score: 0,
+      max_patient_pca_score: 0,
+      max_rn_load_after: 0,
+      max_pca_load_after: 0,
+      max_assignment_load_delta: 0,
+      handoff_sources: buildHandoffSourceSummary()
+    };
+
+    getLiveShiftEvents().forEach((ev) => {
+      const type = getEventType(ev);
+      const payload = getEventPayload(ev);
+
+      if (type === "ACUITY_CHANGED" && payload.acuity_timeline) {
+        const timeline = payload.acuity_timeline;
+        const after = timeline?.patient?.after || {};
+        summary.acuity_timeline_events += 1;
+        summary.max_patient_total_score = maxNum(summary.max_patient_total_score, after.total_score);
+        summary.max_patient_rn_score = maxNum(summary.max_patient_rn_score, after.rn_score);
+        summary.max_patient_pca_score = maxNum(summary.max_patient_pca_score, after.pca_score);
+        summary.max_rn_load_after = maxNum(summary.max_rn_load_after, timeline?.rn_load?.after);
+        summary.max_pca_load_after = maxNum(summary.max_pca_load_after, timeline?.pca_load?.after);
+        return;
+      }
+
+      if (type === "ASSIGNMENT_MOVED" && payload.assignment_timeline) {
+        const timeline = payload.assignment_timeline;
+        const fromDelta = absDelta(timeline?.from_owner?.load_before, timeline?.from_owner?.load_after);
+        const toDelta = absDelta(timeline?.to_owner?.load_before, timeline?.to_owner?.load_after);
+        summary.assignment_timeline_events += 1;
+        summary.max_assignment_load_delta = maxNum(summary.max_assignment_load_delta, Math.max(fromDelta, toDelta));
+      }
+    });
+
+    return summary;
+  }
+
   function getLeadershipSnapshot() {
     const read = (id) => String($(id)?.value || "").trim();
     return {
@@ -441,9 +641,28 @@
     window.eventLog = [];
     window.auditEvents = window.eventLog;
     if (typeof window.appendEvent === "function") {
+      const pts = activePatients();
       window.appendEvent("SHIFT_LIVE_STARTED", {
         mode: "live",
         pcaShift: window.pcaShift || "day",
+        total_pts: pts.length,
+        tag_counts: buildAnalyticsTagCounts(pts),
+        live_start: {
+          nurses: safeArray(window.currentNurses).filter((owner) => owner && !isHoldOwner(owner)).map((owner) => ({
+            id: owner.id ?? null,
+            staff_id: stableStaffId(owner) || null,
+            name: owner.name || "",
+            patients_assigned: safeArray(owner.patients).length,
+            workload_score: window.getNurseLoadScore?.(owner) || 0
+          })),
+          pcas: safeArray(window.currentPcas).filter((owner) => owner && !isHoldOwner(owner)).map((owner) => ({
+            id: owner.id ?? null,
+            staff_id: stableStaffId(owner) || null,
+            name: owner.name || "",
+            patients_assigned: safeArray(owner.patients).length,
+            workload_score: window.getPcaLoadScore?.(owner) || 0
+          }))
+        },
         source: "finalize_shift_change"
       }, {
         v: 1,
@@ -500,8 +719,10 @@
     const pts = activePatients();
     const liveProfiles = buildLiveStaffProfiles();
     const unitEventSummary = buildUnitEventSummary();
+    const liveTimelineSummary = buildLiveTimelineSummary();
     const tag_counts = buildAnalyticsTagCounts(pts);
     const leadership = getLeadershipSnapshot();
+    const nextShiftStarter = buildNextShiftStarterMetrics(shift_date, shift_type, pts);
     let analyticsWarning = "";
 
     {
@@ -516,6 +737,7 @@
           discharges: unitEventSummary.discharges,
           acuity_changes: unitEventSummary.acuity_changes,
           assignment_changes: unitEventSummary.assignment_changes,
+          timeline_summary: liveTimelineSummary,
           live_shift_key: String(window.liveShiftKey || ""),
           patients: deepClone(window.patients || []),
           current_assignment: {
@@ -580,6 +802,7 @@
             assignment_changes: unitEventSummary.assignment_changes,
             event_count: unitEventSummary.event_count
           },
+          timeline_summary: liveTimelineSummary,
           tag_counts,
           staff_counts: {
             rn: liveProfiles.filter((profile) => profile.role === "RN").length,
@@ -637,7 +860,67 @@
       }
     }
 
-    setMsg("Finalize complete ✅");
+    if (nextShiftStarter) {
+      const starterTagCounts = buildAnalyticsTagCounts(pts);
+      const res = await window.sb.upsertAnalyticsShiftMetrics({
+        unit_id,
+        shift_date: nextShiftStarter.shift_date,
+        shift_type: nextShiftStarter.shift_type,
+        created_by,
+        total_pts: pts.length,
+        admits: 0,
+        discharges: 0,
+        tag_counts: starterTagCounts,
+        metrics: {
+          version: 4,
+          ...nextShiftStarter.metrics,
+          totals: {
+            total_pts: pts.length,
+            admits: 0,
+            discharges: 0,
+            acuity_changes: 0,
+            assignment_changes: 0,
+            event_count: 0
+          },
+          tag_counts: starterTagCounts,
+          staff_counts: {
+            rn: nextShiftStarter.profiles.filter((profile) => profile.role === "RN").length,
+            pca: nextShiftStarter.profiles.filter((profile) => profile.role === "PCA").length
+          }
+        }
+      });
+      if (res?.error && !analyticsWarning) analyticsWarning = String(res.error?.message || res.error || "starter analytics error");
+
+      const starterRows = [];
+      for (const profile of nextShiftStarter.profiles) {
+        const role = profile.role === "PCA" ? "PCA" : "RN";
+        const owner = profile.owner;
+        const ensured = await window.sb.ensureUnitStaff(unit_id, role, owner?.name || `${role} Staff`);
+        if (!ensured?.row?.id) continue;
+        starterRows.push({
+          unit_id,
+          shift_date: nextShiftStarter.shift_date,
+          shift_type: nextShiftStarter.shift_type,
+          staff_id: ensured.row.id,
+          staff_name: owner?.name || ensured.row.display_name || `${role} Staff`,
+          role,
+          patients_assigned: profile.patients_assigned,
+          workload_score: profile.workload_score,
+          details: profile.details,
+          created_by
+        });
+      }
+
+      if (starterRows.length) {
+        const starterStaffRes = await window.sb.upsertStaffShiftMetrics(starterRows);
+        if (starterStaffRes?.error) {
+          setMsg("Finalize saved live shift, but starter staff metrics failed.", true);
+          return { ok: false, error: starterStaffRes.error };
+        }
+      }
+    }
+
+    setMsg(analyticsWarning ? `Finalize complete; analytics warning: ${analyticsWarning}` : "Finalize complete");
     return { ok: true };
   }
 

@@ -346,7 +346,7 @@
     const discharges = activePatients.filter(p => p.recentlyDischarged).length;
 
     const tagList = [
-      "tele","drip","nih","bg","ciwa","emu","restraint","sitter","vpo","isolation","admit","lateDc",
+      "tele","drip","nih","bg","ciwa","cows","psych","prns","emu","restraint","sitter","vpo","isolation","admit","lateDc",
       "chg","foley","q2turns","heavy","feeder"
     ];
 
@@ -487,7 +487,8 @@
     const dateEl = document.getElementById("finalizeShiftDate");
     if (dateEl && !dateEl.value) dateEl.value = fmtDateYYYYMMDD(new Date());
 
-    if (!btn.__cuppBound) {
+    const modernShiftChangeReady = !!(window.shiftChange && typeof window.shiftChange.publishAll === "function");
+    if (!modernShiftChangeReady && !btn.__cuppBound) {
       btn.__cuppBound = true;
       btn.addEventListener("click", async () => {
         await finalizeShift();

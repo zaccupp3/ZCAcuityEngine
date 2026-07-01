@@ -551,7 +551,7 @@
       sitter: t.includes("sitter"),
       drip: t.includes("drip") || t.includes("gtt") || t.includes("infus"),
       nih: t.includes("nih"),
-      ciwa: t.includes("ciwa") || t.includes("cows") || t.includes("emu"),
+      ciwa: t.includes("ciwa") || t.includes("cows") || t.includes("psych") || t.includes("prn") || t.includes("emu"),
       bg: isBgRelatedAcuity(ev),
       iso: t.includes("iso") || t.includes("isolation"),
     };

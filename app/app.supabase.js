@@ -56,9 +56,30 @@
     return String(s || "").trim().toLowerCase().replace(/\s+/g, " ");
   }
 
+  function isFillerStaffName(name) {
+    const n = normName(name);
+    if (!n) return true;
+    return (
+      /^incoming\s+(rn|pca)\s*\d*$/.test(n) ||
+      /^current\s+(rn|pca)\s*\d*$/.test(n) ||
+      /^oncoming\s+(rn|pca)\s*\d*$/.test(n) ||
+      /^(noc|day|night)\s+(rn|pca)\s*\d*$/.test(n) ||
+      /^(rn|pca)\s*staff$/.test(n) ||
+      /^(rn|pca)\s*\d+$/.test(n) ||
+      /^unknown\s+staff$/.test(n)
+    );
+  }
+
   function safeRole(role) {
     const r = String(role || "").trim().toUpperCase();
     return (r === "RN" || r === "PCA") ? r : "";
+  }
+
+  function safeShiftType(shiftType) {
+    const s = String(shiftType || "").trim().toLowerCase();
+    if (s === "day" || s.includes("day")) return "day";
+    if (s === "night" || s === "noc" || s.includes("night") || s.includes("noc")) return "night";
+    return s || "day";
   }
 
   // ------------------------
@@ -222,7 +243,7 @@
     const canonical = {
       unit_id: base.unit_id,
       shift_date: base.shift_date,
-      shift_type: base.shift_type,
+      shift_type: safeShiftType(base.shift_type),
       total_pts: Number(base.total_pts ?? base.metrics?.totals?.total_pts ?? 0),
       admits: Number(base.admits ?? base.metrics?.totals?.admits ?? 0),
       discharges: Number(base.discharges ?? base.metrics?.totals?.discharges ?? 0)
@@ -244,14 +265,30 @@
             tag_counts: canonical.tag_counts || {}
           }
     };
+    if (base.created_by) metricsAttempt.created_by = base.created_by;
+
     const { error: metricsError } = await client
       .from("analytics_shift_metrics")
       .upsert(metricsAttempt, { onConflict: "unit_id,shift_date,shift_type" });
     if (!metricsError) return { ok: true, error: null };
 
+    let metricsColumnError = metricsError;
     const metricsMsg = String(metricsError?.message || metricsError || "");
-    if (!/Could not find the 'metrics' column/i.test(metricsMsg)) {
-      return { ok: false, error: metricsError || null };
+    if (/Could not find the 'created_by' column/i.test(metricsMsg)) {
+      const retry = { ...metricsAttempt };
+      delete retry.created_by;
+      const { error: retryError } = await client
+        .from("analytics_shift_metrics")
+        .upsert(retry, { onConflict: "unit_id,shift_date,shift_type" });
+      if (!retryError) return { ok: true, error: null };
+      metricsColumnError = retryError;
+      if (!/Could not find the 'metrics' column/i.test(String(retryError?.message || retryError || ""))) {
+        return { ok: false, error: retryError || null };
+      }
+    }
+
+    if (!/Could not find the 'metrics' column/i.test(String(metricsColumnError?.message || metricsColumnError || ""))) {
+      return { ok: false, error: metricsColumnError || null };
     }
 
     const legacyAttempt = {
@@ -263,9 +300,19 @@
       discharges: canonical.discharges,
       tag_counts: canonical.tag_counts || {}
     };
+    if (base.created_by) legacyAttempt.created_by = base.created_by;
+
     const { error: legacyError } = await client
       .from("analytics_shift_metrics")
       .upsert(legacyAttempt, { onConflict: "unit_id,shift_date,shift_type" });
+    if (legacyError && /Could not find the 'created_by' column/i.test(String(legacyError?.message || legacyError || ""))) {
+      const retryLegacy = { ...legacyAttempt };
+      delete retryLegacy.created_by;
+      const { error: retryLegacyError } = await client
+        .from("analytics_shift_metrics")
+        .upsert(retryLegacy, { onConflict: "unit_id,shift_date,shift_type" });
+      return { ok: !retryLegacyError, error: retryLegacyError || null };
+    }
 
     return { ok: !legacyError, error: legacyError || null };
   }
@@ -276,12 +323,28 @@
   // (unit_id, shift_date, shift_type, staff_id, role)
   // ------------------------
   async function sbUpsertStaffShiftMetrics(rows) {
-    const payload = Array.isArray(rows) ? rows : [];
+    const payload = Array.isArray(rows)
+      ? rows.map((row) => ({
+          ...row,
+          shift_type: safeShiftType(row?.shift_type)
+        }))
+      : [];
     if (!payload.length) return { ok: true, error: null };
 
     const { error } = await client
       .from("staff_shift_metrics")
       .upsert(payload, { onConflict: "unit_id,shift_date,shift_type,staff_id,role" });
+    if (error && /Could not find the 'created_by' column/i.test(String(error?.message || error || ""))) {
+      const retryPayload = payload.map((row) => {
+        const next = { ...row };
+        delete next.created_by;
+        return next;
+      });
+      const { error: retryError } = await client
+        .from("staff_shift_metrics")
+        .upsert(retryPayload, { onConflict: "unit_id,shift_date,shift_type,staff_id,role" });
+      return { ok: !retryError, error: retryError || null };
+    }
 
     return { ok: !error, error: error || null };
   }
@@ -303,7 +366,7 @@
       .order("display_name", { ascending: true })
       .limit(Number(limit) || 50);
 
-    return { rows: Array.isArray(data) ? data : [], error };
+    return { rows: Array.isArray(data) ? data.filter((row) => !isFillerStaffName(row.display_name)) : [], error };
   }
 
   async function sbSearchUnitStaff(unitId, role, q, limit = 10) {
@@ -323,7 +386,7 @@
       .order("display_name", { ascending: true })
       .limit(Number(limit) || 10);
 
-    return { rows: Array.isArray(data) ? data : [], error };
+    return { rows: Array.isArray(data) ? data.filter((row) => !isFillerStaffName(row.display_name)) : [], error };
   }
 
   async function sbEnsureUnitStaff(unitId, role, displayName) {
@@ -334,6 +397,7 @@
 
     if (!uid || !r) return { row: null, error: new Error("Missing unitId or invalid role (RN/PCA)") };
     if (!dn) return { row: null, error: new Error("Missing displayName") };
+    if (isFillerStaffName(dn)) return { row: null, error: null };
 
     const found = await client
       .from("unit_staff")

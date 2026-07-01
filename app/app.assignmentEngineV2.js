@@ -29,27 +29,26 @@
     if (!patient || patient.isEmpty) return 0;
     const p = patient;
     if (role === "pca") {
-      let score = 0;
-      if (p.isolation) score += 3;
-      if (p.admit || p.admitPca) score += 3;
-      if (p.lateDc || p.lateDcPca) score += 2;
-      if (p.chg) score += 3;
-      if (p.foley) score += 3;
-      if (p.q2turns || p.q2Turns) score += 4;
-      if (p.feeder) score += 3;
+      let score = 1;
+      if (p.chg) score += 1;
+      if (p.q2turns || p.q2Turns) score += 1;
+      if (p.isolation || p.iso) score += 1;
+      if (p.feeder || p.feeders) score += 1;
       return score;
     }
-    let score = 0;
-    if (p.tele) score += 1;
-    if (p.nih) score += 4;
-    if (p.drip || p.drips) score += 5;
-    if (p.bg || p.bgChecks) score += 2;
-    if (p.ciwa || p.cows || p.ciwaCows) score += 4;
-    if (p.emu) score += 4;
-    if (p.sitter) score += 4;
-    if (p.isolation || p.iso) score += 2;
-    if (p.admit) score += 4;
-    if (p.lateDc) score += 2;
+    let score = 1;
+    if (p.nih) score += 3;
+    if (p.drip || p.drips) score += 3;
+    if (p.bg || p.bgChecks) score += 3;
+    if (p.ciwa || p.cows || p.ciwaCows || p.psych || p.prns) score += 3;
+    if (p.emu) score += 3;
+    if (p.sitter) score += 3;
+    if (p.restraint || p.restraints) score += 3;
+    if (p.vpo) score += 3;
+    if (p.admit) score += 3;
+    if (p.tf) score += 2;
+    if (p.isolation || p.iso) score += 1;
+    if (p.lateDc) score += 1;
     return score;
   }
 
@@ -58,7 +57,7 @@
       drip: { keys: ["drip", "drips"], limit: 1 },
       nih: { keys: ["nih"], limit: 1 },
       bg: { keys: ["bg", "bgChecks"], limit: 2 },
-      ciwa: { keys: ["ciwa", "cows", "ciwaCows"], limit: 1 },
+      ciwa: { keys: ["ciwa", "cows", "ciwaCows", "psych", "prns"], limit: 1 },
       emu: { keys: ["emu"], limit: 1 },
       sitter: { keys: ["sitter"], limit: 1 },
       isolation: { keys: ["isolation", "iso"], limit: 2 },

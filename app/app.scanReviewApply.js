@@ -732,6 +732,8 @@
       "ciwa",
       "cows",
       "ciwaCows",
+      "psych",
+      "prns",
       "emu",
       "restraint",
       "restraints",
@@ -807,6 +809,9 @@
     setFlagViaUiHandler(p, "admit", tagSet.has("ADMIT"));
     setFlagViaUiHandler(p, "lateDc", tagSet.has("LATE_DC"));
     setFlagViaUiHandler(p, "ciwa", tagSet.has("CIWA"));
+    setFlagViaUiHandler(p, "cows", tagSet.has("COWS"));
+    setFlagViaUiHandler(p, "psych", tagSet.has("PSYCH"));
+    setFlagViaUiHandler(p, "prns", tagSet.has("PRNS"));
     setFlagViaUiHandler(p, "emu", tagSet.has("EMU"));
     setFlagViaUiHandler(p, "vpo", tagSet.has("VPO"));
     setFlagViaUiHandler(p, "restraint", tagSet.has("RESTRAINT"));
@@ -818,8 +823,7 @@
     );
 
     if (typeof p.bgChecks === "boolean") p.bgChecks = !!p.bg;
-    if (typeof p.cows === "boolean") p.cows = !!p.ciwa;
-    if (typeof p.ciwaCows === "boolean") p.ciwaCows = !!p.ciwa;
+    if (typeof p.ciwaCows === "boolean") p.ciwaCows = !!(p.ciwa || p.cows);
     if (typeof p.iso === "boolean") p.iso = !!p.isolation;
     if (typeof p.lateDC === "boolean") p.lateDC = !!p.lateDc;
     if (typeof p.latedc === "boolean") p.latedc = !!p.lateDc;

@@ -114,7 +114,7 @@
       name: "",
       gender: "",
 
-      tele: false, drip: false, nih: false, bg: false, tf: false, ciwa: false, emu: false, restraint: false, sitter: false,
+      tele: false, drip: false, nih: false, bg: false, tf: false, ciwa: false, cows: false, psych: false, prns: false, emu: false, restraint: false, sitter: false,
       vpo: false, isolation: false, admit: false, lateDc: false,
 
       chg: false, foley: false, q2turns: false, strictIo: false, heavy: false, feeder: false,

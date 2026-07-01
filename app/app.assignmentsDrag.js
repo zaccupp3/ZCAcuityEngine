@@ -267,6 +267,47 @@ function safeOwnerSummary(owner) {
   };
 }
 
+function ownerLoadScore(owner, role) {
+  if (!owner) return null;
+  try {
+    if (role === "nurse" && typeof window.getNurseLoadScore === "function") return window.getNurseLoadScore(owner);
+    if (role === "pca" && typeof window.getPcaLoadScore === "function") return window.getPcaLoadScore(owner);
+  } catch {}
+  return null;
+}
+
+function patientAcuitySnapshot(patientId) {
+  const patient = getPatientSafe(patientId);
+  if (!patient) return null;
+  try {
+    if (typeof window.getPatientAcuitySnapshot === "function") return window.getPatientAcuitySnapshot(patient);
+  } catch {}
+  return {
+    patient_id: Number(patient.id) || Number(patientId) || null,
+    room: String(patient.room || patient.id || ""),
+    is_empty: !!patient.isEmpty
+  };
+}
+
+function buildAssignmentMoveTimeline(role, patientId, fromOwner, toOwner, beforeLoads, afterLoads) {
+  return {
+    v: 1,
+    live_shift_key: String(window.liveShiftKey || ""),
+    role: role === "pca" ? "PCA" : (role === "sitter" ? "Sitter" : "RN"),
+    patient: patientAcuitySnapshot(patientId),
+    from_owner: fromOwner ? {
+      ...safeOwnerSummary(fromOwner),
+      load_before: beforeLoads?.from ?? null,
+      load_after: afterLoads?.from ?? null
+    } : null,
+    to_owner: toOwner ? {
+      ...safeOwnerSummary(toOwner),
+      load_before: beforeLoads?.to ?? null,
+      load_after: afterLoads?.to ?? null
+    } : null
+  };
+}
+
 // -----------------------------
 // RN Lock helpers (local, no dependency on assignmentsrender.js load order)
 // Stored on patient record for persistence:
@@ -480,6 +521,18 @@ function onRowDrop(event, context, role, newOwnerId) {
     }
   }
 
+  const beforeMoveLoads = context === "live"
+    ? {
+        from: ownerLoadScore(fromOwner, role),
+        to: ownerLoadScore(toOwner, role)
+      }
+    : null;
+  try {
+    if (typeof window.pushAssignmentUndoSnapshot === "function") {
+      window.pushAssignmentUndoSnapshot(context, "Patient move");
+    }
+  } catch (_) {}
+
   // Remove patient from every owner in this board/role first to avoid duplicate-state bounce-backs.
   const roleOwners = getStaffArray(context, role) || [];
   roleOwners.forEach((owner) => {
@@ -498,6 +551,13 @@ function onRowDrop(event, context, role, newOwnerId) {
     fromOwner.patients = Array.from(new Set((fromOwner.patients || []).map((x) => Number(x)).filter(Number.isFinite)));
   }
   toOwner.patients = Array.from(new Set((toOwner.patients || []).map((x) => Number(x)).filter(Number.isFinite)));
+
+  const afterMoveLoads = context === "live"
+    ? {
+        from: ownerLoadScore(fromOwner, role),
+        to: ownerLoadScore(toOwner, role)
+      }
+    : null;
 
   // ✅ LIVE-only event log (oncoming intentionally excluded for Phase 1 scope)
   if (context === "live" && canLogEvents()) {
@@ -528,7 +588,16 @@ function onRowDrop(event, context, role, newOwnerId) {
 
         // Additional explicit aliases (harmless, but helps mixed readers)
         fromOwnerStaffId: fromSid,
-        toOwnerStaffId: toSid
+        toOwnerStaffId: toSid,
+
+        assignment_timeline: buildAssignmentMoveTimeline(
+          role,
+          pid,
+          fromOwner,
+          toOwner,
+          beforeMoveLoads,
+          afterMoveLoads
+        )
       }, { v: 2, source: "app.assignmentsDrag.js" });
     } catch (e) {
       console.warn("[eventLog] ASSIGNMENT_MOVED failed", e);
@@ -538,7 +607,7 @@ function onRowDrop(event, context, role, newOwnerId) {
   dragCtx = null;
 
   // ✅ Always persist after every drag/drop so refresh doesn't lose layout.
-  persistAndRefresh(context, role, { reason: "assignment_move" });
+  persistAndRefresh(context, role, { reason: "assignment_move", immediateSave: true });
 }
 
 function onRowDragEnd() {

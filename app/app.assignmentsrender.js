@@ -62,6 +62,12 @@ if (window.__assignmentsRenderLoaded) {
           data-role="${escapeHtml(role)}"
           data-owner-id="${ownerId}"
         >Edit</button>
+        <button
+          type="button"
+          class="owner-room-pick-btn"
+          title="Assign rooms"
+          onclick="window.openLiveRoomPicker && window.openLiveRoomPicker('${escapeHtml(role)}', ${ownerId}, 'incoming')"
+        >+</button>
         <span
           class="owner-card-drag-handle"
           draggable="true"
@@ -141,7 +147,9 @@ if (window.__assignmentsRenderLoaded) {
     const title = cap === 4
       ? `4:1 required because this RN group has ${reasons.join(", ")}`
       : "5:1 allowed for med-surg-only RN group";
-    return `<span class="rn-ratio-badge ratio-${cap === 4 ? "four" : "five"}" title="${escapeHtml(title)}">Ratio: ${cap}:1${escapeHtml(reasonText)}</span>`;
+    const exceeded = rows.length > cap;
+    const cls = exceeded ? ` ratio-${cap === 4 ? "four" : "five"}` : "";
+    return `<span class="rn-ratio-badge${cls}" title="${escapeHtml(title)}">Ratio: ${cap}:1${escapeHtml(reasonText)}</span>`;
   }
 
   function __getIncomingNursesReal() {
@@ -654,6 +662,95 @@ if (window.__assignmentsRenderLoaded) {
     try { if (typeof window.renderPcaAssignmentOutput === "function") window.renderPcaAssignmentOutput(); } catch {}
   }
   window.toggleIncomingPcaPin = toggleIncomingPcaPin;
+
+  function clearIncomingAssignmentPins() {
+    let cleared = 0;
+    __getPatients().forEach((p) => {
+      if (!p || typeof p !== "object") return;
+      if (p.lockRnEnabled || p.lockRnTo != null) {
+        p.lockRnEnabled = false;
+        p.lockRnTo = null;
+        cleared += 1;
+      }
+      if (p.lockPcaEnabled || p.lockPcaTo != null) {
+        p.lockPcaEnabled = false;
+        p.lockPcaTo = null;
+        cleared += 1;
+      }
+    });
+    try { if (typeof window.saveState === "function") window.saveState(); } catch {}
+    try { if (typeof window.renderAssignmentOutput === "function") window.renderAssignmentOutput(); } catch {}
+    try { if (typeof window.renderPcaAssignmentOutput === "function") window.renderPcaAssignmentOutput(); } catch {}
+    try {
+      if (window.cloudSync && typeof window.cloudSync.noteLocalUnitEdit === "function") {
+        window.cloudSync.noteLocalUnitEdit("oncoming_clear_pins");
+      }
+      if (window.cloudSync && typeof window.cloudSync.publishUnitStateDebounced === "function") {
+        window.cloudSync.publishUnitStateDebounced("oncoming_clear_pins");
+      }
+    } catch {}
+    const pill = document.getElementById("oncomingPopulateStatus");
+    const text = pill?.querySelector(".staffing-status-text");
+    const meta = pill?.querySelector(".staffing-status-meta");
+    if (text) text.textContent = cleared ? "Pins cleared" : "No pins";
+    if (meta) meta.textContent = cleared ? `${cleared} pin${cleared === 1 ? "" : "s"} removed` : "";
+    return cleared;
+  }
+  window.clearIncomingAssignmentPins = clearIncomingAssignmentPins;
+
+  function unassignIncomingAssignments() {
+    __syncIncomingGlobals();
+    let cleared = 0;
+
+    const clearRole = (role) => {
+      const owners = role === "pca" ? __getIncomingPcasReal() : __getIncomingNursesReal();
+      owners.forEach((owner) => {
+        const ids = safeArray(owner?.patients).map((pid) => Number(pid)).filter(Number.isFinite);
+        cleared += ids.length;
+        owner.patients = [];
+      });
+      __syncOncomingHoldPatients(role);
+    };
+
+    const beforeCount = ["nurse", "pca"].reduce((sum, role) => {
+      const owners = role === "pca" ? __getIncomingPcasReal() : __getIncomingNursesReal();
+      return sum + owners.reduce((roleSum, owner) => roleSum + safeArray(owner?.patients).length, 0);
+    }, 0);
+
+    if (beforeCount > 0) {
+      try {
+        if (typeof window.pushAssignmentUndoSnapshot === "function") {
+          window.pushAssignmentUndoSnapshot("incoming", "Unassign all");
+        }
+      } catch (_) {}
+    }
+
+    clearRole("nurse");
+    clearRole("pca");
+    __syncIncomingGlobals();
+
+    try { if (typeof window.saveState === "function") window.saveState(); } catch (_) {}
+    try { renderOncomingAll(); } catch (_) {
+      try { if (typeof window.renderAssignmentOutput === "function") window.renderAssignmentOutput(); } catch (__) {}
+      try { if (typeof window.renderPcaAssignmentOutput === "function") window.renderPcaAssignmentOutput(); } catch (__) {}
+    }
+    try {
+      if (window.cloudSync && typeof window.cloudSync.noteLocalUnitEdit === "function") {
+        window.cloudSync.noteLocalUnitEdit("oncoming_unassign_all");
+      }
+      if (window.cloudSync && typeof window.cloudSync.publishUnitStateDebounced === "function") {
+        window.cloudSync.publishUnitStateDebounced("oncoming_unassign_all");
+      }
+    } catch (_) {}
+
+    const pill = document.getElementById("oncomingPopulateStatus");
+    const text = pill?.querySelector(".staffing-status-text");
+    const meta = pill?.querySelector(".staffing-status-meta");
+    if (text) text.textContent = beforeCount ? "Unassigned" : "Nothing assigned";
+    if (meta) meta.textContent = beforeCount ? `${cleared} assignment${cleared === 1 ? "" : "s"} moved to needs bucket` : "";
+    return cleared;
+  }
+  window.unassignIncomingAssignments = unassignIncomingAssignments;
 
   function cleanupRnPinsAgainstRoster() {
     const roster = __getIncomingNurses();
@@ -1233,27 +1330,26 @@ if (window.__assignmentsRenderLoaded) {
         const patient = (typeof window.getPatientById === "function") ? window.getPatientById(pid) : null;
         if (!patient || patient.isEmpty) return sum;
         if (role === "pca") {
-          let score = 0;
-          if (patient.isolation) score += 3;
-          if (patient.admit || patient.admitPca) score += 3;
-          if (patient.lateDc || patient.lateDcPca) score += 2;
-          if (patient.chg) score += 3;
-          if (patient.foley) score += 3;
-          if (patient.q2turns || patient.q2Turns) score += 4;
-          if (patient.feeder) score += 3;
+          let score = 1;
+          if (patient.chg) score += 1;
+          if (patient.q2turns || patient.q2Turns) score += 1;
+          if (patient.isolation || patient.iso) score += 1;
+          if (patient.feeder || patient.feeders) score += 1;
           return sum + score;
         }
-        let score = 0;
-        if (patient.tele) score += 1;
-        if (patient.nih) score += 4;
-        if (patient.drip || patient.drips) score += 5;
-        if (patient.bg || patient.bgChecks) score += 2;
-        if (patient.ciwa || patient.cows || patient.ciwaCows) score += 4;
-        if (patient.emu) score += 4;
-        if (patient.sitter) score += 4;
-        if (patient.isolation || patient.iso) score += 2;
-        if (patient.admit) score += 4;
-        if (patient.lateDc) score += 2;
+        let score = 1;
+        if (patient.nih) score += 3;
+        if (patient.drip || patient.drips) score += 3;
+        if (patient.bg || patient.bgChecks) score += 3;
+        if (patient.ciwa || patient.cows || patient.ciwaCows || patient.psych || patient.prns) score += 3;
+        if (patient.emu) score += 3;
+        if (patient.sitter) score += 3;
+        if (patient.restraint || patient.restraints) score += 3;
+        if (patient.vpo) score += 3;
+        if (patient.admit) score += 3;
+        if (patient.tf) score += 2;
+        if (patient.isolation || patient.iso) score += 1;
+        if (patient.lateDc) score += 1;
         return sum + score;
       }, 0);
     });
@@ -1650,7 +1746,7 @@ if (window.__assignmentsRenderLoaded) {
     const tagParts = [];
     if (p) {
       [
-        "tele", "drip", "drips", "nih", "bg", "bgChecks", "ciwa", "cows", "ciwaCows", "emu",
+        "tele", "drip", "drips", "nih", "bg", "bgChecks", "ciwa", "cows", "ciwaCows", "psych", "prns", "emu",
         "sitter", "isolation", "iso", "admit", "lateDc", "expectedDischarge",
         "chg", "foley", "q2turns", "q2Turns", "feeder", "heavy"
       ].forEach((key) => {
@@ -1934,8 +2030,8 @@ if (window.__assignmentsRenderLoaded) {
       .map((p) => {
         const room = String(typeof window.getRoomLabelForPatient === "function" ? window.getRoomLabelForPatient(p) : (p.room || p.id || "")).trim();
         const score = role === "pca"
-          ? ((p.isolation || p.iso ? 3 : 0) + (p.admit || p.admitPca ? 3 : 0) + (p.lateDc || p.lateDcPca ? 2 : 0) + (p.chg ? 3 : 0) + (p.foley ? 3 : 0) + (p.q2turns || p.q2Turns ? 4 : 0) + (p.feeder ? 3 : 0))
-          : ((p.tele ? 1 : 0) + (p.nih ? 4 : 0) + (p.drip || p.drips ? 5 : 0) + (p.bg || p.bgChecks ? 2 : 0) + (p.ciwa || p.cows || p.ciwaCows ? 4 : 0) + (p.emu ? 4 : 0) + (p.sitter ? 4 : 0) + (p.isolation || p.iso ? 2 : 0) + (p.admit ? 4 : 0) + (p.lateDc ? 2 : 0));
+          ? (1 + (p.chg ? 1 : 0) + (p.q2turns || p.q2Turns ? 1 : 0) + (p.isolation || p.iso ? 1 : 0) + (p.feeder || p.feeders ? 1 : 0))
+          : (1 + (p.nih ? 3 : 0) + (p.drip || p.drips ? 3 : 0) + (p.bg || p.bgChecks ? 3 : 0) + (p.ciwa || p.cows || p.ciwaCows || p.psych || p.prns ? 3 : 0) + (p.emu ? 3 : 0) + (p.sitter ? 3 : 0) + (p.restraint || p.restraints ? 3 : 0) + (p.vpo ? 3 : 0) + (p.admit ? 3 : 0) + (p.tf ? 2 : 0) + (p.isolation || p.iso ? 1 : 0) + (p.lateDc ? 1 : 0));
         const roomNo = roomNumberLocal(p.id);
         return { patient: p, room, roomNo, score };
       })
@@ -1997,7 +2093,10 @@ if (window.__assignmentsRenderLoaded) {
       p.drip || p.drips ? "Drip" : "",
       p.bg || p.bgChecks ? "BG" : "",
       p.tf ? "TF" : "",
-      p.ciwa || p.cows || p.ciwaCows ? "CIWA/COWS" : "",
+      p.ciwa || (!p.cows && p.ciwaCows) ? "CIWA" : "",
+      p.cows ? "COWS" : "",
+      p.psych ? "Psych" : "",
+      p.prns ? "PRNs" : "",
       p.emu ? "EMU" : "",
       p.restraint || p.restraints ? "Restraint" : "",
       p.sitter ? "Sitter" : "",
@@ -2075,8 +2174,8 @@ if (window.__assignmentsRenderLoaded) {
       "Here are the rules I am using as my charge-nurse lens:",
       "RN counts should stay within one patient when possible.",
       "Any RN group with Tele, NIH, or EMU should generally stay at 4:1; med-surg-only groups can go to 5:1, but not past 5.",
-      "Avoid stacking RN limit-one tags unless unavoidable: Drip, NIH, CIWA/COWS, EMU, restraint, sitter, and VPO. NIH and EMU should not be paired unless unit math leaves no better path. BG and TF should be spread instead of clustered.",
-      "PCA balance looks at isolation, admits, late discharges, CHG, Foley, Q2 turns, total care, and feeders.",
+      "Avoid stacking RN limit-one tags unless unavoidable: Drip, NIH, CIWA, COWS, Psych, PRNs, EMU, restraint, sitter, and VPO. NIH and EMU should not be paired unless unit math leaves no better path. BG and TF should be spread instead of clustered.",
+      "PCA load score is 1 point per patient plus 1 each for CHG, totals, isolation, and feeders.",
       "Expected discharges should not all land on the same group.",
       "Room spread matters: a numerically fair assignment can still feel bad when one person is stretched across a wide hallway run.",
       "Continuity matters too: when two moves are otherwise similar, prefer fewer report-source changes."
@@ -2899,7 +2998,7 @@ if (window.__assignmentsRenderLoaded) {
       if (tag === "drip") return "Multiple drip patients assigned together";
       if (tag === "bg") return "Blood glucose checks are concentrated";
       if (tag === "tf") return "Tube feeds are concentrated";
-      if (tag === "ciwa") return "Multiple CIWA/COWS patients assigned together";
+      if (tag === "ciwa") return "Multiple CIWA/COWS/Psych/PRNs patients assigned together";
       if (tag === "emu") return "Multiple EMU patients assigned together";
       if (tag === "restraint") return "Multiple restraint patients assigned together";
       if (tag === "sitter") return "Multiple sitter patients assigned together";
@@ -3361,15 +3460,16 @@ if (window.__assignmentsRenderLoaded) {
              data-owner-id="${Number(nurse.id)}"
              ondragover="window.onOwnerTileDragOver && window.onOwnerTileDragOver(event)"
              ondrop="window.onOwnerTileDrop && window.onOwnerTileDrop(event, 'incoming', 'nurse', ${Number(nurse.id)})">
-          <div class="assignment-header"
+          <div class="assignment-header assignment-header--compact"
                ondragover="window.onOwnerTileDragOver && window.onOwnerTileDragOver(event)"
                ondrop="window.onOwnerTileDrop && window.onOwnerTileDrop(event, 'incoming', 'nurse', ${Number(nurse.id)})">
-            <div style="display:flex;align-items:flex-start;gap:10px;">
-              <div style="min-width:0;flex:1;">
-                <div style="display:flex;align-items:baseline;justify-content:space-between;gap:12px;">
-                  <div style="min-width:0;">
-                    <strong>${escapeHtml(nurse.name)}</strong>
-                  </div>
+            <div class="assignment-header-top">
+              <div class="assignment-header-name-actions">
+                <strong class="assignment-staff-name">${escapeHtml(nurse.name)}</strong>
+                <div class="assignment-header-actions">
+                  ${__ownerHeaderControlsHtml("incoming", "nurse", nurse)}
+                </div>
+                <div class="assignment-header-icons">
                   ${staffRestrictionIcon}
                   ${
                     (vCount || wCount)
@@ -3377,15 +3477,15 @@ if (window.__assignmentsRenderLoaded) {
                           title="${escapeHtml(ruleTip || "Rule flag(s) present")}"
                           style="flex:0 0 auto;">!</button>`
                       : ``
-                  }
+                    }
                 </div>
-
-                ${__buildMetaRowHtml(reportSources)}
+                <span class="assignment-report-source-top"><strong>Report sources:</strong> ${escapeHtml(reportSources == null ? "-" : String(reportSources))}</span>
               </div>
             </div>
-
-            <div>Patients: ${pts.length} | Load Score: ${loadScore} | ${rnRatioBadgeHtmlForPatients(pts)}</div>
-            ${__ownerHeaderControlsHtml("incoming", "nurse", nurse)}
+            <div class="assignment-header-meta-row">
+              <div class="assignment-header-primary-meta">Patients: ${pts.length} | Load Score: ${loadScore}</div>
+              <div class="assignment-header-side-meta">${rnRatioBadgeHtmlForPatients(pts)}</div>
+            </div>
           </div>
 
           <table class="assignment-table">
@@ -3546,15 +3646,16 @@ if (window.__assignmentsRenderLoaded) {
              data-print-title="${escapeHtml(printTitle)}"
              ondragover="window.onOwnerTileDragOver && window.onOwnerTileDragOver(event)"
              ondrop="window.onOwnerTileDrop && window.onOwnerTileDrop(event, 'incoming', 'pca', ${Number(pca.id)})">
-          <div class="assignment-header"
+          <div class="assignment-header assignment-header--compact"
                ondragover="window.onOwnerTileDragOver && window.onOwnerTileDragOver(event)"
                ondrop="window.onOwnerTileDrop && window.onOwnerTileDrop(event, 'incoming', 'pca', ${Number(pca.id)})">
-            <div style="display:flex;align-items:flex-start;gap:10px;">
-              <div style="min-width:0;flex:1;">
-                <div style="display:flex;align-items:baseline;justify-content:space-between;gap:12px;">
-                  <div style="min-width:0;">
-                    <strong>${escapeHtml(pca.name)}</strong> (${escapeHtml(specialLabel)})${isSpecialPca ? ` ${pts.length}${sitterRoomsLabel ? ` | ${escapeHtml(sitterRoomsLabel)}` : ``}` : ``}
-                  </div>
+            <div class="assignment-header-top">
+              <div class="assignment-header-name-actions">
+                <strong class="assignment-staff-name">${escapeHtml(pca.name)}</strong><span class="assignment-staff-role">(${escapeHtml(specialLabel)})${isSpecialPca ? ` ${pts.length}${sitterRoomsLabel ? ` | ${escapeHtml(sitterRoomsLabel)}` : ``}` : ``}</span>
+                <div class="assignment-header-actions">
+                  ${__ownerHeaderControlsHtml("incoming", "pca", pca)}
+                </div>
+                <div class="assignment-header-icons">
                   ${staffRestrictionIcon}
                   ${
                     (vCount || wCount)
@@ -3562,15 +3663,14 @@ if (window.__assignmentsRenderLoaded) {
                           title="${escapeHtml(ruleTip || "Rule flag(s) present")}"
                           style="flex:0 0 auto;">!</button>`
                       : ``
-                  }
+                    }
                 </div>
-
-                ${__buildMetaRowHtml(reportSources)}
+                <span class="assignment-report-source-top"><strong>Report sources:</strong> ${escapeHtml(reportSources == null ? "-" : String(reportSources))}</span>
               </div>
             </div>
-
-            <div>Patients: ${pts.length} | Load Score: ${loadScore}</div>
-            ${__ownerHeaderControlsHtml("incoming", "pca", pca)}
+            <div class="assignment-header-meta-row">
+              <div class="assignment-header-primary-meta">Patients: ${pts.length} | Load Score: ${loadScore}</div>
+            </div>
           </div>
 
           <table class="assignment-table pca-oncoming-table">

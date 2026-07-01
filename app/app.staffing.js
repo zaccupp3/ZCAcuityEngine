@@ -180,6 +180,52 @@
     return String(mode || "").toLowerCase() !== "draft";
   }
 
+  function ownerMatchesIdentity(owner, ownerId, staffId) {
+    if (!owner) return false;
+    if (staffId && String(owner.staff_id || owner.staffId || "") === String(staffId)) return true;
+    return Number(owner.id) === Number(ownerId);
+  }
+
+  function findStaffOwner(board, role, ownerId, staffId) {
+    const live = board === "live" || board === "current";
+    const list = live
+      ? (role === "pca" ? currentPcas : currentNurses)
+      : (role === "pca" ? incomingPcas : incomingNurses);
+    return filterOutHoldBuckets(list).find((owner) => ownerMatchesIdentity(owner, ownerId, staffId)) || null;
+  }
+
+  function syncStaffNameAcrossRoster(board, role, ownerId, staffId, name) {
+    const owner = findStaffOwner(board, role, ownerId, staffId);
+    if (!owner) return false;
+    const labelBase = board === "incoming" ? "Incoming" : "Current";
+    const roleBase = role === "pca" ? "PCA" : "RN";
+    owner.name = String(name || "").trim() || `${labelBase} ${roleBase} ${Number(owner.id) || ""}`.trim();
+    if (staffId) owner.staff_id = String(staffId);
+    return true;
+  }
+
+  function renderStaffingListsFor(board, role) {
+    const live = board === "live" || board === "current";
+    try {
+      if (live && role === "pca" && typeof window.renderCurrentPcaList === "function") window.renderCurrentPcaList();
+      else if (live && typeof window.renderCurrentNurseList === "function") window.renderCurrentNurseList();
+      else if (!live && role === "pca" && typeof window.renderIncomingPcaList === "function") window.renderIncomingPcaList();
+      else if (!live && typeof window.renderIncomingNurseList === "function") window.renderIncomingNurseList();
+    } catch (_) {}
+  }
+
+  function commitStaffNameChange(board, role, ownerId, staffId, name, mode) {
+    const normalizedBoard = (board === "live" || board === "current") ? "live" : "incoming";
+    const normalizedRole = role === "pca" ? "pca" : "nurse";
+    if (!syncStaffNameAcrossRoster(normalizedBoard, normalizedRole, ownerId, staffId, name)) return false;
+    syncWindowRefs();
+    if (shouldPersistStaffName(mode)) renderStaffingListsFor(normalizedBoard, normalizedRole);
+    refreshAllViews();
+    if (shouldPersistStaffName(mode) && typeof window.saveState === "function") window.saveState();
+    if (shouldPersistStaffName(mode)) publishSharedStateSoon(`staff_${normalizedBoard}_${normalizedRole}_name`);
+    return true;
+  }
+
   function reflectLegacySelects() {
     const cn = filterOutHoldBuckets(currentNurses).length;
     const inN = filterOutHoldBuckets(incomingNurses).length;
@@ -376,6 +422,8 @@
             Name:
             <input type="text"
                    data-staff-role="RN"
+                   data-owner-id="${Number(n.id)}"
+                   data-staff-id="${String(n.staff_id || "").replace(/"/g, "&quot;")}"
                    value="${(n.name || "").replace(/"/g, "&quot;")}"
                    oninput="updateCurrentNurseName(${index}, this, 'draft')"
                    onblur="updateCurrentNurseName(${index}, this, 'commit')"
@@ -411,6 +459,8 @@
             Name:
             <input type="text"
                    data-staff-role="RN"
+                   data-owner-id="${Number(n.id)}"
+                   data-staff-id="${String(n.staff_id || "").replace(/"/g, "&quot;")}"
                    value="${(n.name || "").replace(/"/g, "&quot;")}"
                    oninput="updateIncomingNurseName(${index}, this, 'draft')"
                    onblur="updateIncomingNurseName(${index}, this, 'commit')"
@@ -471,13 +521,10 @@
 
     const el = (elOrValue && typeof elOrValue === "object") ? elOrValue : null;
     const value = el ? el.value : elOrValue;
+    const ownerId = el ? Number(el.dataset.ownerId) : Number(n.id);
+    const staffId = el ? (String(el.dataset.staffId || "").trim() || null) : (n.staff_id || null);
 
-    n.name = String(value || "").trim() || `Current RN ${index + 1}`;
-    n.staff_id = el ? (String(el.dataset.staffId || "").trim() || null) : (n.staff_id || null);
-
-    syncWindowRefs();
-    refreshAllViews();
-    if (shouldPersistStaffName(mode) && typeof window.saveState === "function") window.saveState();
+    commitStaffNameChange("live", "nurse", ownerId, staffId, value, mode);
   };
 
   window.updateIncomingNurseName = function (index, elOrValue, mode) {
@@ -486,13 +533,10 @@
 
     const el = (elOrValue && typeof elOrValue === "object") ? elOrValue : null;
     const value = el ? el.value : elOrValue;
+    const ownerId = el ? Number(el.dataset.ownerId) : Number(n.id);
+    const staffId = el ? (String(el.dataset.staffId || "").trim() || null) : (n.staff_id || null);
 
-    n.name = String(value || "").trim() || `Incoming RN ${index + 1}`;
-    n.staff_id = el ? (String(el.dataset.staffId || "").trim() || null) : (n.staff_id || null);
-
-    syncWindowRefs();
-    refreshAllViews();
-    if (shouldPersistStaffName(mode) && typeof window.saveState === "function") window.saveState();
+    commitStaffNameChange("incoming", "nurse", ownerId, staffId, value, mode);
   };
 
   window.updateCurrentNurseRestriction = function (index, key, checked) {
@@ -658,6 +702,8 @@
             Name:
             <input type="text"
                    data-staff-role="PCA"
+                   data-owner-id="${Number(p.id)}"
+                   data-staff-id="${String(p.staff_id || "").replace(/"/g, "&quot;")}"
                    value="${(p.name || "").replace(/"/g, "&quot;")}"
                    oninput="updateCurrentPcaName(${index}, this, 'draft')"
                    onblur="updateCurrentPcaName(${index}, this, 'commit')"
@@ -706,6 +752,8 @@
             Name:
             <input type="text"
                    data-staff-role="PCA"
+                   data-owner-id="${Number(p.id)}"
+                   data-staff-id="${String(p.staff_id || "").replace(/"/g, "&quot;")}"
                    value="${(p.name || "").replace(/"/g, "&quot;")}"
                    oninput="updateIncomingPcaName(${index}, this, 'draft')"
                    onblur="updateIncomingPcaName(${index}, this, 'commit')"
@@ -744,13 +792,10 @@
 
     const el = (elOrValue && typeof elOrValue === "object") ? elOrValue : null;
     const value = el ? el.value : elOrValue;
+    const ownerId = el ? Number(el.dataset.ownerId) : Number(p.id);
+    const staffId = el ? (String(el.dataset.staffId || "").trim() || null) : (p.staff_id || null);
 
-    p.name = String(value || "").trim() || `Current PCA ${index + 1}`;
-    p.staff_id = el ? (String(el.dataset.staffId || "").trim() || null) : (p.staff_id || null);
-
-    syncWindowRefs();
-    refreshAllViews();
-    if (shouldPersistStaffName(mode) && typeof window.saveState === "function") window.saveState();
+    commitStaffNameChange("live", "pca", ownerId, staffId, value, mode);
   };
 
   window.updateIncomingPcaName = function (index, elOrValue, mode) {
@@ -759,13 +804,10 @@
 
     const el = (elOrValue && typeof elOrValue === "object") ? elOrValue : null;
     const value = el ? el.value : elOrValue;
+    const ownerId = el ? Number(el.dataset.ownerId) : Number(p.id);
+    const staffId = el ? (String(el.dataset.staffId || "").trim() || null) : (p.staff_id || null);
 
-    p.name = String(value || "").trim() || `Incoming PCA ${index + 1}`;
-    p.staff_id = el ? (String(el.dataset.staffId || "").trim() || null) : (p.staff_id || null);
-
-    syncWindowRefs();
-    refreshAllViews();
-    if (shouldPersistStaffName(mode) && typeof window.saveState === "function") window.saveState();
+    commitStaffNameChange("incoming", "pca", ownerId, staffId, value, mode);
   };
 
   window.updateCurrentPcaRestriction = function (index, checked) {
@@ -1502,14 +1544,9 @@
 
   window.renameStaffOwnerById = function (board, role, ownerId, nextName) {
     if (isDemoEditLocked()) return warnDemoStaffLocked();
-    const { list, renderListFn } = ownerCollectionForBoard(board, role);
-    const owner = safeArray(list).find((entry) => Number(entry?.id) === Number(ownerId));
-    if (!owner) return false;
-    const labelBase = board === "incoming" ? "Incoming" : "Current";
-    const roleBase = role === "pca" ? "PCA" : "RN";
-    owner.name = String(nextName || "").trim() || `${labelBase} ${roleBase} ${Number(ownerId) || ""}`.trim();
-    commitStaffingMutation(board, role, renderListFn);
-    return true;
+    const normalizedBoard = (board === "live" || board === "current") ? "live" : "incoming";
+    const normalizedRole = role === "pca" ? "pca" : "nurse";
+    return !!commitStaffNameChange(normalizedBoard, normalizedRole, Number(ownerId), null, nextName, "commit");
   };
 
   window.reorderStaffOwnerById = function (board, role, draggedId, targetId) {

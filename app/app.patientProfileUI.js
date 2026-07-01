@@ -44,6 +44,9 @@
       bg: !!p.bg,
       tf: !!p.tf,
       ciwa: !!p.ciwa,
+      cows: !!p.cows,
+      psych: !!p.psych,
+      prns: !!p.prns,
       emu: !!p.emu,
       restraint: !!p.restraint,
       sitter: !!p.sitter,
@@ -315,22 +318,35 @@
           gap:8px;
           padding:8px 12px;
           border-radius:999px;
-          border:1px solid rgba(245, 158, 11, 0.28);
-          background:rgba(255,255,255,0.96);
+          border:1px solid ${checked ? "rgba(245, 158, 11, 0.72)" : "rgba(245, 158, 11, 0.28)"};
+          background:${checked ? "rgba(255, 247, 237, 0.98)" : "rgba(255,255,255,0.96)"};
           color:#9a3412;
           font-weight:800;
           cursor:pointer;
           opacity:${checked ? "1" : "0.22"};
+          box-shadow:${checked ? "0 8px 18px rgba(249, 115, 22, 0.18)" : "none"};
         ">
           <span style="position:relative;display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;">
             <span aria-hidden="true" style="font-size:18px;line-height:1;opacity:${checked ? "1" : "0.14"};transition:opacity 120ms ease;">&#128663;</span>
           </span>
           <span>Expected discharge soon</span>
-          <input type="checkbox" id="profExpectedDischarge" ${checked ? "checked" : ""} style="margin-left:4px;" />
+          <input type="checkbox" id="profExpectedDischarge" ${checked ? "checked" : ""} style="margin-left:4px;" onchange="window.refreshExpectedDischargeToggleVisual && window.refreshExpectedDischargeToggleVisual(this)" />
         </label>
       </div>
     `;
   }
+
+  window.refreshExpectedDischargeToggleVisual = function refreshExpectedDischargeToggleVisual(input) {
+    const label = input?.closest?.(".pp-discharge-toggle");
+    if (!label) return;
+    const on = !!input.checked;
+    label.style.opacity = on ? "1" : "0.22";
+    label.style.background = on ? "rgba(255, 247, 237, 0.98)" : "rgba(255,255,255,0.96)";
+    label.style.borderColor = on ? "rgba(245, 158, 11, 0.72)" : "rgba(245, 158, 11, 0.28)";
+    label.style.boxShadow = on ? "0 8px 18px rgba(249, 115, 22, 0.18)" : "none";
+    const icon = label.querySelector("span[aria-hidden='true']");
+    if (icon) icon.style.opacity = on ? "1" : "0.14";
+  };
 
   function openPatientProfileFromRoom(patientId) {
     const p = safeGetPatient(patientId);
@@ -358,31 +374,33 @@
     if (titleEl) titleEl.textContent = `Patient Profile — Bed ${getBedLabel(p) || "?"}`;
 
     const rnItems = [
-      ["profTele", "Tele", !!p.tele],
       ["profDrip", "Drip", !!p.drip],
       ["profNih", "NIH", !!p.nih],
       ["profBg", "BG", !!(p.bg || p.bgChecks)],
       ["profTf", "TF", !!p.tf],
-      ["profCiwa", "CIWA/COWS", !!(p.ciwa || p.cows || p.ciwaCows)],
+      ["profCiwa", "CIWA", !!(p.ciwa || (!p.cows && p.ciwaCows))],
+      ["profCows", "COWS", !!p.cows],
+      ["profPrns", "PRNs", !!p.prns],
       ["profEmu", "EMU", !!p.emu],
-      ["profRestraint", "Restraint", !!(p.restraint || p.restraints)],
       ["profSitter", "Sitter", !!p.sitter],
-      ["profVpo", "VPO", !!p.vpo],
-      ["profIso", "Isolation", !!(p.isolation || p.iso)],
-      ["profAdmit", "Admit", !!p.admit],
-      ["profLateDc", "Late DC", !!(p.lateDc || p.lateDC || p.latedc)],
     ];
 
     const pcaItems = [
-      ["profTelePca", "Tele", !!p.tele],
-      ["profIsoPca", "Isolation", !!(p.isolation || p.iso)],
-      ["profAdmitPca", "Admit", !!p.admit],
-      ["profLateDcPca", "Late DC", !!(p.lateDc || p.lateDC || p.latedc)],
       ["profChg", "CHG", !!p.chg],
       ["profFoley", "Foley", !!p.foley],
       ["profQ2", "Totals", !!(p.q2turns || p.q2Turns)],
       ["profHeavy", "Strict I/O", !!(p.strictIo || p.heavy)],
       ["profFeeder", "Feeder", !!(p.feeder || p.feeders)],
+    ];
+
+    const sharedItems = [
+      ["profTele", "Tele", !!p.tele],
+      ["profPsych", "Psych", !!p.psych],
+      ["profRestraint", "Restraint", !!(p.restraint || p.restraints)],
+      ["profVpo", "VPO", !!p.vpo],
+      ["profIso", "Isolation", !!(p.isolation || p.iso)],
+      ["profAdmit", "Admit", !!p.admit],
+      ["profLateDc", "Late DC", !!(p.lateDc || p.lateDC || p.latedc)],
     ];
 
     if (bodyEl) {
@@ -423,10 +441,17 @@
 
         <div class="pp-grid" style="
           display:grid;
-          grid-template-columns: 1fr 1fr;
+          grid-template-columns: repeat(3, minmax(0, 1fr));
           gap:18px;
           margin-top:12px;
         ">
+          <div class="pp-col">
+            <h4>Shared Acuity Tags</h4>
+            <div class="pp-taglist" style="display:flex;flex-direction:column;gap:10px;">
+              ${sharedItems.map(x => tagItem(x[0], x[1], x[2])).join("")}
+            </div>
+          </div>
+
           <div class="pp-col">
             <h4>RN Acuity Tags</h4>
             <div class="pp-taglist" style="display:flex;flex-direction:column;gap:10px;">
@@ -603,11 +628,11 @@
 
     const getCheck = (id) => !!document.getElementById(id)?.checked;
 
-    p.tele = getCheck("profTele") || getCheck("profTelePca");
-    p.isolation = getCheck("profIso") || getCheck("profIsoPca");
+    p.tele = getCheck("profTele");
+    p.isolation = getCheck("profIso");
     p.iso = p.isolation;
-    p.admit = getCheck("profAdmit") || getCheck("profAdmitPca");
-    p.lateDc = getCheck("profLateDc") || getCheck("profLateDcPca");
+    p.admit = getCheck("profAdmit");
+    p.lateDc = getCheck("profLateDc");
     p.expectedDischarge = getCheck("profExpectedDischarge");
 
     p.drip = getCheck("profDrip");
@@ -617,8 +642,10 @@
     p.tf = getCheck("profTf");
 
     p.ciwa = getCheck("profCiwa");
-    p.cows = p.ciwa;
-    p.ciwaCows = p.ciwa;
+    p.cows = getCheck("profCows");
+    p.psych = getCheck("profPsych");
+    p.prns = getCheck("profPrns");
+    p.ciwaCows = !!(p.ciwa || p.cows);
     p.emu = getCheck("profEmu");
 
     p.restraint = getCheck("profRestraint");

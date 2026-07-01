@@ -600,6 +600,10 @@
                   onclick="window.adjustStaffingRoster && window.adjustStaffingRoster('current', 'PCA', 1)">
             + Add PCA
           </button>
+          <button id="globalLiveUndoBtn" type="button" class="global-tab-print-btn assignment-undo-btn"
+                  onclick="window.undoAssignmentChange && window.undoAssignmentChange('live')">
+            Undo
+          </button>
         </div>
         <div id="globalOncomingStaffActions" style="display:none; flex-direction:column; gap:8px;">
           <button id="globalOncomingAddRnBtn" type="button" class="global-tab-print-btn"
@@ -609,6 +613,10 @@
           <button id="globalOncomingAddPcaBtn" type="button" class="global-tab-print-btn"
                   onclick="window.adjustStaffingRoster && window.adjustStaffingRoster('incoming', 'PCA', 1)">
             + Add PCA
+          </button>
+          <button id="globalOncomingUndoBtn" type="button" class="global-tab-print-btn assignment-undo-btn"
+                  onclick="window.undoAssignmentChange && window.undoAssignmentChange('incoming')">
+            Undo
           </button>
         </div>
         <div id="oncomingQualityPanel" style="display:none;"></div>
@@ -878,7 +886,13 @@
             <span class="staffing-status-meta"></span>
           </div>
 
-          <button id="btnRebalanceOncomingBoth" onclick="window.triggerOncomingRebalance && window.triggerOncomingRebalance()">Rebalance (Both)</button>
+          <button id="btnClearOncomingPins" type="button" onclick="window.clearIncomingAssignmentPins && window.clearIncomingAssignmentPins()">
+            Clear Pins
+          </button>
+
+          <button id="btnUnassignOncomingAll" type="button" onclick="window.unassignIncomingAssignments && window.unassignIncomingAssignments()">
+            Unassign All
+          </button>
 
           <button id="oncomingDischargeVisualToggle" type="button" class="dc-visual-toggle" onclick="window.toggleOncomingDischargeVisuals && window.toggleOncomingDischargeVisuals()">
             DCs On
@@ -932,13 +946,13 @@
         <button type="button" class="tab-info-btn" data-tab-help="unitMetrics">i</button>
       </div>
       <p>
-        Pulls unit-scoped shift metrics from Supabase and displays trends (historic).
+        Unit analytics, flow trends, acuity timelines, and report index.
       </p>
 
       <div class="staff-card">
-        <div class="staff-card-header">Query Controls</div>
+        <div class="staff-card-header">Analytics Controls</div>
 
-        <div class="staff-inline-controls" style="gap:10px; flex-wrap:wrap;">
+        <div class="staff-inline-controls analytics-query-bar" style="gap:8px; flex-wrap:wrap; align-items:center;">
           <label for="pulseFrom"><strong>From:</strong></label>
           <input id="pulseFrom" type="date" />
 
@@ -952,14 +966,14 @@
             <option value="night">Night</option>
           </select>
 
-          <button id="btnLoadPulse" type="button">Load Metrics</button>
+          <button id="btnLoadPulse" type="button">Load Analytics</button>
         </div>
 
         <div id="pulseStatusMsg" style="margin-top:10px; font-size:12px; opacity:0.85;"></div>
       </div>
 
       <div class="staff-card">
-        <div class="staff-card-header">Metrics Summary</div>
+        <div class="staff-card-header">Unit Analytics</div>
         <div id="pulseSummary" style="font-size:14px; color:#475569; line-height:1.4;">
           No data loaded yet.
         </div>
@@ -975,7 +989,7 @@
         <button type="button" class="tab-info-btn" data-tab-help="advancedMetrics">i</button>
       </div>
       <p>
-        Unit-scoped operational reports for patient experience, staff support, flow, handoff quality, and injury-prevention planning.
+        Staff-specific workload, handoff, and leaderboard metrics.
       </p>
 
       <div class="staff-card">
@@ -1081,16 +1095,10 @@
       <div class="modal-body">
         <div class="modal-grid">
           <div class="modal-column">
-            <h3>RN Acuity Tags</h3>
+            <h3>Shared Acuity Tags</h3>
             <label><input type="checkbox" id="profTele" /> Tele</label>
-            <label><input type="checkbox" id="profDrip" /> Drip</label>
-            <label><input type="checkbox" id="profNih" /> NIH</label>
-            <label><input type="checkbox" id="profBg" /> BG</label>
-            <label><input type="checkbox" id="profTf" /> TF</label>
-            <label><input type="checkbox" id="profCiwa" /> CIWA/COWS</label>
-            <label><input type="checkbox" id="profEmu" /> EMU</label>
+            <label><input type="checkbox" id="profPsych" /> Psych</label>
             <label><input type="checkbox" id="profRestraint" /> Restraint</label>
-            <label><input type="checkbox" id="profSitter" /> Sitter</label>
             <label><input type="checkbox" id="profVpo" /> VPO</label>
             <label><input type="checkbox" id="profIso" /> Isolation</label>
             <label><input type="checkbox" id="profAdmit" /> Admit</label>
@@ -1098,11 +1106,20 @@
           </div>
 
           <div class="modal-column">
+            <h3>RN Acuity Tags</h3>
+            <label><input type="checkbox" id="profDrip" /> Drip</label>
+            <label><input type="checkbox" id="profNih" /> NIH</label>
+            <label><input type="checkbox" id="profBg" /> BG</label>
+            <label><input type="checkbox" id="profTf" /> TF</label>
+            <label><input type="checkbox" id="profCiwa" /> CIWA</label>
+            <label><input type="checkbox" id="profCows" /> COWS</label>
+            <label><input type="checkbox" id="profPrns" /> PRNs</label>
+            <label><input type="checkbox" id="profEmu" /> EMU</label>
+            <label><input type="checkbox" id="profSitter" /> Sitter</label>
+          </div>
+
+          <div class="modal-column">
             <h3>PCA Acuity Tags</h3>
-            <label><input type="checkbox" id="profTelePca" /> Tele</label>
-            <label><input type="checkbox" id="profIsoPca" /> Isolation</label>
-            <label><input type="checkbox" id="profAdmitPca" /> Admit</label>
-            <label><input type="checkbox" id="profLateDcPca" /> Late DC</label>
             <label><input type="checkbox" id="profChg" /> CHG</label>
             <label><input type="checkbox" id="profFoley" /> Foley</label>
             <label><input type="checkbox" id="profQ2" /> Totals</label>
@@ -1197,7 +1214,10 @@
             <label><input type="checkbox" id="adNih" /> NIH</label>
             <label><input type="checkbox" id="adBg" /> BG</label>
             <label><input type="checkbox" id="adTf" /> TF</label>
-            <label><input type="checkbox" id="adCiwa" /> CIWA/COWS</label>
+            <label><input type="checkbox" id="adCiwa" /> CIWA</label>
+            <label><input type="checkbox" id="adCows" /> COWS</label>
+            <label><input type="checkbox" id="adPsych" /> Psych</label>
+            <label><input type="checkbox" id="adPrns" /> PRNs</label>
             <label><input type="checkbox" id="adEmu" /> EMU</label>
             <label><input type="checkbox" id="adRestraint" /> Restraint</label>
             <label><input type="checkbox" id="adSitter" /> Sitter</label>
@@ -1343,6 +1363,7 @@
 
     <script src="app/app.unitMetrics.js?v=12"></script>
     <script src="app/app.advancedMetrics.js?v=1"></script>
+    <script src="app/app.shiftGapPanel.js?v=1"></script>
     <script src="app/app.unitPulse.js?v=5"></script>
 
     <script src="app/app.printOncoming.js?v=20"></script>
@@ -1445,12 +1466,12 @@
             html: `
               <h4>Purpose</h4>
               <ul>
-                <li>Build and rebalance incoming shift assignments before final submit.</li>
+                <li>Build incoming shift assignments before final submit.</li>
               </ul>
               <h4>Best Workflow</h4>
               <ul>
                 <li>Assignments auto-populate as staffing and patient details change.</li>
-                <li>Use <strong>Rebalance (Both)</strong> to improve fairness/continuity while preserving locks/rules.</li>
+                <li>Use <strong>Clear Pins</strong> when continuity locks should be reset, or <strong>Unassign All</strong> when the team names should stay but patient pairings should restart.</li>
                 <li>Confirm date/shift in <strong>Finalize Details</strong>.</li>
                 <li>Run <strong>Finalize / Submit Shift Change</strong> when ready to publish.</li>
               </ul>

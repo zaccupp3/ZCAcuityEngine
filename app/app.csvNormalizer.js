@@ -172,8 +172,11 @@
     if (up === "V-P-O") return "VPO";
     if (l.includes("vaso")) return "VPO"; // vaso / vasopressor
 
-    // CIWA/COWS variants
-    if (l.includes("ciwa") || l.includes("cows")) return "CIWA/COWS";
+    // CIWA / COWS / Psych variants
+    if (l.includes("ciwa")) return "CIWA";
+    if (l.includes("cows")) return "COWS";
+    if (l.includes("psych") || l.includes("behavioral") || l.includes("behavioural")) return "PSYCH";
+    if (l.includes("prn") || l.includes("frequent medication") || l.includes("frequent med")) return "PRNS";
     if (l.includes("emu")) return "EMU";
 
     // ISO variants
